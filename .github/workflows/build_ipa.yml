@@ -3,12 +3,13 @@ name: Build RouteLocation IPA
 on:
   push:
     branches: [main]
+    tags: ['routelocation-v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -71,3 +72,13 @@ jobs:
           path: RouteLocation-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish public GitHub Release
+        if: startsWith(github.ref, 'refs/tags/routelocation-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            RouteLocation-unsigned.ipa#RouteLocation-unsigned.ipa \
+            --title "RouteLocation ${GITHUB_REF_NAME#routelocation-}" \
+            --notes "Unsigned RouteLocation IPA for re-signing and sideloading with SideStore, AltStore, or a compatible tool. Requires iOS 17.4+, Developer Mode, a valid pairing file, LocalDevVPN, and the required Developer Disk Image. See README.md for setup and background-execution limitations."

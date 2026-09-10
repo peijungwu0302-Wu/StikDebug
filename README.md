@@ -88,6 +88,8 @@ The historical project/target/module name remains `StikDebug` to minimize risk t
 
 Open **Actions → Build RouteLocation IPA → Run workflow**. The macOS job resolves Swift packages, compiles with signing disabled, runs unit tests on an available iPhone simulator where supported, packages `Payload/RouteLocation.app`, and uploads `RouteLocation-unsigned.ipa`. The IPA contains no personal Apple ID, provisioning profile, signing certificate, or pairing file and is intended to be re-signed by SideStore/AltStore.
 
+Build artifacts require GitHub sign-in. Tagged RouteLocation releases publish the same unsigned IPA on the repository's **Releases** page, where public downloads do not require an account.
+
 ## Security and privacy
 
 RouteLocation stores favorites and routes under its Application Support directory. Favorites use one atomic JSON file; each route has an independent atomically written JSON file so one interrupted write cannot corrupt every route. Coordinates are not uploaded except to normal Apple MapKit services when you explicitly request search or navigation calculation. Pairing contents are never displayed or intentionally logged.
