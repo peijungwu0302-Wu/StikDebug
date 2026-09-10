@@ -12,6 +12,7 @@ final class MountingProgress: ObservableObject {
     @Published private(set) var mountProgress: Double = 0.0
     @Published private(set) var mountingThread: Thread?
     @Published private(set) var coolisMounted: Bool = false
+    @Published private(set) var lastErrorMessage: String?
 
     private let mountCheckLock = NSLock()
     private var mountCheckInProgress = false
@@ -82,12 +83,14 @@ final class MountingProgress: ObservableObject {
 
             DispatchQueue.main.async {
                 if let mountError {
+                    self.lastErrorMessage = mountError
                     showAlert(title: "DDI Mount Failed", message: mountError, showOk: true, showTryAgain: true) { shouldTryAgain in
                         if shouldTryAgain {
                             self.pubMount()
                         }
                     }
                 } else {
+                    self.lastErrorMessage = nil
                     self.coolisMounted = true
                     self.checkforMounted()
                 }

@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct StikDebugApp: App {
+struct RouteLocationApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var shouldAttemptTunnelReconnect = false
 

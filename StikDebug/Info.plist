@@ -8,18 +8,17 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.stik.stikdebug.enableJIT</string>
+			<string>com.routelocation.open</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>stikdebug</string>
-				<string>stikjit</string>
+				<string>routelocation</string>
 			</array>
 		</dict>
 	</array>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_stikdebug._tcp</string>
-		<string>_stikdebug._udp</string>
+		<string>_routelocation._tcp</string>
+		<string>_routelocation._udp</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
@@ -29,27 +28,5 @@
 	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>com.apple.package</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>StikDebug Mini Tool</string>
-			<key>UTTypeIconFiles</key>
-			<array/>
-			<key>UTTypeIdentifier</key>
-			<string>com.stik.stikdebug.stiktool</string>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>stiktool</string>
-				</array>
-			</dict>
-		</dict>
-	</array>
 </dict>
 </plist>

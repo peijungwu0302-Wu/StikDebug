@@ -10,28 +10,15 @@ import UIKit
 enum AppBootstrapper {
     static func configure() {
         registerDefaultSettings()
-        startConfiguredKeepAliveServices()
         applyDocumentPickerCopyWorkaround()
+        Task { @MainActor in ConnectionMonitor.shared.start() }
     }
 
     private static func registerDefaultSettings() {
-        let os = ProcessInfo.processInfo.operatingSystemVersion
-        let enableAdvancedOptions = os.majorVersion >= 19
-
         UserDefaults.standard.register(defaults: [
-            "enableAdvancedOptions": enableAdvancedOptions,
-            UserDefaults.Keys.txmOverride: false,
-            UserDefaults.Keys.confirmExternalJITRequests: true,
             "keepAliveAudio": true,
             "keepAliveLocation": true
         ])
-    }
-
-    private static func startConfiguredKeepAliveServices() {
-        guard UserDefaults.standard.bool(forKey: "keepAliveAudio") else {
-            return
-        }
-        BackgroundAudioManager.shared.start()
     }
 
     private static func applyDocumentPickerCopyWorkaround() {

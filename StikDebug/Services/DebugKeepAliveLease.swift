@@ -25,13 +25,9 @@ final class DebugKeepAliveLease {
         stateLock.unlock()
 
         runOnMain {
-            BackgroundAudioManager.shared.requestStop()
-            BackgroundLocationManager.shared.requestStop()
-
-            if self.backgroundTaskID != .invalid {
-                UIApplication.shared.endBackgroundTask(self.backgroundTaskID)
-                self.backgroundTaskID = .invalid
-            }
+            BackgroundAudioManager.shared.requestStop(force: true)
+            BackgroundLocationManager.shared.requestStop(force: true)
+            self.endBackgroundTask()
         }
     }
 
@@ -45,12 +41,27 @@ final class DebugKeepAliveLease {
         stateLock.unlock()
 
         runOnMain {
-            BackgroundAudioManager.shared.requestStart()
-            BackgroundLocationManager.shared.requestStart()
-            self.backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "StikDebugDebugSession") { [weak self] in
-                LogManager.shared.addWarningLog("Debug session background task expired")
-                self?.invalidate()
-            }
+            BackgroundAudioManager.shared.requestStart(force: true)
+            BackgroundLocationManager.shared.requestStart(force: true)
+            self.beginBackgroundTask()
+        }
+    }
+
+    private func beginBackgroundTask() {
+        endBackgroundTask()
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "RouteLocationPlayback") { [weak self] in
+            guard let self else { return }
+            self.stateLock.lock()
+            let active = self.isActive
+            self.stateLock.unlock()
+            if active { self.beginBackgroundTask() } else { self.endBackgroundTask() }
+        }
+    }
+
+    private func endBackgroundTask() {
+        if backgroundTaskID != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
         }
     }
 

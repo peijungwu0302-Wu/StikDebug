@@ -7,7 +7,7 @@
 
 import Foundation
 import Testing
-@testable import StikDebug
+@testable import RouteLocation
 
 struct StikDebugTests {
 

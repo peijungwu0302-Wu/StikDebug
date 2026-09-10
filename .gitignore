@@ -95,3 +95,10 @@ iOSInjectionProject/
 .DS_Store
 .vscode/settings.json
 .vscode 
+
+# Sensitive device trust material and signing credentials
+*pairingFile*.plist
+*.mobiledevicepairing
+*.mobiledevicepair
+*.mobileprovision
+*.p12

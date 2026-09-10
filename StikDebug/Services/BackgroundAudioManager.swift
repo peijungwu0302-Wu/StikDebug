@@ -13,6 +13,7 @@ final class BackgroundAudioManager {
     private var isRunning = false
     private var persistentEnabled = false
     private var activityCount = 0
+    private var forcedActivityCount = 0
     private var healthCheckTimer: Timer?
 
     private init() {
@@ -40,18 +41,19 @@ final class BackgroundAudioManager {
         refreshRunningState()
     }
 
-    func requestStart() {
-        activityCount += 1
+    func requestStart(force: Bool = false) {
+        if force { forcedActivityCount += 1 } else { activityCount += 1 }
         refreshRunningState()
     }
 
-    func requestStop() {
-        activityCount = max(activityCount - 1, 0)
+    func requestStop(force: Bool = false) {
+        if force { forcedActivityCount = max(forcedActivityCount - 1, 0) }
+        else { activityCount = max(activityCount - 1, 0) }
         refreshRunningState()
     }
 
     private func refreshRunningState() {
-        let shouldRun = persistentEnabled || (activityCount > 0 && UserDefaults.standard.bool(forKey: "keepAliveAudio"))
+        let shouldRun = persistentEnabled || forcedActivityCount > 0 || (activityCount > 0 && UserDefaults.standard.bool(forKey: "keepAliveAudio"))
         guard shouldRun != isRunning else {
             if shouldRun {
                 recoverIfNeeded()
@@ -100,7 +102,16 @@ final class BackgroundAudioManager {
         let frameCount = AVAudioFrameCount(format.sampleRate)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
         buffer.frameLength = frameCount
-        // PCM buffer is zero-initialized — pure silence
+        // Some iOS releases reclaim digital silence as idle. This DC-free signal
+        // is roughly -80 dBFS: functionally inaudible while remaining active.
+        if !format.isInterleaved, let channels = buffer.floatChannelData {
+            let amplitude: Float = 0.0001
+            for channel in 0..<Int(format.channelCount) {
+                for frame in 0..<Int(frameCount) {
+                    channels[channel][frame] = frame.isMultiple(of: 2) ? amplitude : -amplitude
+                }
+            }
+        }
         player.scheduleBuffer(buffer, at: nil, options: .loops)
     }
 

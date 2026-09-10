@@ -9,8 +9,8 @@ final class TunnelManager: ObservableObject {
     static let shared = TunnelManager()
 
     @Published private(set) var isConnected = false
-
-    private var isStarting = false
+    @Published private(set) var isStarting = false
+    @Published private(set) var lastErrorMessage: String?
 
     private init() {}
 
@@ -61,10 +61,12 @@ final class TunnelManager: ObservableObject {
         switch result {
         case .success:
             isConnected = true
+            lastErrorMessage = nil
             LogManager.shared.addInfoLog("Tunnel connected successfully")
             mountDeveloperDiskImageIfNeeded()
         case .failure(let error):
             isConnected = false
+            lastErrorMessage = error.localizedDescription
             handleStartFailure(error, showErrorUI: showErrorUI)
         }
     }
@@ -151,7 +153,7 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
         recoverySteps = [
             "Close other JIT, debugging, proxy, or VPN apps that may be using the tunnel.",
             "Disconnect and reconnect LocalDevVPN.",
-            "Restart StikDebug, then try again.",
+            "Restart \(ProductIdentity.name), then try again.",
             "If it keeps happening, reboot the device to clear the stuck port."
         ]
     } else if error.code == 54 || lowercasedMessage.contains("connection reset") {
