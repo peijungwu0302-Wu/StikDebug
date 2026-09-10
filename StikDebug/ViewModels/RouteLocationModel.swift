@@ -34,8 +34,9 @@ final class RouteLocationModel: ObservableObject {
     init(
         persistence: RoutePersistenceStore = RoutePersistenceStore(),
         simulationService: any LocationSimulationSink = DeviceLocationSimulationService(),
-        connectionMonitor: ConnectionMonitor = .shared
+        connectionMonitor: ConnectionMonitor? = nil
     ) {
+        let connectionMonitor = connectionMonitor ?? ConnectionMonitor.shared
         self.persistence = persistence
         self.simulationService = simulationService
         self.connectionMonitor = connectionMonitor

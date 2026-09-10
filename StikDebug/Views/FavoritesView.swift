@@ -33,7 +33,11 @@ struct FavoritesView: View {
                 }
             }
         }
-        .sheet(item: $editingFavorite) { FavoriteEditor(favorite: $0) { name, note in Task { await model.updateFavorite($0, name: name, note: note) } } }
+        .sheet(item: $editingFavorite) { favorite in
+            FavoriteEditor(favorite: favorite) { name, note in
+                Task { await model.updateFavorite(favorite, name: name, note: note) }
+            }
+        }
         .sheet(isPresented: $showAdd) { FavoriteEditor(favorite: nil) { name, note in Task { await model.addFavorite(name: name, note: note) } } }
     }
 }

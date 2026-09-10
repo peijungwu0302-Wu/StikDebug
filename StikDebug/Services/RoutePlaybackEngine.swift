@@ -64,24 +64,24 @@ final class RoutePlaybackEngine: ObservableObject {
 
     init(
         sink: any LocationSimulationSink,
-        connectionMonitor: ConnectionMonitor = .shared,
+        connectionMonitor: ConnectionMonitor? = nil,
         updateInterval: TimeInterval = 0.5,
         uptime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-        acquireKeepAlive: @escaping @MainActor () -> Void = { BackgroundKeepAliveService.shared.acquire() },
-        releaseKeepAlive: @escaping @MainActor () -> Void = { BackgroundKeepAliveService.shared.release() },
-        reconnectAction: @escaping @MainActor () -> Void = {
-            markTunnelDisconnected()
-            startTunnelInBackground(showErrorUI: false)
-        },
+        acquireKeepAlive: (@MainActor () -> Void)? = nil,
+        releaseKeepAlive: (@MainActor () -> Void)? = nil,
+        reconnectAction: (@MainActor () -> Void)? = nil,
         reconnectDelays: [TimeInterval] = [0.5, 1, 2, 4]
     ) {
         self.sink = sink
-        self.connectionMonitor = connectionMonitor
+        self.connectionMonitor = connectionMonitor ?? ConnectionMonitor.shared
         self.updateInterval = updateInterval
         self.uptime = uptime
-        self.acquireKeepAlive = acquireKeepAlive
-        self.releaseKeepAlive = releaseKeepAlive
-        self.reconnectAction = reconnectAction
+        self.acquireKeepAlive = acquireKeepAlive ?? { BackgroundKeepAliveService.shared.acquire() }
+        self.releaseKeepAlive = releaseKeepAlive ?? { BackgroundKeepAliveService.shared.release() }
+        self.reconnectAction = reconnectAction ?? {
+            markTunnelDisconnected()
+            startTunnelInBackground(showErrorUI: false)
+        }
         self.reconnectDelays = reconnectDelays
     }
 
