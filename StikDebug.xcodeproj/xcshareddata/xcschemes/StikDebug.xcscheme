@@ -41,17 +41,6 @@
                ReferencedContainer = "container:StikDebug.xcodeproj">
             </BuildableReference>
          </TestableReference>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "DC6F1D512D94EADF0071B2B6"
-               BuildableName = "StikDebugUITests.xctest"
-               BlueprintName = "StikDebugUITests"
-               ReferencedContainer = "container:StikDebug.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
