@@ -4,7 +4,9 @@
 //
 
 import Foundation
+#if !targetEnvironment(simulator)
 import idevice
+#endif
 
 final class MountingProgress: ObservableObject {
     static let shared = MountingProgress()
@@ -106,6 +108,11 @@ final class MountingProgress: ObservableObject {
 }
 
 func isPairing() -> Bool {
+#if targetEnvironment(simulator)
+    // Simulator tests validate persistence and route logic only. Parsing the
+    // device trust record requires the physical-device idevice archive.
+    return FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path)
+#else
     let pairingPath = PairingFileStore.prepareURL().path
     var pairingFile: RpPairingFileHandle?
     let error = rp_pairing_file_read(pairingPath, &pairingFile)
@@ -114,4 +121,5 @@ func isPairing() -> Bool {
     }
     rp_pairing_file_free(pairingFile)
     return true
+#endif
 }
