@@ -91,6 +91,10 @@ struct RouteGeometry: Codable, Equatable {
         try container.encode(coordinates, forKey: .coordinates)
     }
 
+    static func == (lhs: RouteGeometry, rhs: RouteGeometry) -> Bool {
+        lhs.coordinates == rhs.coordinates
+    }
+
     func coordinate(atDistance requestedDistance: CLLocationDistance) -> CLLocationCoordinate2D? {
         guard let first = coordinates.first else { return nil }
         guard coordinates.count > 1, totalDistance > 0 else { return first.clCoordinate }
