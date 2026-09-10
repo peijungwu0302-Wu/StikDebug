@@ -49,6 +49,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				idevice/libidevice_ffi.a,
 			);
 			target = DC6F1D362D94EADD0071B2B6 /* StikDebug */;
 		};
@@ -441,6 +442,10 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
+					IdeviceFFIBridge.swift,
+					JITEnableContext.swift,
+				);
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -474,6 +479,10 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
 				MARKETING_VERSION = 3.1.10;
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/StikDebug/idevice/libidevice_ffi.a",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.routelocation.app;
 				PRODUCT_NAME = RouteLocation;
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -504,6 +513,10 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
+					IdeviceFFIBridge.swift,
+					JITEnableContext.swift,
+				);
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -537,6 +550,10 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
 				MARKETING_VERSION = 3.1.10;
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/StikDebug/idevice/libidevice_ffi.a",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.routelocation.app;
 				PRODUCT_NAME = RouteLocation;
 				PROVISIONING_PROFILE_SPECIFIER = "";
