@@ -157,6 +157,7 @@ private actor FakeLocationSink: LocationSimulationSink {
     }
     func clearSimulatedLocation() async throws {}
     func configureFailures(_ calls: Set<Int>) { failCalls = calls }
+    func callCount() -> Int { calls }
 }
 
 private final class UptimeBox: @unchecked Sendable {
@@ -177,15 +178,22 @@ struct PlaybackEngineTests {
             RouteCoordinate(latitude: 0, longitude: 0.01)
         ])
         let engine = RoutePlaybackEngine(
-            sink: sink, updateInterval: 0.01, uptime: clock.get,
+            sink: sink, updateInterval: 0.01, uptime: { clock.get() },
             acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: {}, reconnectDelays: [0.001]
         )
         try await engine.start(routeName: "Test", geometry: geometry, speedKmh: 18.6, mode: .once)
         clock.set(10)
-        try await Task.sleep(for: .milliseconds(40))
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline {
+            let calls = await sink.callCount()
+            if engine.traveledDistance > 51, engine.state == .running, calls >= 3 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(engine.traveledDistance > 51)
         #expect((engine.currentCoordinate?.longitude ?? 0) > 0)
         #expect(engine.state == .running)
+        let finalCallCount = await sink.callCount()
+        #expect(finalCallCount >= 3)
         engine.stop()
     }
 }
