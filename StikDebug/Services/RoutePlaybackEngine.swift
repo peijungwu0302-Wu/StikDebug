@@ -98,7 +98,7 @@ final class RoutePlaybackEngine: ObservableObject {
         }
         self.reconnectDelays = reconnectDelays
         self.transportDebounce = transportDebounce
-        connectionMonitor.$transportRevision
+        self.connectionMonitor.$transportRevision
             .dropFirst()
             .sink { [weak self] _ in self?.scheduleTransportHealthCheck() }
             .store(in: &cancellables)
