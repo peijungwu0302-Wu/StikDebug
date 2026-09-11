@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SetupDiagnosticsView: View {
     @EnvironmentObject private var model: RouteLocationModel
@@ -10,6 +11,7 @@ struct SetupDiagnosticsView: View {
     @State private var importStatus: String?
     @State private var pairingState: PairingDiagnosticState = .checking
     @State private var diagnosticInfo: DiagnosticInfo?
+    @State private var diagnosticCopyStatus: String?
     @AppStorage(AppLanguage.defaultsKey) private var appLanguage = AppLanguage.traditionalChinese.rawValue
 
     private var pairingPresent: Bool { FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path) }
@@ -19,11 +21,11 @@ struct SetupDiagnosticsView: View {
             List {
                 Section("設定狀態") {
                     status("配對檔案", pairingState.label, pairingState == .present ? .green : .orange, info: "這是目前裝置與受信任電腦之間的敏感信任憑證。RouteLocation 使用它建立裝置服務連線；它不是 IPA 簽名檔，也不會上傳。")
-                    status("裝置通道", tunnelStatus, tunnel.isConnected ? .green : .orange, info: "透過 LocalDevVPN 建立的本機通道，讓 RouteLocation 能連接這台裝置。它與一般網際網路連線是不同狀態。")
+                    status("LocalDevVPN／裝置通道", tunnelStatus, tunnel.isConnected ? .green : .orange, info: "LocalDevVPN 只提供 RouteLocation 連接本機裝置服務的路徑，不代表網際網路是否可用。Wi-Fi 或行動網路皆可作為外部傳輸。")
                     status("開發者磁碟映像", ddiStatus, mounting.coolisMounted ? .green : .orange, info: "DDI 提供 Apple 開發者裝置服務。位置模擬前必須準備並掛載；首次下載需要網際網路。")
-                    status("位置模擬", playback.state.label, playback.state == .running ? .green : .gray, info: "顯示目前是否正在傳送單點或路線位置。按下「恢復真實位置」可停止模擬並清除開發者位置。")
-                    status("DVT 工作階段", model.connectionMonitor.deviceSession.label, .gray, info: "DVT 是實際傳送開發者位置指令的工作階段。若中斷，路線會保留經過時間並進行有限次重新連線。")
-                    status("網路", model.connectionMonitor.networkInterface.label, model.connectionMonitor.internetReachable ? .green : .orange, info: "顯示目前使用 Wi-Fi、行動網路或離線。已快取的路線播放不需要網際網路。")
+                    status("位置模擬", simulationStatus, simulationIsActive ? .green : .gray, info: "顯示目前是否正在傳送單點或路線位置。按下「恢復真實位置」可停止模擬並清除開發者位置。")
+                    status("DVT 工作階段", model.connectionMonitor.deviceSession.label, dvtColor, info: "DVT 是實際傳送開發者位置指令的工作階段。若中斷，路線會保留單調時鐘的經過時間並進行有限次重新連線。")
+                    status("傳輸方式", model.connectionMonitor.currentTransport.label, model.connectionMonitor.currentTransport == .offline ? .orange : .green, info: "顯示目前使用 Wi-Fi、行動網路或其他傳輸。RouteLocation 不要求 Wi-Fi；行動網路搭配 LocalDevVPN 是有效啟動方式。")
                     status("網際網路連線", model.connectionMonitor.internetReachable ? "可連線" : "離線", model.connectionMonitor.internetReachable ? .green : .orange, info: "Apple 地圖搜尋、新導航路線計算與首次 DDI 下載需要網際網路；直線及已儲存路線不需要。")
                     status("VPN 介面", model.connectionMonitor.usesVPNInterface ? "已偵測" : "未偵測", .gray, info: "顯示系統是否偵測到 VPN 介面。這只能作為提示，不等同於 DVT 工作階段已成功連線。")
                 }
@@ -36,9 +38,24 @@ struct SetupDiagnosticsView: View {
                     if let importStatus { Text(importStatus).font(.footnote).foregroundStyle(.secondary) }
                 }
                 Section("連線") {
-                    Button("重試裝置通道") { startTunnelInBackground() }
+                    Button("檢查／重試裝置通道") { tunnel.checkHealthNow(transport: model.connectionMonitor.currentTransport) }
                     Button("檢查／掛載 DDI") { MountingProgress.shared.pubMount() }
-                    Text("請啟動 LocalDevVPN，設定期間保持裝置喚醒及解鎖，並確認配對檔案屬於目前這台 iPhone 或 iPad。")
+                    Text("請啟動 LocalDevVPN，使用 Wi-Fi 或行動網路皆可。設定期間保持裝置喚醒及解鎖，並確認配對檔案屬於目前這台 iPhone 或 iPad。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                if tunnel.cellularCompatibilitySuggested {
+                    Section("行動網路相容模式（實驗性）") {
+                        Text("只有在行動網路已連線、LocalDevVPN 已開啟，但本機 RSD 裝置服務仍無法連接時才使用。")
+                        Text("1. 保持行動數據開啟並連接 LocalDevVPN。\n2. 開啟飛航模式。\n3. 返回 RouteLocation，按「檢查／重試裝置通道」。\n4. 工作階段建立後關閉飛航模式，等待 4G/5G 與 LocalDevVPN 恢復。\n5. RouteLocation 會健康檢查並按目前經過時間繼續。")
+                            .font(.footnote)
+                        Text("RouteLocation 無法也不會自動切換飛航模式；此流程不需要 Wi-Fi。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+                Section("安全診斷") {
+                    Button("複製安全診斷報告") { copySanitizedDiagnosticReport() }
+                    if let diagnosticCopyStatus { Text(diagnosticCopyStatus).font(.footnote).foregroundStyle(.secondary) }
+                    Text("報告只包含狀態、傳輸類型、錯誤分類與目標位址；不包含配對檔內容、私鑰、憑證或帳號資料。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("背景播放") {
@@ -86,10 +103,53 @@ struct SetupDiagnosticsView: View {
     }
 
     private var tunnelStatus: String {
-        if tunnel.isConnected { return L10n.text("已連線") }
-        if tunnel.isStarting { return L10n.text("連線中") }
+        if tunnel.isStarting { return L10n.format("%@（第 %d 次）", tunnel.stage.label, max(tunnel.reconnectAttempt, 1)) }
+        if tunnel.isConnected { return tunnel.stage.label }
         if let error = tunnel.lastErrorMessage { return L10n.format("錯誤：%@", error) }
         return L10n.text("未連線")
+    }
+
+    private var simulationIsActive: Bool {
+        playback.state == .running || playback.state == .reconnecting || model.connectionMonitor.deviceSession == .connected
+    }
+
+    private var simulationStatus: String {
+        if playback.state == .running || playback.state == .reconnecting { return playback.state.label }
+        if model.connectionMonitor.deviceSession == .connected { return L10n.text("單點模擬中") }
+        if case .error = playback.state { return playback.state.label }
+        return L10n.text("閒置")
+    }
+
+    private var dvtColor: Color {
+        switch model.connectionMonitor.deviceSession {
+        case .connected: return .green
+        case .reconnecting: return .orange
+        case .error: return .red
+        case .idle: return .gray
+        }
+    }
+
+    private func copySanitizedDiagnosticReport() {
+        let pairingLabel = pairingState.label
+        let report = """
+        RouteLocation Cellular Diagnostic
+        Time: \(ISO8601DateFormatter().string(from: .now))
+        Transport: \(model.connectionMonitor.currentTransport.rawValue)
+        Previous transport: \(model.connectionMonitor.previousTransport.rawValue)
+        NWPath satisfied: \(model.connectionMonitor.internetReachable)
+        Expensive path: \(model.connectionMonitor.pathIsExpensive)
+        VPN interface detected: \(model.connectionMonitor.usesVPNInterface)
+        Pairing file: \(pairingLabel)
+        Tunnel stage: \(tunnel.stage.rawValue)
+        Tunnel connected: \(tunnel.isConnected)
+        Tunnel error: \(tunnel.lastErrorMessage ?? "none")
+        DDI: \(ddiStatus)
+        DVT: \(model.connectionMonitor.deviceSession.label)
+        Simulation: \(simulationStatus)
+        Target: \(DeviceConnectionContext.targetIPAddress):49152
+        """
+        UIPasteboard.general.string = report
+        diagnosticCopyStatus = L10n.text("已複製；報告不包含配對憑證。")
     }
 
     private func refreshPairingState() {

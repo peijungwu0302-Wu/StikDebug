@@ -112,6 +112,49 @@ struct PlaybackMathTests {
     }
 }
 
+struct CellularNetworkPolicyTests {
+    @Test func recognizesCellularAndWiFiAsValidSatisfiedPaths() {
+        #expect(NetworkTransport.classify(isSatisfied: true, usesWiFi: false, usesCellular: true) == .cellular)
+        #expect(NetworkTransport.classify(isSatisfied: true, usesWiFi: true, usesCellular: false) == .wifi)
+        #expect(NetworkTransport.classify(isSatisfied: true, usesWiFi: false, usesCellular: false) == .other)
+        #expect(NetworkTransport.classify(
+            isSatisfied: true, usesWiFi: false, usesCellular: false,
+            wifiAvailable: false, cellularAvailable: true, isExpensive: true
+        ) == .cellular)
+    }
+
+    @Test func recognizesOfflineRegardlessOfInterfaces() {
+        #expect(NetworkTransport.classify(isSatisfied: false, usesWiFi: true, usesCellular: false) == .offline)
+        #expect(NetworkTransport.classify(isSatisfied: false, usesWiFi: false, usesCellular: true) == .offline)
+    }
+
+    @Test func transportChangesRequestHealthChecksButOfflineDoesNot() {
+        #expect(NetworkTransitionPolicy.needsDeviceHealthCheck(previous: .wifi, current: .cellular))
+        #expect(NetworkTransitionPolicy.needsDeviceHealthCheck(previous: .cellular, current: .wifi))
+        #expect(NetworkTransitionPolicy.needsDeviceHealthCheck(previous: .offline, current: .cellular))
+        #expect(!NetworkTransitionPolicy.needsDeviceHealthCheck(previous: .cellular, current: .cellular))
+        #expect(!NetworkTransitionPolicy.needsDeviceHealthCheck(previous: .cellular, current: .offline))
+    }
+
+    @Test func retryPolicyIsBoundedAndSkipsPermanentErrors() {
+        #expect(TunnelRetryPolicy.delays == [0.5, 1, 2])
+        #expect(TunnelRetryPolicy.isPermanent(NSError(domain: "test", code: -17, userInfo: nil)))
+        #expect(TunnelRetryPolicy.isPermanent(NSError(domain: "test", code: -18, userInfo: nil)))
+        #expect(!TunnelRetryPolicy.isPermanent(NSError(domain: NSPOSIXErrorDomain, code: 54, userInfo: nil)))
+        #expect(TunnelRetryPolicy.failureStage(for: NSError(domain: "test", code: -17, userInfo: nil)) == .pairing)
+        #expect(TunnelRetryPolicy.failureStage(for: NSError(domain: "test", code: -18, userInfo: nil)) == .targetConfiguration)
+        #expect(TunnelRetryPolicy.failureStage(for: NSError(domain: "test", code: -19, userInfo: nil)) == .timeout)
+    }
+
+    @Test func compatibilityModeOnlyAppearsForTemporaryCellularReachabilityFailure() {
+        let timeout = NSError(domain: NSURLErrorDomain, code: -19, userInfo: [NSLocalizedDescriptionKey: "Timed out"])
+        #expect(TunnelRetryPolicy.shouldOfferCellularCompatibility(for: timeout, transport: .cellular))
+        #expect(!TunnelRetryPolicy.shouldOfferCellularCompatibility(for: timeout, transport: .wifi))
+        let pairing = NSError(domain: "test", code: -17, userInfo: nil)
+        #expect(!TunnelRetryPolicy.shouldOfferCellularCompatibility(for: pairing, transport: .cellular))
+    }
+}
+
 struct StraightRouteAndPersistenceTests {
     @Test func createsOpenAndClosedRoutes() {
         let points = [RouteCoordinate(latitude: 25, longitude: 121), RouteCoordinate(latitude: 25.001, longitude: 121.001)]
@@ -171,14 +214,17 @@ struct StraightRouteAndPersistenceTests {
 private actor FakeLocationSink: LocationSimulationSink {
     var updates: [RouteCoordinate] = []
     var failCalls: Set<Int> = []
+    var errorsByCall: [Int: LocationSimulationError] = [:]
     private var calls = 0
     func setCoordinate(_ coordinate: RouteCoordinate) async throws {
         calls += 1
+        if let error = errorsByCall[calls] { throw error }
         if failCalls.contains(calls) { throw LocationSimulationError.deviceTunnelUnavailable }
         updates.append(coordinate)
     }
     func clearSimulatedLocation() async throws {}
     func configureFailures(_ calls: Set<Int>) { failCalls = calls }
+    func configureErrors(_ errors: [Int: LocationSimulationError]) { errorsByCall = errors }
     func callCount() -> Int { calls }
 }
 
@@ -217,5 +263,60 @@ struct PlaybackEngineTests {
         let finalCallCount = await sink.callCount()
         #expect(finalCallCount >= 3)
         engine.stop()
+    }
+
+    @Test func healthySessionDoesNotReconnectAfterTransportChange() async throws {
+        let sink = FakeLocationSink()
+        let clock = UptimeBox()
+        var reconnects = 0
+        let geometry = RouteGeometry(coordinates: [
+            RouteCoordinate(latitude: 0, longitude: 0),
+            RouteCoordinate(latitude: 0, longitude: 0.01)
+        ])
+        let engine = RoutePlaybackEngine(
+            sink: sink, updateInterval: 60, uptime: { clock.get() },
+            acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: { reconnects += 1 },
+            reconnectDelays: [0.001], transportDebounce: 0
+        )
+        try await engine.start(routeName: "Healthy", geometry: geometry, speedKmh: 18.6, mode: .once)
+        clock.set(5)
+        await engine.verifyConnectionAfterTransportChange()
+        #expect(reconnects == 0)
+        #expect(engine.state == .running)
+        #expect(engine.traveledDistance > 25)
+        engine.stop()
+    }
+
+    @Test func staleSessionReconnectsOnceAndKeepsElapsedProgress() async throws {
+        let sink = FakeLocationSink()
+        await sink.configureFailures([2])
+        let clock = UptimeBox()
+        var reconnects = 0
+        let geometry = RouteGeometry(coordinates: [
+            RouteCoordinate(latitude: 0, longitude: 0),
+            RouteCoordinate(latitude: 0, longitude: 0.01)
+        ])
+        let engine = RoutePlaybackEngine(
+            sink: sink, updateInterval: 60, uptime: { clock.get() },
+            acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: { reconnects += 1 },
+            reconnectDelays: [0.001], transportDebounce: 0
+        )
+        try await engine.start(routeName: "Stale", geometry: geometry, speedKmh: 18.6, mode: .once)
+        clock.set(7)
+        await engine.verifyConnectionAfterTransportChange()
+        #expect(reconnects == 1)
+        #expect(engine.state == .running)
+        #expect(engine.traveledDistance > 36)
+        let callCount = await sink.callCount()
+        #expect(callCount == 3)
+        engine.stop()
+    }
+
+    @Test func permanentLocationErrorsAreNotRetried() {
+        #expect(!PlaybackReconnectPolicy.shouldRetry(LocationSimulationError.pairingFileMissing))
+        #expect(!PlaybackReconnectPolicy.shouldRetry(LocationSimulationError.pairingFileInvalid))
+        #expect(!PlaybackReconnectPolicy.shouldRetry(LocationSimulationError.invalidTargetAddress))
+        #expect(PlaybackReconnectPolicy.shouldRetry(LocationSimulationError.rsdDiscoveryFailure(code: 9)))
+        #expect(PlaybackReconnectPolicy.shouldRetry(LocationSimulationError.dvtSessionFailure(code: 10)))
     }
 }

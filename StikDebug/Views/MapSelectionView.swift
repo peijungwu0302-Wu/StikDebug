@@ -124,7 +124,7 @@ struct RouteMapView: View {
                 }.font(.footnote)
                 HStack {
                     Button("開始路線") { Task { await model.startPlayback() } }.buttonStyle(.borderedProminent)
-                    Button("停止") { playback.stop(clearMarker: false) }.buttonStyle(.bordered).tint(.red)
+                    Button("停止") { playback.stop(clearMarker: true) }.buttonStyle(.bordered).tint(.red)
                         .disabled(playback.state != .running && playback.state != .reconnecting)
                     Button("清除路線", role: .destructive) { model.clearCurrentRoute() }.buttonStyle(.bordered)
                 }

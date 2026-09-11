@@ -275,6 +275,29 @@ final class JITEnableContext {
         }
     }
 
+    /// Proves that the existing tunnel handles can still reach an RSD service.
+    /// Pointer presence alone is not a health check after a Wi-Fi/cellular handoff.
+    func checkTunnelHealth() throws {
+        tunnelLock.lock()
+        defer { tunnelLock.unlock() }
+
+        guard !tunnelConnecting else {
+            throw makeError("Tunnel connection is still in progress", code: -19)
+        }
+        guard let adapter, let handshake else {
+            throw makeError("Tunnel is not connected", code: -20)
+        }
+
+        var remoteServer: OpaquePointer?
+        if let ffiError = remote_server_connect_rsd(adapter, handshake, &remoteServer) {
+            throw error(from: ffiError, fallback: "RSD device service health check failed")
+        }
+        guard let remoteServer else {
+            throw makeError("RSD device service did not return a session", code: -21)
+        }
+        remote_server_free(remoteServer)
+    }
+
     private func withFreshDebugTunnel<T>(
         hostname: String,
         _ body: (OpaquePointer, OpaquePointer) throws -> T

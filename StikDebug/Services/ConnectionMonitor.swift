@@ -2,17 +2,41 @@ import Combine
 import Foundation
 import Network
 
-enum NetworkInterfaceKind {
-    case wifi, cellular, wired, other, offline
+enum NetworkTransport: String, Equatable, Sendable {
+    case wifi, cellular, other, offline
 
     var label: String {
         switch self {
         case .wifi: return "Wi-Fi"
         case .cellular: return L10n.text("行動網路")
-        case .wired: return L10n.text("乙太網路")
         case .other: return L10n.text("其他")
         case .offline: return L10n.text("離線")
         }
+    }
+
+    static func classify(
+        isSatisfied: Bool,
+        usesWiFi: Bool,
+        usesCellular: Bool,
+        wifiAvailable: Bool = false,
+        cellularAvailable: Bool = false,
+        isExpensive: Bool = false
+    ) -> NetworkTransport {
+        guard isSatisfied else { return .offline }
+        if usesWiFi { return .wifi }
+        if usesCellular { return .cellular }
+        // A split/local VPN can become the path's `.other` interface and hide
+        // its bearer. Under that condition, availability plus cost identifies
+        // cellular-only startup without treating Wi-Fi as a prerequisite.
+        if cellularAvailable, isExpensive || !wifiAvailable { return .cellular }
+        if wifiAvailable { return .wifi }
+        return .other
+    }
+}
+
+enum NetworkTransitionPolicy {
+    static func needsDeviceHealthCheck(previous: NetworkTransport, current: NetworkTransport) -> Bool {
+        current != .offline && previous != current
     }
 }
 
@@ -24,7 +48,7 @@ enum DeviceSessionStatus: Equatable {
 
     var label: String {
         switch self {
-        case .idle: return L10n.text("閒置")
+        case .idle: return L10n.text("未連線")
         case .connected: return L10n.text("已連線")
         case .reconnecting(let attempt): return L10n.format("重新連線中（第 %d 次）", attempt)
         case .error(let message): return L10n.format("錯誤：%@", message)
@@ -36,15 +60,22 @@ enum DeviceSessionStatus: Equatable {
 final class ConnectionMonitor: ObservableObject {
     static let shared = ConnectionMonitor()
 
-    @Published private(set) var networkInterface: NetworkInterfaceKind = .offline
+    @Published private(set) var previousTransport: NetworkTransport = .offline
+    @Published private(set) var currentTransport: NetworkTransport = .offline
     @Published private(set) var internetReachable = false
     @Published private(set) var usesVPNInterface = false
+    @Published private(set) var pathIsExpensive = false
     @Published private(set) var tunnelConnected = false
     @Published private(set) var deviceSession: DeviceSessionStatus = .idle
+    @Published private(set) var transportRevision: UInt = 0
+
+    var networkInterface: NetworkTransport { currentTransport }
 
     private let pathMonitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.routelocation.network-path", qos: .utility)
     private var started = false
+    private var hasReceivedInitialPath = false
+    private var lastPathSignature: String?
     private var cancellables: Set<AnyCancellable> = []
 
     private init() {
@@ -66,13 +97,42 @@ final class ConnectionMonitor: ObservableObject {
     func reportSession(_ status: DeviceSessionStatus) { deviceSession = status }
 
     private func apply(_ path: NWPath) {
-        internetReachable = path.status == .satisfied
-        usesVPNInterface = path.availableInterfaces.contains { $0.type == .other }
-        guard path.status == .satisfied else { networkInterface = .offline; return }
-        if path.usesInterfaceType(.wifi) { networkInterface = .wifi }
-        else if path.usesInterfaceType(.cellular) { networkInterface = .cellular }
-        else if path.usesInterfaceType(.wiredEthernet) { networkInterface = .wired }
-        else { networkInterface = .other }
-        if !TunnelManager.shared.isConnected { startTunnelInBackground(showErrorUI: false) }
+        let satisfied = path.status == .satisfied
+        let transport = NetworkTransport.classify(
+            isSatisfied: satisfied,
+            usesWiFi: path.usesInterfaceType(.wifi),
+            usesCellular: path.usesInterfaceType(.cellular),
+            wifiAvailable: path.availableInterfaces.contains { $0.type == .wifi },
+            cellularAvailable: path.availableInterfaces.contains { $0.type == .cellular },
+            isExpensive: path.isExpensive
+        )
+        let vpnDetected = path.availableInterfaces.contains { $0.type == .other }
+        let signature = "\(satisfied)|\(transport.rawValue)|\(vpnDetected)|\(path.isExpensive)"
+        guard signature != lastPathSignature else { return }
+        lastPathSignature = signature
+
+        let oldTransport = currentTransport
+        let vpnAvailabilityChanged = usesVPNInterface != vpnDetected
+        previousTransport = oldTransport
+        currentTransport = transport
+        internetReachable = satisfied
+        usesVPNInterface = vpnDetected
+        pathIsExpensive = path.isExpensive
+        LogManager.shared.addInfoLog(
+            "Network path changed: transport=\(transport.rawValue), satisfied=\(satisfied), vpn=\(vpnDetected), expensive=\(path.isExpensive)"
+        )
+
+        let shouldCheck = !hasReceivedInitialPath
+            ? transport != .offline
+            : NetworkTransitionPolicy.needsDeviceHealthCheck(previous: oldTransport, current: transport)
+                || (transport != .offline && vpnAvailabilityChanged)
+        hasReceivedInitialPath = true
+        guard shouldCheck else {
+            if transport == .offline { TunnelManager.shared.noteNetworkUnavailable() }
+            return
+        }
+
+        transportRevision &+= 1
+        TunnelManager.shared.handleNetworkTransition(from: oldTransport, to: transport)
     }
 }

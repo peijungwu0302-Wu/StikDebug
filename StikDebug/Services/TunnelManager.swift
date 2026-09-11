@@ -5,18 +5,131 @@
 
 import Foundation
 
+enum TunnelConnectionStage: String, Equatable, Sendable {
+    case idle, pairing, localDevVPN, targetConfiguration, tunnelStartup, healthCheck, rsdDiscovery, dvt, timeout, connected, error
+
+    var label: String {
+        switch self {
+        case .idle: return L10n.text("閒置")
+        case .pairing: return L10n.text("檢查配對檔案")
+        case .localDevVPN: return L10n.text("檢查 LocalDevVPN")
+        case .targetConfiguration: return L10n.text("檢查目標位址")
+        case .tunnelStartup: return L10n.text("建立裝置通道")
+        case .healthCheck: return L10n.text("檢查通道健康狀態")
+        case .rsdDiscovery: return L10n.text("連接 RSD 裝置服務")
+        case .dvt: return L10n.text("建立 DVT 工作階段")
+        case .timeout: return L10n.text("連線逾時")
+        case .connected: return L10n.text("已連線")
+        case .error: return L10n.text("錯誤")
+        }
+    }
+}
+
+enum TunnelRetryPolicy {
+    static let delays: [TimeInterval] = [0.5, 1, 2]
+
+    static func isPermanent(_ error: NSError) -> Bool {
+        if [-9, -17, -18].contains(error.code) { return true }
+        let message = error.localizedDescription.lowercased()
+        return message.contains("parse target ip")
+            || message.contains("pairing file not found")
+            || message.contains("invalid pairing")
+    }
+
+    static func shouldOfferCellularCompatibility(for error: NSError, transport: NetworkTransport) -> Bool {
+        guard transport == .cellular, !isPermanent(error) else { return false }
+        let message = error.localizedDescription.lowercased()
+        return error.code == -19
+            || message.contains("timed out")
+            || message.contains("timeout")
+            || message.contains("network is unreachable")
+            || message.contains("no route")
+            || message.contains("failed to create tunnel")
+    }
+
+    static func failureStage(for error: NSError) -> TunnelConnectionStage {
+        if [-9, -17].contains(error.code) { return .pairing }
+        if error.code == -18 { return .targetConfiguration }
+        let message = error.localizedDescription.lowercased()
+        if error.code == -19 || message.contains("timed out") || message.contains("timeout") { return .timeout }
+        if message.contains("network is unreachable") || message.contains("no route") || message.contains("connection reset") {
+            return .localDevVPN
+        }
+        return .tunnelStartup
+    }
+}
+
 final class TunnelManager: ObservableObject {
     static let shared = TunnelManager()
 
     @Published private(set) var isConnected = false
     @Published private(set) var isStarting = false
     @Published private(set) var lastErrorMessage: String?
+    @Published private(set) var stage: TunnelConnectionStage = .idle
+    @Published private(set) var reconnectAttempt = 0
+    @Published private(set) var cellularCompatibilitySuggested = false
+
+    private let workerQueue = DispatchQueue(label: "com.routelocation.device-tunnel", qos: .userInitiated)
+    private var pathChangeWorkItem: DispatchWorkItem?
+    private var healthCheckInProgress = false
+    private var activeTransport: NetworkTransport = .other
 
     private init() {}
 
     func markDisconnected() {
         runOnMain {
             self.isConnected = false
+            self.stage = .idle
+        }
+    }
+
+    func noteNetworkUnavailable() {
+        LogManager.shared.addWarningLog("Network path unavailable; preserving tunnel state until an actual device command fails")
+    }
+
+    func handleNetworkTransition(from previous: NetworkTransport, to current: NetworkTransport) {
+        runOnMain {
+            self.activeTransport = current
+            self.pathChangeWorkItem?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                self?.performHealthCheckOrConnect(transport: current)
+            }
+            self.pathChangeWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: item)
+            LogManager.shared.addInfoLog("Device tunnel health check scheduled for \(previous.rawValue)->\(current.rawValue)")
+        }
+    }
+
+    func checkHealthNow(transport: NetworkTransport) {
+        runOnMain {
+            self.activeTransport = transport
+            self.performHealthCheckOrConnect(transport: transport)
+        }
+    }
+
+    func reportLocationFailure(_ error: Error, transport: NetworkTransport) {
+        runOnMain {
+            self.lastErrorMessage = error.localizedDescription
+            guard let locationError = error as? LocationSimulationError else {
+                self.stage = .error
+                return
+            }
+            switch locationError {
+            case .pairingFileMissing, .pairingFileInvalid:
+                self.stage = .pairing
+            case .invalidTargetAddress:
+                self.stage = .targetConfiguration
+            case .deviceTunnelUnavailable:
+                self.stage = .localDevVPN
+                self.cellularCompatibilitySuggested = transport == .cellular
+            case .rsdDiscoveryFailure:
+                self.stage = .rsdDiscovery
+                self.cellularCompatibilitySuggested = transport == .cellular
+            case .dvtSessionFailure, .updateFailure, .clearFailure:
+                self.stage = .dvt
+            case .invalidCoordinate:
+                self.stage = .error
+            }
         }
     }
 
@@ -31,6 +144,8 @@ final class TunnelManager: ObservableObject {
         let pairingFileURL = PairingFileStore.prepareURL()
         guard FileManager.default.fileExists(atPath: pairingFileURL.path) else {
             isConnected = false
+            stage = .pairing
+            lastErrorMessage = L10n.text("缺少配對檔案")
             return
         }
 
@@ -39,19 +154,80 @@ final class TunnelManager: ObservableObject {
         }
 
         isStarting = true
+        stage = .tunnelStartup
+        reconnectAttempt = 0
 
-        DispatchQueue.global(qos: .userInteractive).async { [showErrorUI] in
-            let result: Result<Void, NSError>
-            do {
-                try JITEnableContext.shared.startTunnel()
-                result = .success(())
-            } catch {
-                result = .failure(error as NSError)
-            }
+        workerQueue.async { [weak self, showErrorUI] in
+            guard let self else { return }
+            let result = self.connectWithRetry()
 
             DispatchQueue.main.async {
                 self.finishStart(result, showErrorUI: showErrorUI)
             }
+        }
+    }
+
+    private func connectWithRetry() -> Result<Void, NSError> {
+        var lastError: NSError?
+        let totalAttempts = TunnelRetryPolicy.delays.count + 1
+        for attempt in 1...totalAttempts {
+            DispatchQueue.main.async { self.reconnectAttempt = attempt }
+            do {
+                try JITEnableContext.shared.startTunnel()
+                return .success(())
+            } catch let error as NSError {
+                lastError = error
+                if TunnelRetryPolicy.isPermanent(error) || attempt == totalAttempts { break }
+                let delay = TunnelRetryPolicy.delays[attempt - 1]
+                LogManager.shared.addWarningLog(
+                    "Tunnel attempt \(attempt)/\(totalAttempts) failed (code=\(error.code)); retrying in \(delay)s"
+                )
+                Thread.sleep(forTimeInterval: delay)
+            }
+        }
+        return .failure(lastError ?? NSError(
+            domain: "RouteLocation.DeviceTunnel",
+            code: -1,
+            userInfo: [NSLocalizedDescriptionKey: L10n.text("無法建立裝置通道。")]
+        ))
+    }
+
+    private func performHealthCheckOrConnect(transport: NetworkTransport) {
+        guard transport != .offline else { return }
+        guard isConnected else {
+            start(showErrorUI: false)
+            return
+        }
+        guard !isStarting, !healthCheckInProgress else { return }
+        healthCheckInProgress = true
+        stage = .healthCheck
+        workerQueue.async { [weak self] in
+            guard let self else { return }
+            let result: Result<Void, NSError>
+            do {
+                try JITEnableContext.shared.checkTunnelHealth()
+                result = .success(())
+            } catch let error as NSError {
+                result = .failure(error)
+            }
+            DispatchQueue.main.async { self.finishHealthCheck(result, transport: transport) }
+        }
+    }
+
+    private func finishHealthCheck(_ result: Result<Void, NSError>, transport: NetworkTransport) {
+        healthCheckInProgress = false
+        switch result {
+        case .success:
+            stage = .connected
+            lastErrorMessage = nil
+            LogManager.shared.addInfoLog("Device tunnel health check passed on \(transport.rawValue)")
+        case .failure(let error):
+            isConnected = false
+            stage = TunnelRetryPolicy.failureStage(for: error)
+            lastErrorMessage = error.localizedDescription
+            cellularCompatibilitySuggested = TunnelRetryPolicy.shouldOfferCellularCompatibility(for: error, transport: transport)
+            LogManager.shared.addWarningLog("Device tunnel stale on \(transport.rawValue) (code=\(error.code)); rebuilding")
+            start(showErrorUI: false)
         }
     }
 
@@ -61,12 +237,20 @@ final class TunnelManager: ObservableObject {
         switch result {
         case .success:
             isConnected = true
+            stage = .connected
             lastErrorMessage = nil
+            reconnectAttempt = 0
+            cellularCompatibilitySuggested = false
             LogManager.shared.addInfoLog("Tunnel connected successfully")
             mountDeveloperDiskImageIfNeeded()
         case .failure(let error):
             isConnected = false
+            stage = TunnelRetryPolicy.failureStage(for: error)
             lastErrorMessage = error.localizedDescription
+            cellularCompatibilitySuggested = TunnelRetryPolicy.shouldOfferCellularCompatibility(
+                for: error,
+                transport: activeTransport
+            )
             handleStartFailure(error, showErrorUI: showErrorUI)
         }
     }
@@ -161,7 +345,7 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
         recoverySteps = [
             L10n.text("開啟 LocalDevVPN，確認 VPN 已連線。"),
             L10n.format("確認 LocalDevVPN 使用預設位址 %@。", DeviceConnectionContext.defaultTargetIPAddress),
-            L10n.text("重新連接 Wi-Fi 與 LocalDevVPN，然後再試一次。"),
+            L10n.text("重新連接 LocalDevVPN，然後再試一次；Wi-Fi 或行動網路皆可。"),
             L10n.text("如果問題持續發生，請匯入這台裝置的新配對檔案。")
         ]
     } else if error.code == -18 || lowercasedMessage.contains("parse target ip") {
@@ -173,7 +357,7 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
     } else if lowercasedMessage.contains("timed out") || lowercasedMessage.contains("timeout") {
         likelyCause = L10n.text("連線逾時前無法連接裝置。")
         recoverySteps = [
-            L10n.text("確認 Wi-Fi 與 LocalDevVPN 都已連線。"),
+            L10n.text("確認 Wi-Fi 或行動網路可用，並且 LocalDevVPN 已連線。"),
             L10n.text("喚醒並解鎖目標裝置。"),
             L10n.format("確認 LocalDevVPN 在 %@ 提供裝置連線。", targetIP)
         ]
@@ -182,12 +366,12 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
         recoverySteps = [
             L10n.text("中斷後重新連接 LocalDevVPN。"),
             L10n.text("確認 iOS 顯示 VPN 圖示。"),
-            L10n.text("嘗試關閉再開啟 Wi-Fi。")
+            L10n.text("如果目前只使用行動網路，請嘗試下方的「行動網路相容模式」。")
         ]
     } else {
         likelyCause = L10n.text("無法建立裝置通道。")
         recoverySteps = [
-            L10n.text("確認 Wi-Fi 與 LocalDevVPN 都已連線。"),
+            L10n.text("確認 Wi-Fi 或行動網路可用，並且 LocalDevVPN 已連線。"),
             L10n.text("喚醒並解鎖目標裝置。"),
             L10n.text("重新連接 LocalDevVPN，然後再試一次。")
         ]

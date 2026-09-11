@@ -71,6 +71,7 @@ final class RouteLocationModel: ObservableObject {
     func addSelectedWaypoint() {
         guard let selectedCoordinate else { return }
         addWaypoint(selectedCoordinate)
+        self.selectedCoordinate = nil
     }
 
     func addWaypoint(_ coordinate: RouteCoordinate) {
@@ -112,6 +113,7 @@ final class RouteLocationModel: ObservableObject {
         playback.stop(clearMarker: true)
         loadedRouteID = nil
         routeName = L10n.text("新路線")
+        selectedCoordinate = nil
         waypoints = []
         routeMode = .straight
         navigationTransport = .automobile
@@ -236,16 +238,31 @@ final class RouteLocationModel: ObservableObject {
         playback.stop()
         teleportTask?.cancel()
         do {
-            try await simulationService.setCoordinate(target)
+            try await setCoordinateWithBoundedRecovery(target)
             selectedCoordinate = target
             connectionMonitor.reportSession(.connected)
             BackgroundKeepAliveService.shared.acquire()
             teleportTask = Task { [weak self] in
+                var consecutiveFailures = 0
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .seconds(4)) } catch { return }
                     guard let self else { return }
-                    do { try await self.simulationService.setCoordinate(target) }
-                    catch { self.presentedError = error.localizedDescription; self.connectionMonitor.reportSession(.error(error.localizedDescription)) }
+                    do {
+                        try await self.simulationService.setCoordinate(target)
+                        consecutiveFailures = 0
+                        self.connectionMonitor.reportSession(.connected)
+                    } catch {
+                        consecutiveFailures += 1
+                        guard PlaybackReconnectPolicy.shouldRetry(error), consecutiveFailures < 4 else {
+                            self.presentedError = error.localizedDescription
+                            self.connectionMonitor.reportSession(.error(error.localizedDescription))
+                            BackgroundKeepAliveService.shared.release()
+                            return
+                        }
+                        self.connectionMonitor.reportSession(.reconnecting(attempt: consecutiveFailures))
+                        markTunnelDisconnected()
+                        startTunnelInBackground(showErrorUI: false)
+                    }
                 }
             }
         } catch { presentedError = error.localizedDescription }
@@ -281,6 +298,28 @@ final class RouteLocationModel: ObservableObject {
         } else {
             navigationGeometryNeedsRecalculation = true
         }
+    }
+
+    private func setCoordinateWithBoundedRecovery(_ coordinate: RouteCoordinate) async throws {
+        let delays: [TimeInterval] = [0, 0.5, 1, 2]
+        var lastError: Error?
+        for (index, delay) in delays.enumerated() {
+            if delay > 0 {
+                do { try await Task.sleep(for: .seconds(delay)) } catch { throw error }
+            }
+            do {
+                try await simulationService.setCoordinate(coordinate)
+                return
+            } catch {
+                lastError = error
+                TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
+                guard PlaybackReconnectPolicy.shouldRetry(error) else { throw error }
+                connectionMonitor.reportSession(.reconnecting(attempt: index + 1))
+                markTunnelDisconnected()
+                startTunnelInBackground(showErrorUI: false)
+            }
+        }
+        throw lastError ?? LocationSimulationError.deviceTunnelUnavailable
     }
 
     private func loadPersistedData() async {

@@ -13,6 +13,10 @@ final class JITEnableContext {
         throw simulatorUnavailableError()
     }
 
+    func checkTunnelHealth() throws {
+        throw simulatorUnavailableError()
+    }
+
     func getMountedDeviceCount() throws -> Int {
         throw simulatorUnavailableError()
     }

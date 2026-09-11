@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 enum PlaybackRunState: Equatable {
@@ -36,6 +37,12 @@ enum PlaybackMath {
     }
 }
 
+enum PlaybackReconnectPolicy {
+    static func shouldRetry(_ error: Error) -> Bool {
+        (error as? LocationSimulationError)?.isRetryable ?? true
+    }
+}
+
 @MainActor
 final class RoutePlaybackEngine: ObservableObject {
     @Published private(set) var state: PlaybackRunState = .stopped
@@ -56,11 +63,17 @@ final class RoutePlaybackEngine: ObservableObject {
     private let releaseKeepAlive: @MainActor () -> Void
     private let reconnectAction: @MainActor () -> Void
     private let reconnectDelays: [TimeInterval]
+    private let transportDebounce: TimeInterval
     private var task: Task<Void, Never>?
+    private var transportHealthTask: Task<Void, Never>?
     private var geometry: RouteGeometry?
     private var mode: RoutePlaybackMode = .once
     private var startTime: TimeInterval = 0
     private var startingOffset: Double = 0
+    private var reconnectInProgress = false
+    private var lastReconnectError: Error?
+    private var lastReconnectWasPermanent = false
+    private var cancellables: Set<AnyCancellable> = []
 
     init(
         sink: any LocationSimulationSink,
@@ -70,7 +83,8 @@ final class RoutePlaybackEngine: ObservableObject {
         acquireKeepAlive: (@MainActor () -> Void)? = nil,
         releaseKeepAlive: (@MainActor () -> Void)? = nil,
         reconnectAction: (@MainActor () -> Void)? = nil,
-        reconnectDelays: [TimeInterval] = [0.5, 1, 2, 4]
+        reconnectDelays: [TimeInterval] = [0.5, 1, 2, 4],
+        transportDebounce: TimeInterval = 1.5
     ) {
         self.sink = sink
         self.connectionMonitor = connectionMonitor ?? ConnectionMonitor.shared
@@ -83,6 +97,11 @@ final class RoutePlaybackEngine: ObservableObject {
             startTunnelInBackground(showErrorUI: false)
         }
         self.reconnectDelays = reconnectDelays
+        self.transportDebounce = transportDebounce
+        connectionMonitor.$transportRevision
+            .dropFirst()
+            .sink { [weak self] _ in self?.scheduleTransportHealthCheck() }
+            .store(in: &cancellables)
     }
 
     func start(routeName: String, geometry: RouteGeometry, speedKmh: Double, mode: RoutePlaybackMode, startingOffset: Double = 0) async throws {
@@ -97,9 +116,21 @@ final class RoutePlaybackEngine: ObservableObject {
         startTime = uptime()
         updateDerivedState(now: startTime)
         guard let coordinate = currentCoordinate else { throw RouteLocationError.emptyGeometry }
-        try await sink.setCoordinate(coordinate)
-        reportConnection(.connected)
         acquireKeepAlive()
+        do {
+            try await sink.setCoordinate(coordinate)
+            reportConnection(.connected)
+        } catch {
+            TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
+            guard PlaybackReconnectPolicy.shouldRetry(error) else {
+                releaseKeepAlive()
+                throw error
+            }
+            guard await reconnect() else {
+                releaseKeepAlive()
+                throw lastReconnectError ?? error
+            }
+        }
         state = .running
         task = Task { [weak self] in await self?.runLoop() }
     }
@@ -107,6 +138,11 @@ final class RoutePlaybackEngine: ObservableObject {
     func stop(clearMarker: Bool = true) {
         task?.cancel()
         task = nil
+        transportHealthTask?.cancel()
+        transportHealthTask = nil
+        reconnectInProgress = false
+        lastReconnectError = nil
+        lastReconnectWasPermanent = false
         state = .stopped
         reportConnection(.idle)
         releaseKeepAlive()
@@ -129,11 +165,18 @@ final class RoutePlaybackEngine: ObservableObject {
                 reportConnection(.connected)
                 state = .running
             } catch {
+                TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
+                guard PlaybackReconnectPolicy.shouldRetry(error) else {
+                    state = .error(error.localizedDescription)
+                    reportConnection(.error(error.localizedDescription))
+                    task = nil
+                    releaseKeepAlive()
+                    return
+                }
                 let recovered = await reconnect()
                 if !recovered {
-                    state = .error(L10n.text("請連接 LocalDevVPN 後重試；播放進度已保留。"))
-                    reportConnection(.error(L10n.text("請連接 LocalDevVPN 後重試")))
-                    do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                    handleReconnectFailure()
+                    return
                 }
             }
             if mode == .once, traveledDistance >= (geometry?.totalDistance ?? .infinity) {
@@ -146,6 +189,11 @@ final class RoutePlaybackEngine: ObservableObject {
     }
 
     private func reconnect() async -> Bool {
+        guard !reconnectInProgress else { return false }
+        reconnectInProgress = true
+        lastReconnectError = nil
+        lastReconnectWasPermanent = false
+        defer { reconnectInProgress = false }
         state = .reconnecting
         for (index, delay) in reconnectDelays.enumerated() {
             guard !Task.isCancelled else { return false }
@@ -159,9 +207,77 @@ final class RoutePlaybackEngine: ObservableObject {
                 state = .running
                 reportConnection(.connected)
                 return true
-            } catch { continue }
+            } catch {
+                lastReconnectError = error
+                TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
+                guard PlaybackReconnectPolicy.shouldRetry(error) else {
+                    lastReconnectWasPermanent = true
+                    return false
+                }
+                continue
+            }
         }
         return false
+    }
+
+    private func enterWaitingForConnection() {
+        let detail = lastReconnectError?.localizedDescription
+            ?? L10n.text("裝置通道暫時無法使用；播放時間已保留，網路恢復時會再檢查。")
+        state = .error(detail)
+        reportConnection(.error(detail))
+        task = nil
+    }
+
+    private func handleReconnectFailure() {
+        guard lastReconnectWasPermanent else {
+            enterWaitingForConnection()
+            return
+        }
+        let detail = lastReconnectError?.localizedDescription ?? L10n.text("裝置連線設定無效。")
+        state = .error(detail)
+        reportConnection(.error(detail))
+        task = nil
+        releaseKeepAlive()
+    }
+
+    private func scheduleTransportHealthCheck() {
+        guard geometry != nil, state == .running || state == .reconnecting || isWaitingForConnection else { return }
+        transportHealthTask?.cancel()
+        transportHealthTask = Task { [weak self] in
+            guard let self else { return }
+            do { try await Task.sleep(for: .seconds(transportDebounce)) } catch { return }
+            await self.verifyConnectionAfterTransportChange()
+        }
+    }
+
+    private var isWaitingForConnection: Bool {
+        if case .error = state { return task == nil && geometry != nil }
+        return false
+    }
+
+    func verifyConnectionAfterTransportChange() async {
+        guard geometry != nil, !reconnectInProgress else { return }
+        updateDerivedState(now: uptime())
+        guard let currentCoordinate else { return }
+        do {
+            try await sink.setCoordinate(currentCoordinate)
+            reportConnection(.connected)
+            state = .running
+            if task == nil { task = Task { [weak self] in await self?.runLoop() } }
+        } catch {
+            TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
+            guard PlaybackReconnectPolicy.shouldRetry(error) else {
+                state = .error(error.localizedDescription)
+                reportConnection(.error(error.localizedDescription))
+                return
+            }
+            guard !reconnectInProgress else { return }
+            if await reconnect() {
+                if task == nil { task = Task { [weak self] in await self?.runLoop() } }
+            } else {
+                handleReconnectFailure()
+            }
+        }
     }
 
     private func updateDerivedState(now: TimeInterval) {

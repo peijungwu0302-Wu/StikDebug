@@ -20,8 +20,9 @@ The app's development, fallback, and first-launch language is Traditional Chines
 - Persistent favorite locations, favorite routes, explicit route naming/renaming, and individually stored saved-route JSON files
 - New routes default to a closed path with Infinite Loop playback; loaded routes preserve their saved behavior
 - Best-effort background playback using StikDebug's audio/location keep-alive infrastructure
-- Network-path monitoring and bounded device-session reconnect that preserves elapsed progress
-- Setup diagnostics for pairing, tunnel, DDI, location simulation, network interface, and reachability
+- Wi-Fi/cellular path monitoring, real RSD tunnel health checks, and bounded device-session reconnect that preserves elapsed progress
+- Setup diagnostics for pairing, LocalDevVPN tunnel stage, DDI, DVT, location simulation, active transport, and Internet reachability
+- Sanitized on-device diagnostic reports that never include pairing credentials
 
 Fixed-speed playback never uses OpenStreetMap/Overpass speed limits or `MKRoute.expectedTravelTime`. `MKDirections` determines geometry only; the selected km/h value controls movement.
 
@@ -31,6 +32,7 @@ Fixed-speed playback never uses OpenStreetMap/Overpass speed limits or `MKRoute.
 - Developer Mode enabled
 - A valid pairing file for that same iPhone
 - [LocalDevVPN](https://apps.apple.com/us/app/localdevvpn/id6755608044) running
+- Wi-Fi **or cellular data**; Wi-Fi is not a RouteLocation requirement
 - Developer Disk Image files prepared and mounted by RouteLocation
 - RouteLocation installed through SideStore, AltStore, or another compatible sideloading signer
 
@@ -46,6 +48,23 @@ The pairing file contains sensitive device-trust credentials. Never post it, com
 6. Grant Always location access when requested for the strongest best-effort background behavior.
 
 Normal use does not require a Windows PC or Mac after those prerequisites are ready.
+
+## Cellular-only workflow (experimental until device-tested)
+
+RouteLocation is designed to attempt direct startup with Wi-Fi completely off:
+
+1. Turn Wi-Fi off in iOS Settings.
+2. Turn Cellular Data on and verify ordinary 4G/5G Internet access.
+3. Connect LocalDevVPN.
+4. Open RouteLocation and confirm **Transport: Cellular**.
+5. Check that the Device Tunnel and DVT session connect, then teleport or start a route.
+6. Put RouteLocation in the background and open the target app. That app's Internet traffic continues over cellular; RouteLocation does not proxy it.
+
+LocalDevVPN remains required. It supplies only the local route from RouteLocation to the device's RSD/DVT services and is separate from ordinary cellular Internet. A satisfied cellular `NWPath` is accepted exactly like Wi-Fi. On Wi-Fi/cellular handoff, RouteLocation waits briefly, probes the existing RSD session, keeps a healthy session, and rebuilds only a stale one. Location-command recovery is bounded and deterministic playback continues from monotonic elapsed time instead of restarting the route.
+
+Recent iOS/device combinations may not expose the on-device service immediately under cellular-only conditions. When RouteLocation specifically sees a temporary tunnel/RSD reachability failure on cellular, Setup shows an experimental **Cellular Compatibility Mode** based on current StikJIT guidance: keep Cellular and LocalDevVPN enabled, manually enable Airplane Mode, return to RouteLocation and retry, then disable Airplane Mode and let Cellular plus LocalDevVPN return. RouteLocation cannot automate Airplane Mode and never asks for a Wi-Fi network as this fallback.
+
+This source path is implemented but has not yet been validated on the owner's physical iPhone/iPad across every iOS and carrier combination. It must not be interpreted as a universal cellular compatibility guarantee.
 
 If iLoader's **Manage Pairing File** screen does not list RouteLocation, use iLoader's **Export** action for the same iPhone or iPad. Transfer the exported pairing file to the device, then import it from **RouteLocation → 設定 → 匯入配對檔案**. Do not use another device's file, and do not rely on iLoader's app-specific **Place** list recognizing RouteLocation's bundle identifier.
 
@@ -69,7 +88,7 @@ Changing a waypoint, transport mode, or closed/open state marks navigation geome
 
 ## Offline behavior
 
-Saved favorites, Straight routes, saved Navigation geometry, custom speed, infinite looping, and DVT playback remain available without Internet as long as LocalDevVPN and the on-device services are reachable. Apple search, new navigation calculations, and uncached map tiles may fail while offline. An offline network status does not block cached-route playback.
+Saved favorites, Straight routes, saved Navigation geometry, custom speed, infinite looping, and DVT playback remain available without Internet as long as LocalDevVPN and the on-device services are reachable. Apple search, new navigation calculations, and uncached map tiles may fail while offline. Wi-Fi is never required by RouteLocation, and an Internet-offline status does not block cached-route playback.
 
 ## Background limitations
 
@@ -101,7 +120,7 @@ RouteLocation stores favorites and routes under its Application Support director
 
 ## Testing boundary
 
-Unit tests cover parsing, geometry/cumulative distances, binary-search interpolation, straight/closed construction, playback math, elapsed-time reconnect continuity, Codable round trips, and saved geometry reload. Those tests do not prove physical-device pairing, DDI mounting, LocalDevVPN, DVT commands, background survival, or target-app behavior; those require a real iPhone.
+Unit tests cover parsing, geometry/cumulative distances, binary-search interpolation, straight/closed construction, playback math, transport classification/transitions, retry policy, healthy/stale handoff behavior, elapsed-time reconnect continuity, Codable round trips, and saved geometry reload. Those tests do not prove physical-device cellular RSD/DVT connectivity, pairing, DDI mounting, LocalDevVPN, background survival, or target-app Internet behavior; those require a real iPhone.
 
 ## Credits and license
 
