@@ -58,18 +58,23 @@ jobs:
       - name: Package unsigned IPA
         run: |
           set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#routelocation-v}"
+          if [[ "$GITHUB_REF" != refs/tags/routelocation-v* ]]; then VERSION="1.2.2"; fi
           test -d "$RUNNER_TEMP/RouteLocation.xcarchive/Products/Applications/RouteLocation.app"
           mkdir -p "$RUNNER_TEMP/package/Payload"
           cp -R "$RUNNER_TEMP/RouteLocation.xcarchive/Products/Applications/RouteLocation.app" "$RUNNER_TEMP/package/Payload/RouteLocation.app"
           cd "$RUNNER_TEMP/package"
           /usr/bin/zip -qry "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" Payload
+          cp "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" "$GITHUB_WORKSPACE/RouteLocation-v${VERSION}-unsigned.ipa"
           /usr/bin/unzip -l "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" | grep 'Payload/RouteLocation.app/'
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v7
         with:
           name: RouteLocation-unsigned-${{ github.sha }}
-          path: RouteLocation-unsigned.ipa
+          path: |
+            RouteLocation-unsigned.ipa
+            RouteLocation-v*-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
 
@@ -79,6 +84,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
+            "RouteLocation-v${GITHUB_REF_NAME#routelocation-v}-unsigned.ipa#RouteLocation-v${GITHUB_REF_NAME#routelocation-v}-unsigned.ipa" \
             RouteLocation-unsigned.ipa#RouteLocation-unsigned.ipa \
             --title "RouteLocation ${GITHUB_REF_NAME#routelocation-}" \
-            --notes "Unsigned RouteLocation IPA for re-signing and sideloading with SideStore, AltStore, or a compatible tool. Requires iOS 17.4+, Developer Mode, a valid pairing file, LocalDevVPN, and the required Developer Disk Image. See README.md for setup and background-execution limitations."
+            --notes "RouteLocation ${GITHUB_REF_NAME#routelocation-}: Cellular/DVT stability fix, optional HealthKit route-step synchronization, auto-dismiss notifications, and public unsigned IPA assets. Re-sign with SideStore, AltStore, or a compatible tool."

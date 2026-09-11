@@ -59,6 +59,12 @@ enum TunnelRetryPolicy {
     }
 }
 
+enum AuxiliaryProbePolicy {
+    static func shouldRetainActiveSession(dvtConnected: Bool, locationActive: Bool, recentLocationSuccess: Bool) -> Bool {
+        dvtConnected || locationActive || recentLocationSuccess
+    }
+}
+
 final class TunnelManager: ObservableObject {
     static let shared = TunnelManager()
 
@@ -68,6 +74,8 @@ final class TunnelManager: ObservableObject {
     @Published private(set) var stage: TunnelConnectionStage = .idle
     @Published private(set) var reconnectAttempt = 0
     @Published private(set) var cellularCompatibilitySuggested = false
+    @Published private(set) var bootstrapAvailable = true
+    @Published private(set) var cellularBootstrapRequested = false
 
     private let workerQueue = DispatchQueue(label: "com.routelocation.device-tunnel", qos: .userInitiated)
     private var pathChangeWorkItem: DispatchWorkItem?
@@ -87,9 +95,20 @@ final class TunnelManager: ObservableObject {
         LogManager.shared.addWarningLog("Network path unavailable; preserving tunnel state until an actual device command fails")
     }
 
+    @MainActor func locationDataPathReady() {
+        guard cellularBootstrapRequested else { return }
+        cellularBootstrapRequested = false
+        cellularCompatibilitySuggested = false
+        ToastManager.shared.show(L10n.text("定位通道已就緒，現在可以重新開啟行動數據。"), kind: .success, duration: 5)
+    }
+
     func handleNetworkTransition(from previous: NetworkTransport, to current: NetworkTransport) {
         runOnMain {
             self.activeTransport = current
+            if self.cellularBootstrapRequested, current != .cellular {
+                self.start(showErrorUI: false)
+                return
+            }
             self.pathChangeWorkItem?.cancel()
             let item = DispatchWorkItem { [weak self] in
                 self?.performHealthCheckOrConnect(transport: current)
@@ -214,29 +233,44 @@ final class TunnelManager: ObservableObject {
         }
     }
 
-    private func finishHealthCheck(_ result: Result<Void, NSError>, transport: NetworkTransport) {
+    @MainActor private func finishHealthCheck(_ result: Result<Void, NSError>, transport: NetworkTransport) {
         healthCheckInProgress = false
         switch result {
         case .success:
+            LocationDataPathHealth.shared.recordProbe(success: true)
+            bootstrapAvailable = true
             stage = .connected
             lastErrorMessage = nil
             LogManager.shared.addInfoLog("Device tunnel health check passed on \(transport.rawValue)")
         case .failure(let error):
-            isConnected = false
-            stage = TunnelRetryPolicy.failureStage(for: error)
+            LocationDataPathHealth.shared.recordProbe(success: false, error: error)
+            bootstrapAvailable = false
             lastErrorMessage = error.localizedDescription
             cellularCompatibilitySuggested = TunnelRetryPolicy.shouldOfferCellularCompatibility(for: error, transport: transport)
-            LogManager.shared.addWarningLog("Device tunnel stale on \(transport.rawValue) (code=\(error.code)); rebuilding")
+            let activeDataPath = AuxiliaryProbePolicy.shouldRetainActiveSession(
+                dvtConnected: ConnectionMonitor.shared.deviceSession == .connected,
+                locationActive: LocationDataPathHealth.shared.status == .healthy,
+                recentLocationSuccess: LocationDataPathHealth.shared.hasRecentSuccess
+            )
+            if activeDataPath {
+                stage = .connected
+                LogManager.shared.addWarningLog("Bootstrap probe unavailable on \(transport.rawValue) (code=\(error.code)); active DVT data path retained")
+                return
+            }
+            isConnected = false
+            stage = TunnelRetryPolicy.failureStage(for: error)
+            LogManager.shared.addWarningLog("Bootstrap probe failed without a healthy DVT data path; rebuilding")
             start(showErrorUI: false)
         }
     }
 
-    private func finishStart(_ result: Result<Void, NSError>, showErrorUI: Bool) {
+    @MainActor private func finishStart(_ result: Result<Void, NSError>, showErrorUI: Bool) {
         isStarting = false
 
         switch result {
         case .success:
             isConnected = true
+            bootstrapAvailable = true
             stage = .connected
             lastErrorMessage = nil
             reconnectAttempt = 0
@@ -251,6 +285,7 @@ final class TunnelManager: ObservableObject {
                 for: error,
                 transport: activeTransport
             )
+            cellularBootstrapRequested = activeTransport == .cellular && cellularCompatibilitySuggested
             handleStartFailure(error, showErrorUI: showErrorUI)
         }
     }

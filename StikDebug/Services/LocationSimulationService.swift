@@ -61,8 +61,13 @@ final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked 
         }
         guard code == 0 else {
             let error = Self.error(for: code)
+            await MainActor.run { LocationDataPathHealth.shared.recordFailure(error) }
             LogManager.shared.addWarningLog("Location update failed at \(Self.stageName(for: code)) (code=\(code))")
             throw error
+        }
+        await MainActor.run {
+            LocationDataPathHealth.shared.recordSuccess()
+            TunnelManager.shared.locationDataPathReady()
         }
     }
 

@@ -153,6 +153,80 @@ struct CellularNetworkPolicyTests {
         let pairing = NSError(domain: "test", code: -17, userInfo: nil)
         #expect(!TunnelRetryPolicy.shouldOfferCellularCompatibility(for: pairing, transport: .cellular))
     }
+
+    @Test func refusedAuxiliaryProbeRetainsHealthyLocationSession() {
+        let refused = NSError(domain: NSPOSIXErrorDomain, code: 61, userInfo: nil)
+        #expect(TunnelRetryPolicy.failureStage(for: refused) == .tunnelStartup)
+        #expect(AuxiliaryProbePolicy.shouldRetainActiveSession(dvtConnected: true, locationActive: true, recentLocationSuccess: true))
+        #expect(!AuxiliaryProbePolicy.shouldRetainActiveSession(dvtConnected: false, locationActive: false, recentLocationSuccess: false))
+    }
+
+    @Test func realFailuresRequireThresholdAndSuccessResetsCounter() {
+        #expect(!LocationRecoveryPolicy.shouldRecover(consecutiveFailures: 1))
+        #expect(!LocationRecoveryPolicy.shouldRecover(consecutiveFailures: 2))
+        #expect(LocationRecoveryPolicy.shouldRecover(consecutiveFailures: 3))
+    }
+
+    @MainActor @Test func successfulLocationUpdateResetsObservedFailures() {
+        let health = LocationDataPathHealth()
+        health.recordFailure(NSError(domain: NSPOSIXErrorDomain, code: 61))
+        health.recordFailure(NSError(domain: NSPOSIXErrorDomain, code: 61))
+        #expect(health.consecutiveLocationFailures == 2)
+        health.recordSuccess()
+        #expect(health.consecutiveLocationFailures == 0)
+        #expect(health.status == .healthy)
+    }
+}
+
+struct HealthStepCalculationTests {
+    @Test func convertsDistanceAndPreservesFractionalRemainder() {
+        var accumulator = StepAccumulator()
+        accumulator.add(distanceMeters: 80, strideLengthMeters: 0.8, isRunning: true)
+        #expect(accumulator.pendingSteps == 100)
+        #expect(accumulator.takePending() == 100)
+        accumulator.add(distanceMeters: 0.4, strideLengthMeters: 0.8, isRunning: true)
+        accumulator.add(distanceMeters: 0.4, strideLengthMeters: 0.8, isRunning: true)
+        #expect(accumulator.takePending() == 1)
+    }
+
+    @Test func stoppedOrTeleportDistanceDoesNotCreateSteps() {
+        var accumulator = StepAccumulator()
+        accumulator.add(distanceMeters: 80, strideLengthMeters: 0.8, isRunning: false)
+        #expect(accumulator.takePending() == 0)
+    }
+
+    @Test func flushingDoesNotLoseFractionalRemainderOrDuplicateDistance() {
+        var accumulator = StepAccumulator()
+        accumulator.add(distanceMeters: 1, strideLengthMeters: 0.8, isRunning: true)
+        #expect(accumulator.takePending() == 1)
+        #expect(accumulator.takePending() == 0)
+        accumulator.add(distanceMeters: 0.6, strideLengthMeters: 0.8, isRunning: true)
+        #expect(accumulator.takePending() == 1)
+        accumulator.restorePending(1)
+        #expect(accumulator.takePending() == 1)
+    }
+}
+
+@MainActor
+struct ToastManagerTests {
+    @Test func temporaryToastDismissesAndNewToastCancelsOldTimer() async throws {
+        let manager = ToastManager()
+        manager.show("first", duration: 0.02)
+        #expect(manager.current?.text == "first")
+        manager.show("second", duration: 0.08)
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(manager.current?.text == "second")
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(manager.current == nil)
+    }
+
+    @Test func persistentWarningDoesNotAutoDismiss() async throws {
+        let manager = ToastManager()
+        manager.show("action required", kind: .persistent, duration: 0.01)
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(manager.current?.text == "action required")
+        manager.dismiss()
+    }
 }
 
 struct StraightRouteAndPersistenceTests {
@@ -239,7 +313,7 @@ private final class UptimeBox: @unchecked Sendable {
 struct PlaybackEngineTests {
     @Test func reconnectUsesElapsedPositionWithoutReset() async throws {
         let sink = FakeLocationSink()
-        await sink.configureFailures([2])
+        await sink.configureFailures([2, 3, 4])
         let clock = UptimeBox()
         var reconnects = 0
         let geometry = RouteGeometry(coordinates: [
@@ -254,12 +328,14 @@ struct PlaybackEngineTests {
         try await engine.start(routeName: "Test", geometry: geometry, speedKmh: 18.6, mode: .once)
         clock.set(10)
         await engine.verifyConnectionAfterTransportChange()
+        await engine.verifyConnectionAfterTransportChange()
+        await engine.verifyConnectionAfterTransportChange()
         #expect(engine.traveledDistance > 51)
         #expect((engine.currentCoordinate?.longitude ?? 0) > 0)
         #expect(engine.state == .running)
         #expect(reconnects == 1)
         let finalCallCount = await sink.callCount()
-        #expect(finalCallCount == 3)
+        #expect(finalCallCount == 5)
         engine.stop()
     }
 
@@ -287,7 +363,7 @@ struct PlaybackEngineTests {
 
     @Test func staleSessionReconnectsOnceAndKeepsElapsedProgress() async throws {
         let sink = FakeLocationSink()
-        await sink.configureFailures([2])
+        await sink.configureFailures([2, 3, 4])
         let clock = UptimeBox()
         var reconnects = 0
         let geometry = RouteGeometry(coordinates: [
@@ -302,11 +378,13 @@ struct PlaybackEngineTests {
         try await engine.start(routeName: "Stale", geometry: geometry, speedKmh: 18.6, mode: .once)
         clock.set(7)
         await engine.verifyConnectionAfterTransportChange()
+        await engine.verifyConnectionAfterTransportChange()
+        await engine.verifyConnectionAfterTransportChange()
         #expect(reconnects == 1)
         #expect(engine.state == .running)
         #expect(engine.traveledDistance > 36)
         let callCount = await sink.callCount()
-        #expect(callCount == 3)
+        #expect(callCount == 5)
         engine.stop()
     }
 

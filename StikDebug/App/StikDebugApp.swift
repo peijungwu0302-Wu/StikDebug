@@ -32,6 +32,7 @@ struct RouteLocationApp: App {
         switch newPhase {
         case .background:
             shouldAttemptTunnelReconnect = true
+            Task { await HealthStepSyncService.shared.flush() }
         case .active:
             if shouldAttemptTunnelReconnect {
                 shouldAttemptTunnelReconnect = false

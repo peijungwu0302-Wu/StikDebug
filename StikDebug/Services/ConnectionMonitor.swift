@@ -128,7 +128,13 @@ final class ConnectionMonitor: ObservableObject {
                 || (transport != .offline && vpnAvailabilityChanged)
         hasReceivedInitialPath = true
         guard shouldCheck else {
-            if transport == .offline { TunnelManager.shared.noteNetworkUnavailable() }
+            if transport == .offline {
+                if TunnelManager.shared.cellularBootstrapRequested {
+                    TunnelManager.shared.handleNetworkTransition(from: oldTransport, to: transport)
+                } else {
+                    TunnelManager.shared.noteNetworkUnavailable()
+                }
+            }
             return
         }
 

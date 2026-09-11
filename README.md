@@ -4,6 +4,8 @@ RouteLocation is an iPhone-side location and route simulation app derived from [
 
 RouteLocation is intended for sideloading, not App Store distribution. It has no account, analytics, telemetry, cloud database, or custom backend.
 
+Latest public unsigned IPA (no GitHub login): https://github.com/peijungwu0302-Wu/StikDebug/releases/latest/download/RouteLocation-unsigned.ipa
+
 The app's development, fallback, and first-launch language is Traditional Chinese. A complete English localization can be selected from RouteLocation's Settings tab.
 
 ## Features
@@ -49,7 +51,7 @@ The pairing file contains sensitive device-trust credentials. Never post it, com
 
 Normal use does not require a Windows PC or Mac after those prerequisites are ready.
 
-## Cellular-only workflow (experimental until device-tested)
+## Cellular-only workflow
 
 RouteLocation is designed to attempt direct startup with Wi-Fi completely off:
 
@@ -60,11 +62,19 @@ RouteLocation is designed to attempt direct startup with Wi-Fi completely off:
 5. Check that the Device Tunnel and DVT session connect, then teleport or start a route.
 6. Put RouteLocation in the background and open the target app. That app's Internet traffic continues over cellular; RouteLocation does not proxy it.
 
-LocalDevVPN remains required. It supplies only the local route from RouteLocation to the device's RSD/DVT services and is separate from ordinary cellular Internet. A satisfied cellular `NWPath` is accepted exactly like Wi-Fi. On Wi-Fi/cellular handoff, RouteLocation waits briefly, probes the existing RSD session, keeps a healthy session, and rebuilds only a stale one. Location-command recovery is bounded and deterministic playback continues from monotonic elapsed time instead of restarting the route.
+LocalDevVPN remains required. It supplies only the local route from RouteLocation to the device's RSD/DVT services and is separate from ordinary cellular Internet. Actual successful location commands are stronger health evidence than an auxiliary attempt to open a new RSD/bootstrap connection. An `ECONNREFUSED` bootstrap probe therefore does not tear down a DVT session whose location commands still work. Recovery begins only after repeated real command failures, and deterministic playback continues from monotonic elapsed time instead of restarting the route.
 
-Recent iOS/device combinations may not expose the on-device service immediately under cellular-only conditions. When RouteLocation specifically sees a temporary tunnel/RSD reachability failure on cellular, Setup shows an experimental **Cellular Compatibility Mode** based on current StikJIT guidance: keep Cellular and LocalDevVPN enabled, manually enable Airplane Mode, return to RouteLocation and retry, then disable Airplane Mode and let Cellular plus LocalDevVPN return. RouteLocation cannot automate Airplane Mode and never asks for a Wi-Fi network as this fallback.
+If direct cellular bootstrap cannot expose the device service, Setup shows **Cellular Bootstrap Mode**: keep LocalDevVPN enabled, temporarily turn Cellular Data off, and return to RouteLocation. It automatically retries Pairing → Tunnel → RSD → DDI → DVT; after the first location command succeeds, Cellular Data can be restored. RouteLocation cannot automate Cellular Data and does not require Wi-Fi or Airplane Mode.
 
-This source path is implemented but has not yet been validated on the owner's physical iPhone/iPad across every iOS and carrier combination. It must not be interpreted as a universal cellular compatibility guarantee.
+This offline-bootstrap-then-cellular workflow has been physically confirmed on one iPhone, but remains dependent on iOS version, carrier and LocalDevVPN behavior and is not a universal compatibility guarantee.
+
+## Optional HealthKit step synchronization
+
+Settings → Health Sync can write route-derived steps using only new simulated distance and an editable stride length (default 0.80 m). Writes are batched at roughly 30 seconds and flushed when playback stops or the app backgrounds. Teleports generate no steps, and reconnect does not duplicate distance. HealthKit is independent: denial, failure, or unavailable entitlement never interrupts location simulation.
+
+SideStore/AltStore free provisioning may not preserve HealthKit capability. In that case RouteLocation reports that the current signature does not support HealthKit while location features continue normally. Written samples retain RouteLocation as their source and third-party apps may choose not to count them.
+
+RouteLocation uses no NextDNS, custom DNS blocking, backend server, analytics or telemetry. SideStore/AltStore performs user-side signing, installation and seven-day refresh; RouteLocation never asks for Apple ID, Anisette data, certificates or account passwords.
 
 If iLoader's **Manage Pairing File** screen does not list RouteLocation, use iLoader's **Export** action for the same iPhone or iPad. Transfer the exported pairing file to the device, then import it from **RouteLocation → 設定 → 匯入配對檔案**. Do not use another device's file, and do not rely on iLoader's app-specific **Place** list recognizing RouteLocation's bundle identifier.
 
@@ -112,7 +122,7 @@ The historical project/target/module name remains `StikDebug` to minimize risk t
 
 Open **Actions → Build RouteLocation IPA → Run workflow**. The macOS job resolves Swift packages, compiles with signing disabled, runs unit tests on an available iPhone simulator where supported, packages `Payload/RouteLocation.app`, and uploads `RouteLocation-unsigned.ipa`. The IPA contains no personal Apple ID, provisioning profile, signing certificate, or pairing file and is intended to be re-signed by SideStore/AltStore.
 
-Build artifacts require GitHub sign-in. Tagged RouteLocation releases publish the same unsigned IPA on the repository's **Releases** page, where public downloads do not require an account.
+Build artifacts require GitHub sign-in. Tagged releases publish both a versioned IPA and stable `RouteLocation-unsigned.ipa` on the public **Releases** page. The stable latest URL is https://github.com/peijungwu0302-Wu/StikDebug/releases/latest/download/RouteLocation-unsigned.ipa.
 
 ## Security and privacy
 

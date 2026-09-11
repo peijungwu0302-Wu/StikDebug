@@ -9,6 +9,7 @@ struct RouteLocationRootView: View {
     @EnvironmentObject private var model: RouteLocationModel
     @State private var selectedTab: RouteLocationTab = .map
     @AppStorage(AppLanguage.defaultsKey) private var appLanguage = AppLanguage.traditionalChinese.rawValue
+    @ObservedObject private var toast = ToastManager.shared
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -21,15 +22,23 @@ struct RouteLocationRootView: View {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
         .environment(\.locale, Locale(identifier: appLanguage))
+        .onChange(of: model.statusMessage) { _, message in
+            guard let message else { return }
+            toast.show(message, kind: .success)
+            model.statusMessage = nil
+        }
         .alert("RouteLocation", isPresented: Binding(
             get: { model.presentedError != nil },
             set: { if !$0 { model.presentedError = nil } }
         )) { Button("好") { model.presentedError = nil } } message: { Text(model.presentedError ?? "") }
         .overlay(alignment: .top) {
-            if let status = model.statusMessage {
-                Text(status).font(.footnote).padding(10).background(.regularMaterial, in: Capsule()).padding(.top, 8)
-                    .onTapGesture { model.statusMessage = nil }
+            if let message = toast.current {
+                Text(message.text).font(.footnote).padding(10)
+                    .background(.regularMaterial, in: Capsule()).padding(.top, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .onTapGesture { toast.dismiss() }
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: toast.current)
     }
 }

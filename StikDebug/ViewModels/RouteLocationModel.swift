@@ -47,6 +47,7 @@ final class RouteLocationModel: ObservableObject {
         let savedSpeed = UserDefaults.standard.double(forKey: Self.speedKey)
         speedKmh = savedSpeed > 0 ? savedSpeed : 18.6
         playback = RoutePlaybackEngine(sink: simulationService, connectionMonitor: connectionMonitor)
+        HealthStepSyncService.shared.attach(to: playback)
         Task { await loadPersistedData() }
     }
 
@@ -259,6 +260,7 @@ final class RouteLocationModel: ObservableObject {
                             BackgroundKeepAliveService.shared.release()
                             return
                         }
+                        guard LocationRecoveryPolicy.shouldRecover(consecutiveFailures: consecutiveFailures) else { continue }
                         self.connectionMonitor.reportSession(.reconnecting(attempt: consecutiveFailures))
                         markTunnelDisconnected()
                         startTunnelInBackground(showErrorUI: false)

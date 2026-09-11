@@ -73,6 +73,7 @@ final class RoutePlaybackEngine: ObservableObject {
     private var reconnectInProgress = false
     private var lastReconnectError: Error?
     private var lastReconnectWasPermanent = false
+    private var consecutiveCommandFailures = 0
     private var cancellables: Set<AnyCancellable> = []
 
     init(
@@ -119,6 +120,7 @@ final class RoutePlaybackEngine: ObservableObject {
         acquireKeepAlive()
         do {
             try await sink.setCoordinate(coordinate)
+            consecutiveCommandFailures = 0
             reportConnection(.connected)
         } catch {
             TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
@@ -162,9 +164,11 @@ final class RoutePlaybackEngine: ObservableObject {
             guard let coordinate = currentCoordinate else { return }
             do {
                 try await sink.setCoordinate(coordinate)
+                consecutiveCommandFailures = 0
                 reportConnection(.connected)
                 state = .running
             } catch {
+                consecutiveCommandFailures += 1
                 TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
                 guard PlaybackReconnectPolicy.shouldRetry(error) else {
                     state = .error(error.localizedDescription)
@@ -172,6 +176,10 @@ final class RoutePlaybackEngine: ObservableObject {
                     task = nil
                     releaseKeepAlive()
                     return
+                }
+                guard LocationRecoveryPolicy.shouldRecover(consecutiveFailures: consecutiveCommandFailures) else {
+                    state = .running
+                    continue
                 }
                 let recovered = await reconnect()
                 if !recovered {
@@ -204,6 +212,7 @@ final class RoutePlaybackEngine: ObservableObject {
             guard let currentCoordinate else { return false }
             do {
                 try await sink.setCoordinate(currentCoordinate)
+                consecutiveCommandFailures = 0
                 state = .running
                 reportConnection(.connected)
                 return true
@@ -261,17 +270,22 @@ final class RoutePlaybackEngine: ObservableObject {
         guard let currentCoordinate else { return }
         do {
             try await sink.setCoordinate(currentCoordinate)
+            consecutiveCommandFailures = 0
             reportConnection(.connected)
             state = .running
             if task == nil { task = Task { [weak self] in await self?.runLoop() } }
         } catch {
+            consecutiveCommandFailures += 1
             TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
             guard PlaybackReconnectPolicy.shouldRetry(error) else {
                 state = .error(error.localizedDescription)
                 reportConnection(.error(error.localizedDescription))
                 return
             }
-            guard !reconnectInProgress else { return }
+            guard LocationRecoveryPolicy.shouldRecover(consecutiveFailures: consecutiveCommandFailures), !reconnectInProgress else {
+                state = .running
+                return
+            }
             if await reconnect() {
                 if task == nil { task = Task { [weak self] in await self?.runLoop() } }
             } else {
