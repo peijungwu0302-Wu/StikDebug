@@ -55,7 +55,7 @@ final class DeveloperDiskImageService {
         let totalStages = Double(Self.downloadItems.count + 1)
         var completedStages = 0.0
 
-        progressHandler?(0.0, "正在移除現有 DDI 檔案…")
+        progressHandler?(0.0, L10n.text("正在移除現有 DDI 檔案…"))
         for item in Self.downloadItems {
             let fileURL = URL.documentsDirectory.appendingPathComponent(item.relativePath)
             if fileManager.fileExists(atPath: fileURL.path) {
@@ -64,32 +64,32 @@ final class DeveloperDiskImageService {
         }
 
         completedStages += 1.0
-        progressHandler?(completedStages / totalStages, "準備開始下載…")
+        progressHandler?(completedStages / totalStages, L10n.text("準備開始下載…"))
 
         for item in Self.downloadItems {
-            progressHandler?(completedStages / totalStages, "正在下載\(item.name)…")
+            progressHandler?(completedStages / totalStages, L10n.format("正在下載%@…", item.name))
             let destinationURL = URL.documentsDirectory.appendingPathComponent(item.relativePath)
             try await downloadFile(from: item.urlString, to: destinationURL)
             completedStages += 1.0
-            progressHandler?(completedStages / totalStages, "\(item.name)已準備完成")
+            progressHandler?(completedStages / totalStages, L10n.format("%@已準備完成", item.name))
         }
 
-        progressHandler?(1.0, "DDI 下載完成。")
+        progressHandler?(1.0, L10n.text("DDI 下載完成。"))
     }
 
     private static let downloadItems: [DDIDownloadItem] = [
         .init(
-            name: "建置資訊檔",
+            name: L10n.text("建置資訊檔"),
             relativePath: "DDI/BuildManifest.plist",
             urlString: "https://github.com/doronz88/DeveloperDiskImage/raw/refs/heads/main/PersonalizedImages/Xcode_iOS_DDI_Personalized/BuildManifest.plist"
         ),
         .init(
-            name: "磁碟映像",
+            name: L10n.text("磁碟映像"),
             relativePath: "DDI/Image.dmg",
             urlString: "https://github.com/doronz88/DeveloperDiskImage/raw/refs/heads/main/PersonalizedImages/Xcode_iOS_DDI_Personalized/Image.dmg"
         ),
         .init(
-            name: "信任快取",
+            name: L10n.text("信任快取"),
             relativePath: "DDI/Image.dmg.trustcache",
             urlString: "https://github.com/doronz88/DeveloperDiskImage/raw/refs/heads/main/PersonalizedImages/Xcode_iOS_DDI_Personalized/Image.dmg.trustcache"
         )
@@ -110,11 +110,11 @@ enum DDIDownloadError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidURL(let string):
-            return "下載網址無效：\(string)"
+            return L10n.format("下載網址無效：%@", string)
         case .invalidResponse:
-            return "DDI 伺服器傳回無效回應。"
+            return L10n.text("DDI 伺服器傳回無效回應。")
         case .badStatus(let statusCode):
-            return "DDI 伺服器傳回 HTTP \(statusCode)。"
+            return L10n.format("DDI 伺服器傳回 HTTP %d。", statusCode)
         }
     }
 }

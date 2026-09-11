@@ -49,8 +49,8 @@ struct RouteLocationApp: App {
         } catch {
             await MainActor.run {
                 showAlert(
-                    title: "發生錯誤",
-                    message: "下載開發者磁碟映像失敗：\(error.localizedDescription)",
+                    title: L10n.text("發生錯誤"),
+                    message: L10n.format("下載開發者磁碟映像失敗：%@", error.localizedDescription),
                     showOk: true
                 )
             }

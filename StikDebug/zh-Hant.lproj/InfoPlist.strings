@@ -1,0 +1,4 @@
+"NSLocalNetworkUsageDescription" = "RouteLocation 會透過 LocalDevVPN 使用區域網路連接這台 iPhone 或 iPad。";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "RouteLocation 會使用低精確度定位，讓進行中的路線播放能在背景持續運作。";
+"NSLocationWhenInUseUsageDescription" = "RouteLocation 會使用位置權限來定位地圖，並維持進行中的路線播放。";
+

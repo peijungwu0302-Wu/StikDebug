@@ -4,20 +4,21 @@ RouteLocation is an iPhone-side location and route simulation app derived from [
 
 RouteLocation is intended for sideloading, not App Store distribution. It has no account, analytics, telemetry, cloud database, or custom backend.
 
-The app's default interface language is Traditional Chinese.
+The app's development, fallback, and first-launch language is Traditional Chinese. A complete English localization can be selected from RouteLocation's Settings tab.
 
 ## Features
 
 - System-wide developer location simulation and immediate single-point teleport
-- Coordinate selection by map tap, Apple MapKit search, pasted text, imported file, or favorite
-- Multi-waypoint editing, reordering, coordinate editing, and open/closed routes
+- Coordinate selection by map tap, Apple MapKit search, exact coordinate entry, pasted text, imported file, or favorite
+- Multi-waypoint editing, reordering, coordinate editing, and GPX/CSV/JSON/GeoJSON/KML file import
 - Fully local Straight routes with no routing-server dependency
 - Apple `MKDirections` Navigation routes for automobile and walking geometry
 - Complete saved navigation geometry for later playback without recalculation or Internet
 - Precise decimal custom speeds, including **18.6 km/h**
 - Deterministic 0.5-second elapsed-time playback without pre-generating sample arrays
 - Once and Infinite Loop modes with continuous final-to-first closed-route geometry
-- Persistent favorite locations and individually stored saved-route JSON files
+- Persistent favorite locations, favorite routes, explicit route naming/renaming, and individually stored saved-route JSON files
+- New routes default to a closed path with Infinite Loop playback; loaded routes preserve their saved behavior
 - Best-effort background playback using StikDebug's audio/location keep-alive infrastructure
 - Network-path monitoring and bounded device-session reconnect that preserves elapsed progress
 - Setup diagnostics for pairing, tunnel, DDI, location simulation, network interface, and reachability
@@ -50,7 +51,7 @@ If iLoader's **Manage Pairing File** screen does not list RouteLocation, use iLo
 
 ## Normal use
 
-Open RouteLocation → load a favorite route → set **18.6 km/h** → select **Infinite Loop** → Start Playback → switch to another app. The Map tab shows the current simulated position and lap number when RouteLocation is foregrounded.
+Open RouteLocation → load a favorite route → set **18.6 km/h** → select **Infinite Loop** → Start Playback → switch to another app. The Map tab shows the route name, current simulated position, distance, speed, and lap number when RouteLocation is foregrounded. It also provides distinct Stop, Clear Route, and Return to Real Location actions.
 
 To teleport, tap the map or search for a place and choose **Simulate Here**. **Return to Real Location** clears the developer-simulated location.
 

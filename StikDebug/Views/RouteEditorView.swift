@@ -1,10 +1,14 @@
 import SwiftUI
+import UIKit
 
 struct RouteEditorView: View {
     @EnvironmentObject private var model: RouteLocationModel
     @State private var showPaste = false
     @State private var showImporter = false
     @State private var showSearch = false
+    @State private var showSaveSheet = false
+    @State private var renamingRoute: SavedRoute?
+    @FocusState private var speedFieldFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -21,7 +25,7 @@ struct RouteEditorView: View {
                         if model.navigationGeometryNeedsRecalculation {
                             Label("路線需要重新計算", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                         }
-                        Button(model.isResolvingNavigation ? "計算中…" : "使用 Apple 地圖計算") {
+                        Button(L10n.text(model.isResolvingNavigation ? "計算中…" : "使用 Apple 地圖計算")) {
                             Task { await model.recalculateNavigation() }
                         }.disabled(model.isResolvingNavigation || model.waypoints.count < 2)
                     }
@@ -38,9 +42,16 @@ struct RouteEditorView: View {
                     .onMove(perform: model.moveWaypoints)
                     HStack {
                         Button("貼上") { showPaste = true }
-                        Spacer(); Button("匯入檔案") { showImporter = true }
+                        Spacer(); Button("匯入檔案") {
+                            showPaste = false
+                            showSearch = false
+                            showImporter = true
+                        }
                         Spacer(); Button("搜尋") { showSearch = true }
                     }
+                    .buttonStyle(.borderless)
+                    Text("支援文字、CSV、JSON、GeoJSON、GPX 與 KML。")
+                        .font(.caption).foregroundStyle(.secondary)
                     if model.selectedCoordinate != nil { Button("加入地圖所選位置") { model.addSelectedWaypoint() } }
                     Button("全部清除", role: .destructive) { model.clearWaypoints() }.disabled(model.waypoints.isEmpty)
                 }
@@ -49,6 +60,7 @@ struct RouteEditorView: View {
                     HStack {
                         TextField("速度", value: $model.speedKmh, format: .number)
                             .keyboardType(.decimalPad)
+                            .focused($speedFieldFocused)
                         Text("km/h").foregroundStyle(.secondary)
                     }
                     Picker("模式", selection: $model.playbackMode) {
@@ -59,7 +71,7 @@ struct RouteEditorView: View {
                     Button("開始播放") { Task { await model.startPlayback() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
-                    Button("儲存路線") { Task { await model.saveCurrentRoute() } }
+                    Button("儲存路線") { speedFieldFocused = false; showSaveSheet = true }
                         .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
                 }
 
@@ -67,31 +79,150 @@ struct RouteEditorView: View {
                     if model.savedRoutes.isEmpty { Text("尚無已儲存路線。").foregroundStyle(.secondary) }
                     ForEach(model.savedRoutes) { route in
                         Button { model.loadRoute(route) } label: {
-                            VStack(alignment: .leading) {
-                                Text(route.name).foregroundStyle(.primary)
-                                Text("\(route.routeMode.title) • \(route.totalDistance.formattedRouteDistance) • \(route.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
-                                    .font(.caption).foregroundStyle(.secondary)
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(route.name).foregroundStyle(.primary)
+                                    Text("\(route.routeMode.title) • \(route.totalDistance.formattedRouteDistance) • \(route.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if route.isFavorite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
                             }
-                        }.swipeActions { Button("刪除", role: .destructive) { Task { await model.deleteRoute(route) } } }
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .leading) {
+                            Button { Task { await model.toggleFavoriteRoute(route) } } label: {
+                                Label(route.isFavorite ? "取消喜愛" : "加入喜愛", systemImage: route.isFavorite ? "star.slash" : "star")
+                            }.tint(.yellow)
+                        }
+                        .swipeActions {
+                            Button("刪除", role: .destructive) { Task { await model.deleteRoute(route) } }
+                            Button("重新命名") { renamingRoute = route }.tint(.blue)
+                        }
+                        .contextMenu {
+                            Button { Task { await model.toggleFavoriteRoute(route) } } label: {
+                                Label(route.isFavorite ? "取消喜愛" : "加入喜愛", systemImage: route.isFavorite ? "star.slash" : "star")
+                            }
+                            Button("重新命名") { renamingRoute = route }
+                        }
                     }
                 }
             }
             .navigationTitle("路線")
             .toolbar { EditButton() }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("完成") {
+                        speedFieldFocused = false
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showPaste) { CoordinatePasteView { model.replaceWaypoints($0) } }
         .sheet(isPresented: $showSearch) { LocationSearchPicker { model.addWaypoint($0) } }
+        .sheet(isPresented: $showSaveSheet) {
+            RouteSaveView(initialName: model.routeName, updatingExisting: model.hasLoadedRoute) { name, asCopy in
+                Task { await model.saveCurrentRoute(named: name, asCopy: asCopy) }
+            }
+        }
+        .sheet(item: $renamingRoute) { route in
+            RouteRenameView(route: route) { name in Task { await model.renameRoute(route, to: name) } }
+        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: CoordinateImportParser.supportedContentTypes) { result in
+            showSearch = false
             guard case .success(let url) = result else {
-                if case .failure(let error) = result { model.presentedError = error.localizedDescription }
+                if case .failure(let error) = result {
+                    let nsError = error as NSError
+                    if nsError.domain != NSCocoaErrorDomain || nsError.code != NSUserCancelledError {
+                        model.presentedError = error.localizedDescription
+                    }
+                }
                 return
             }
             Task.detached {
                 do {
                     let values = try CoordinateImportParser.parse(url: url)
-                    await MainActor.run { model.replaceWaypoints(values) }
+                    await MainActor.run {
+                        model.replaceWaypoints(values)
+                        model.statusMessage = L10n.format("已匯入 %d 個航點。", values.count)
+                    }
                 } catch { await MainActor.run { model.presentedError = error.localizedDescription } }
             }
+        }
+        .onDisappear {
+            speedFieldFocused = false
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
+    }
+}
+
+private struct RouteSaveView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    let updatingExisting: Bool
+    let onSave: (String, Bool) -> Void
+
+    init(initialName: String, updatingExisting: Bool, onSave: @escaping (String, Bool) -> Void) {
+        _name = State(initialValue: initialName)
+        self.updatingExisting = updatingExisting
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("路線名稱", text: $name)
+                if updatingExisting {
+                    Text("你可以更新目前路線，或保留原路線並另存一份。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("儲存路線")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItemGroup(placement: .confirmationAction) {
+                    if updatingExisting {
+                        Button("另存新路線") { save(asCopy: true) }
+                            .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    Button(L10n.text(updatingExisting ? "更新" : "儲存")) { save(asCopy: false) }
+                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func save(asCopy: Bool) {
+        onSave(name, asCopy)
+        dismiss()
+    }
+}
+
+private struct RouteRenameView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    let route: SavedRoute
+    let onSave: (String) -> Void
+
+    init(route: SavedRoute, onSave: @escaping (String) -> Void) {
+        self.route = route
+        self.onSave = onSave
+        _name = State(initialValue: route.name)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form { TextField("路線名稱", text: $name) }
+                .navigationTitle("重新命名路線")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("儲存") { onSave(name); dismiss() }
+                            .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
         }
     }
 }
@@ -147,11 +278,11 @@ struct CoordinatePasteView: View {
     }
 }
 
-private extension Double {
+extension Double {
     var formattedRouteDistance: String { self >= 1000 ? String(format: "%.2f km", self / 1000) : String(format: "%.0f m", self) }
 }
 
-private extension TimeInterval {
+extension TimeInterval {
     var formattedDuration: String {
         let seconds = Int(self.rounded())
         return String(format: "%02d:%02d:%02d", seconds / 3600, (seconds % 3600) / 60, seconds % 60)

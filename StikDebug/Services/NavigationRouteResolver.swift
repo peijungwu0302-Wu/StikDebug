@@ -8,10 +8,10 @@ enum NavigationRouteError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .insufficientWaypoints: return "計算導航路線前，請至少加入兩個航點。"
+        case .insufficientWaypoints: return L10n.text("計算導航路線前，請至少加入兩個航點。")
         case .failedSegment(let index, let start, let end, let underlying):
-            return String(format: "第 %d 段導航失敗（%.6f, %.6f → %.6f, %.6f）：%@", index + 1, start.latitude, start.longitude, end.latitude, end.longitude, underlying.localizedDescription)
-        case .emptySegment(let index): return "Apple 地圖沒有回傳第 \(index + 1) 段導航的路線資料。"
+            return String(format: L10n.text("第 %d 段導航失敗（%.6f, %.6f → %.6f, %.6f）：%@"), index + 1, start.latitude, start.longitude, end.latitude, end.longitude, underlying.localizedDescription)
+        case .emptySegment(let index): return L10n.format("Apple 地圖沒有回傳第 %d 段導航的路線資料。", index + 1)
         }
     }
 }

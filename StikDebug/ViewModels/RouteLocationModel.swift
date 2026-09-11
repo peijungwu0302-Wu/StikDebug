@@ -6,11 +6,11 @@ import SwiftUI
 final class RouteLocationModel: ObservableObject {
     @Published var selectedCoordinate: RouteCoordinate?
     @Published var waypoints: [RouteCoordinate] = []
-    @Published var routeName = "新路線"
+    @Published var routeName = L10n.text("新路線")
     @Published var routeMode: RouteMode = .straight { didSet { routeInputsChanged() } }
     @Published var navigationTransport: NavigationTransportMode = .automobile { didSet { routeInputsChanged() } }
-    @Published var isClosedLoop = false { didSet { routeInputsChanged() } }
-    @Published var playbackMode: RoutePlaybackMode = .once
+    @Published var isClosedLoop = true { didSet { routeInputsChanged() } }
+    @Published var playbackMode: RoutePlaybackMode = .infiniteLoop
     @Published var speedKmh: Double {
         didSet { if speedKmh.isFinite, speedKmh > 0 { UserDefaults.standard.set(speedKmh, forKey: Self.speedKey) } }
     }
@@ -21,6 +21,7 @@ final class RouteLocationModel: ObservableObject {
     @Published private(set) var isResolvingNavigation = false
     @Published var presentedError: String?
     @Published var statusMessage: String?
+    @Published private(set) var mapFocusRevision = UUID()
 
     let playback: RoutePlaybackEngine
     let connectionMonitor: ConnectionMonitor
@@ -30,6 +31,9 @@ final class RouteLocationModel: ObservableObject {
     private var teleportTask: Task<Void, Never>?
     private var loadedRouteID: UUID?
     private static let speedKey = "RouteLocation.lastSpeedKmh"
+
+    var hasLoadedRoute: Bool { loadedRouteID != nil }
+    var favoriteRoutes: [SavedRoute] { savedRoutes.filter(\.isFavorite) }
 
     init(
         persistence: RoutePersistenceStore = RoutePersistenceStore(),
@@ -56,6 +60,12 @@ final class RouteLocationModel: ObservableObject {
         let value = RouteCoordinate(coordinate)
         guard value.isValid else { return }
         selectedCoordinate = value
+    }
+
+    func focusOnMap(_ coordinate: RouteCoordinate) {
+        guard coordinate.isValid else { return }
+        selectedCoordinate = coordinate
+        mapFocusRevision = UUID()
     }
 
     func addSelectedWaypoint() {
@@ -97,6 +107,21 @@ final class RouteLocationModel: ObservableObject {
         routeInputsChanged()
     }
 
+    func clearCurrentRoute() {
+        navigationResolver.cancel()
+        playback.stop(clearMarker: true)
+        loadedRouteID = nil
+        routeName = L10n.text("新路線")
+        waypoints = []
+        routeMode = .straight
+        navigationTransport = .automobile
+        isClosedLoop = true
+        playbackMode = .infiniteLoop
+        geometry = RouteGeometry(coordinates: [])
+        navigationGeometryNeedsRecalculation = false
+        statusMessage = L10n.text("路線已清除。")
+    }
+
     func recalculateNavigation() async {
         guard !isResolvingNavigation else { return }
         isResolvingNavigation = true
@@ -105,7 +130,7 @@ final class RouteLocationModel: ObservableObject {
             let resolved = try await navigationResolver.resolve(waypoints: waypoints, closedLoop: isClosedLoop, transport: navigationTransport)
             geometry = resolved
             navigationGeometryNeedsRecalculation = false
-            statusMessage = "導航路線已計算完成，可以儲存。"
+            statusMessage = L10n.text("導航路線已計算完成，可以儲存。")
         } catch is CancellationError {
             return
         } catch {
@@ -113,25 +138,54 @@ final class RouteLocationModel: ObservableObject {
         }
     }
 
-    func saveCurrentRoute() async {
+    func saveCurrentRoute(named requestedName: String? = nil, asCopy: Bool = false) async {
         do {
             guard waypoints.count >= 2 else { throw RouteLocationError.insufficientWaypoints }
             if routeMode == .navigation, navigationGeometryNeedsRecalculation { throw RouteLocationError.navigationNeedsRecalculation }
             guard geometry.coordinates.count > 1, geometry.totalDistance > 0 else { throw RouteLocationError.emptyGeometry }
             let now = Date()
-            let existing = savedRoutes.first { $0.id == loadedRouteID }
+            let existing = asCopy ? nil : savedRoutes.first { $0.id == loadedRouteID }
+            let trimmedName = (requestedName ?? routeName).trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalName = trimmedName.isEmpty ? L10n.text("未命名路線") : trimmedName
             let route = SavedRoute(
-                id: existing?.id ?? UUID(), name: routeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未命名路線" : routeName,
+                id: existing?.id ?? UUID(), name: finalName,
                 waypoints: waypoints, resolvedGeometry: geometry, routeMode: routeMode,
                 navigationTransportMode: navigationTransport, isClosedLoop: isClosedLoop,
                 preferredSpeedKmh: speedKmh, playbackMode: playbackMode,
-                navigationGeometryNeedsRecalculation: false, createdAt: existing?.createdAt ?? now, updatedAt: now
+                navigationGeometryNeedsRecalculation: false, isFavorite: existing?.isFavorite ?? false,
+                createdAt: existing?.createdAt ?? now, updatedAt: now
             )
             try await persistence.saveRoute(route)
             loadedRouteID = route.id
+            routeName = finalName
             await reloadRoutes()
-            statusMessage = "路線已儲存，可離線播放。"
+            statusMessage = L10n.text("路線已儲存，可離線播放。")
         } catch { presentedError = error.localizedDescription }
+    }
+
+    func renameRoute(_ route: SavedRoute, to requestedName: String) async {
+        let name = requestedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { presentedError = L10n.text("請輸入路線名稱。"); return }
+        var updated = route
+        updated.name = name
+        updated.updatedAt = .now
+        do {
+            try await persistence.saveRoute(updated)
+            if loadedRouteID == updated.id { routeName = name }
+            await reloadRoutes()
+            statusMessage = L10n.text("路線已重新命名。")
+        } catch { presentedError = L10n.format("無法重新命名路線：%@", error.localizedDescription) }
+    }
+
+    func toggleFavoriteRoute(_ route: SavedRoute) async {
+        var updated = route
+        updated.isFavorite.toggle()
+        updated.updatedAt = .now
+        do {
+            try await persistence.saveRoute(updated)
+            await reloadRoutes()
+            statusMessage = L10n.text(updated.isFavorite ? "已加入喜愛路線。" : "已從喜愛路線移除。")
+        } catch { presentedError = L10n.format("無法更新喜愛路線：%@", error.localizedDescription) }
     }
 
     func loadRoute(_ route: SavedRoute) {
@@ -146,7 +200,7 @@ final class RouteLocationModel: ObservableObject {
         playbackMode = route.playbackMode
         geometry = route.resolvedGeometry
         navigationGeometryNeedsRecalculation = route.navigationGeometryNeedsRecalculation
-        statusMessage = "已載入快取路線，沒有重新計算導航。"
+        statusMessage = L10n.text("已載入快取路線，沒有重新計算導航。")
     }
 
     func deleteRoute(_ route: SavedRoute) async {
@@ -154,12 +208,12 @@ final class RouteLocationModel: ObservableObject {
             try await persistence.deleteRoute(id: route.id)
             if loadedRouteID == route.id { loadedRouteID = nil }
             await reloadRoutes()
-        } catch { presentedError = "無法刪除路線：\(error.localizedDescription)" }
+        } catch { presentedError = L10n.format("無法刪除路線：%@", error.localizedDescription) }
     }
 
     func addFavorite(name: String, note: String? = nil, coordinate: RouteCoordinate? = nil) async {
-        guard let coordinate = coordinate ?? selectedCoordinate, coordinate.isValid else { presentedError = "請先選擇有效座標。"; return }
-        let value = FavoriteLocation(name: name.isEmpty ? "喜好地點" : name, coordinate: coordinate, note: note)
+        guard let coordinate = coordinate ?? selectedCoordinate, coordinate.isValid else { presentedError = L10n.text("請先選擇有效座標。"); return }
+        let value = FavoriteLocation(name: name.isEmpty ? L10n.text("喜愛地點") : name, coordinate: coordinate, note: note)
         favorites.append(value)
         await saveFavorites()
     }
@@ -178,7 +232,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func teleport(to coordinate: RouteCoordinate? = nil) async {
-        guard let target = coordinate ?? selectedCoordinate else { presentedError = "請先選擇座標。"; return }
+        guard let target = coordinate ?? selectedCoordinate else { presentedError = L10n.text("請先選擇座標。"); return }
         playback.stop()
         teleportTask?.cancel()
         do {
@@ -215,7 +269,7 @@ final class RouteLocationModel: ObservableObject {
             try await simulationService.clearSimulatedLocation()
             BackgroundKeepAliveService.shared.release()
             connectionMonitor.reportSession(.idle)
-            statusMessage = "已恢復裝置的真實位置。"
+            statusMessage = L10n.text("已恢復裝置的真實位置。")
         } catch { presentedError = error.localizedDescription }
     }
 
@@ -235,7 +289,14 @@ final class RouteLocationModel: ObservableObject {
             async let loadedRoutes = persistence.loadRoutes()
             favorites = try await loadedFavorites
             savedRoutes = try await loadedRoutes
-        } catch { presentedError = "無法載入已儲存資料：\(error.localizedDescription)" }
+            let legacyRoutes = savedRoutes.filter { $0.name == "New Route" }
+            for route in legacyRoutes {
+                var updated = route
+                updated.name = L10n.text("新路線")
+                try await persistence.saveRoute(updated)
+            }
+            if !legacyRoutes.isEmpty { savedRoutes = try await persistence.loadRoutes() }
+        } catch { presentedError = L10n.format("無法載入已儲存資料：%@", error.localizedDescription) }
     }
 
     private func reloadRoutes() async {
@@ -247,6 +308,6 @@ final class RouteLocationModel: ObservableObject {
         do {
             try await persistence.saveFavorites(favorites)
             favorites.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        } catch { presentedError = "無法儲存喜好地點：\(error.localizedDescription)" }
+        } catch { presentedError = L10n.format("無法儲存喜愛地點：%@", error.localizedDescription) }
     }
 }

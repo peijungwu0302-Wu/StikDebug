@@ -132,6 +132,28 @@ struct StraightRouteAndPersistenceTests {
         #expect(decoded.resolvedGeometry.coordinates == points)
         #expect(decoded.navigationTransportMode == .walking)
         #expect(decoded.preferredSpeedKmh == 18.6)
+        #expect(decoded.isFavorite == false)
+    }
+
+    @Test func oldSavedRouteWithoutFavoriteFlagStillDecodes() throws {
+        let points = [RouteCoordinate(latitude: 25, longitude: 121), RouteCoordinate(latitude: 25.001, longitude: 121.001)]
+        let route = SavedRoute(name: "Legacy", waypoints: points, resolvedGeometry: RouteGeometry(coordinates: points), routeMode: .straight, isClosedLoop: true, preferredSpeedKmh: 18.6, playbackMode: .infiniteLoop)
+        let encoded = try JSONEncoder().encode(route)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "isFavorite")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(SavedRoute.self, from: legacyData)
+        #expect(decoded.name == "Legacy")
+        #expect(decoded.isFavorite == false)
+        #expect(decoded.resolvedGeometry.coordinates == points)
+    }
+
+    @Test func favoriteRouteMetadataRoundTrips() throws {
+        let points = [RouteCoordinate(latitude: 25, longitude: 121), RouteCoordinate(latitude: 25.001, longitude: 121.001)]
+        let route = SavedRoute(name: "Favorite", waypoints: points, resolvedGeometry: RouteGeometry(coordinates: points), routeMode: .straight, isClosedLoop: true, preferredSpeedKmh: 18.6, playbackMode: .infiniteLoop, isFavorite: true)
+        let decoded = try JSONDecoder().decode(SavedRoute.self, from: JSONEncoder().encode(route))
+        #expect(decoded.isFavorite)
+        #expect(decoded == route)
     }
 
     @Test func repositorySavesAndReloadsGeometry() async throws {

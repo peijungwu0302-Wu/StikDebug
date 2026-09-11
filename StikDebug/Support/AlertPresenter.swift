@@ -22,18 +22,18 @@ enum AlertPresenter {
             let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
 
             if showTryAgain {
-                alert.addAction(UIAlertAction(title: primaryButtonText ?? "再試一次", style: .default) { _ in
+                alert.addAction(UIAlertAction(title: primaryButtonText ?? L10n.text("再試一次"), style: .default) { _ in
                     completion?(true)
                 })
-                alert.addAction(UIAlertAction(title: "取消", style: .cancel) { _ in
+                alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel) { _ in
                     completion?(false)
                 })
             } else if showOk {
-                alert.addAction(UIAlertAction(title: primaryButtonText ?? "好", style: .default) { _ in
+                alert.addAction(UIAlertAction(title: primaryButtonText ?? L10n.text("好"), style: .default) { _ in
                     completion?(true)
                 })
             } else {
-                alert.addAction(UIAlertAction(title: "好", style: .default) { _ in
+                alert.addAction(UIAlertAction(title: L10n.text("好"), style: .default) { _ in
                     completion?(true)
                 })
             }

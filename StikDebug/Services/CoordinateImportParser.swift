@@ -10,17 +10,17 @@ enum CoordinateImportError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .emptyInput: return "座標內容是空的。"
-        case .invalidCoordinate(let line): return "第 \(line) 行包含不可能的緯度或經度。"
-        case .noCoordinates: return "找不到座標。請使用緯度,經度文字、CSV、GPX、KML、JSON 或 GeoJSON。"
-        case .unsupportedFile(let type): return "不支援 .\(type) 檔案格式。"
+        case .emptyInput: return L10n.text("座標內容是空的。")
+        case .invalidCoordinate(let line): return L10n.format("第 %d 行包含不可能的緯度或經度。", line)
+        case .noCoordinates: return L10n.text("找不到座標。請使用緯度,經度文字、CSV、GPX、KML、JSON 或 GeoJSON。")
+        case .unsupportedFile(let type): return L10n.format("不支援 .%@ 檔案格式。", type)
         }
     }
 }
 
 enum CoordinateImportParser {
     static let supportedContentTypes: [UTType] = [
-        .plainText, .commaSeparatedText, .tabSeparatedText, .json, .xml,
+        .item, .plainText, .commaSeparatedText, .tabSeparatedText, .json, .xml,
         UTType(filenameExtension: "gpx", conformingTo: .xml) ?? .xml,
         UTType(filenameExtension: "kml", conformingTo: .xml) ?? .xml,
         UTType(filenameExtension: "geojson", conformingTo: .json) ?? .json

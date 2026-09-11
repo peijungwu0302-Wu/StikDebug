@@ -9,11 +9,11 @@ enum PlaybackRunState: Equatable {
 
     var label: String {
         switch self {
-        case .stopped: return "已停止"
-        case .running: return "模擬中"
-        case .reconnecting: return "重新連線中"
-        case .completed: return "已完成"
-        case .error(let message): return "錯誤：\(message)"
+        case .stopped: return L10n.text("已停止")
+        case .running: return L10n.text("模擬中")
+        case .reconnecting: return L10n.text("重新連線中")
+        case .completed: return L10n.text("已完成")
+        case .error(let message): return L10n.format("錯誤：%@", message)
         }
     }
 }
@@ -131,8 +131,8 @@ final class RoutePlaybackEngine: ObservableObject {
             } catch {
                 let recovered = await reconnect()
                 if !recovered {
-                    state = .error("請連接 LocalDevVPN 後重試；播放進度已保留。")
-                    reportConnection(.error("請連接 LocalDevVPN 後重試"))
+                    state = .error(L10n.text("請連接 LocalDevVPN 後重試；播放進度已保留。"))
+                    reportConnection(.error(L10n.text("請連接 LocalDevVPN 後重試")))
                     do { try await Task.sleep(for: .seconds(10)) } catch { return }
                 }
             }
@@ -188,11 +188,11 @@ enum RouteLocationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .insufficientWaypoints: return "請至少加入兩個航點。"
-        case .emptyGeometry: return "這條路線沒有可播放的幾何資料。"
-        case .invalidSpeed: return "請輸入大於 0 km/h 的速度。"
-        case .navigationNeedsRecalculation: return "導航路線已變更，請先重新計算再儲存或播放。"
-        case .loopRequiresClosedRoute: return "無限循環需要封閉路線，才能沿著實際路徑回到起點。"
+        case .insufficientWaypoints: return L10n.text("請至少加入兩個航點。")
+        case .emptyGeometry: return L10n.text("這條路線沒有可播放的幾何資料。")
+        case .invalidSpeed: return L10n.text("請輸入大於 0 km/h 的速度。")
+        case .navigationNeedsRecalculation: return L10n.text("導航路線已變更，請先重新計算再儲存或播放。")
+        case .loopRequiresClosedRoute: return L10n.text("無限循環需要封閉路線，才能沿著實際路徑回到起點。")
         }
     }
 }

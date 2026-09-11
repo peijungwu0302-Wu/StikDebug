@@ -6,8 +6,8 @@ enum PersistenceError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .corruptedRoute(let name): return "已儲存的路線 \(name) 已損毀，無法載入。"
-        case .invalidFavorite: return "喜好地點包含無效座標。"
+        case .corruptedRoute(let name): return L10n.format("已儲存的路線 %@ 已損毀，無法載入。", name)
+        case .invalidFavorite: return L10n.text("喜愛地點包含無效座標。")
         }
     }
 }

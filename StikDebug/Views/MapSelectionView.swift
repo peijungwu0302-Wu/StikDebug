@@ -1,5 +1,6 @@
 import MapKit
 import SwiftUI
+import UIKit
 
 struct RouteMapView: View {
     @EnvironmentObject private var model: RouteLocationModel
@@ -7,7 +8,7 @@ struct RouteMapView: View {
     @State private var camera: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var showSearch = false
     @State private var showFavoriteName = false
-    @State private var showPaste = false
+    @State private var showCoordinateEntry = false
     @State private var favoriteName = ""
 
     var body: some View {
@@ -43,12 +44,15 @@ struct RouteMapView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) { controlCard }
-            .navigationTitle(ProductIdentity.name)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
-                    Button { showPaste = true } label: { Image(systemName: "doc.on.clipboard") }
+                        .accessibilityLabel("搜尋地點")
+                    Button { showCoordinateEntry = true } label: { Image(systemName: "number") }
+                        .accessibilityLabel("輸入座標")
                     Button { fitRoute() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                        .accessibilityLabel("顯示完整路線")
                         .disabled(model.geometry.coordinates.isEmpty)
                 }
             }
@@ -59,10 +63,13 @@ struct RouteMapView: View {
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
         }
-        .sheet(isPresented: $showPaste) {
-            CoordinatePasteView { coordinates in
-                if let first = coordinates.first { model.selectedCoordinate = first }
-                if coordinates.count > 1 { model.replaceWaypoints(coordinates) }
+        .sheet(isPresented: $showCoordinateEntry) {
+            CoordinateTeleportView { coordinate, simulateImmediately in
+                model.selectedCoordinate = coordinate
+                camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
+                if simulateImmediately {
+                    Task { await model.teleport(to: coordinate) }
+                }
             }
         }
         .alert("儲存喜好地點", isPresented: $showFavoriteName) {
@@ -70,13 +77,21 @@ struct RouteMapView: View {
             Button("儲存") { Task { await model.addFavorite(name: favoriteName); favoriteName = "" } }
             Button("取消", role: .cancel) {}
         }
+        .onChange(of: model.selectedCoordinate) { _, coordinate in
+            guard let coordinate else { return }
+            camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
+        }
+        .onChange(of: model.mapFocusRevision) { _, _ in
+            guard let coordinate = model.selectedCoordinate else { return }
+            camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
+        }
     }
 
     private var controlCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Circle().fill(model.connectionMonitor.tunnelConnected ? .green : .orange).frame(width: 9, height: 9)
-                Text(model.connectionMonitor.tunnelConnected ? "裝置通道已連線" : "請連接 LocalDevVPN")
+                Text(L10n.text(model.connectionMonitor.tunnelConnected ? "裝置通道已連線" : "請連接 LocalDevVPN"))
                     .font(.caption)
                 Spacer()
                 Text(playback.state.label).font(.caption).foregroundStyle(.secondary)
@@ -90,10 +105,15 @@ struct RouteMapView: View {
                     Button { showFavoriteName = true } label: { Image(systemName: "star") }.buttonStyle(.bordered)
                 }
             } else {
-                Text("點選地圖、搜尋地點、貼上座標，或選擇喜好地點。").font(.footnote).foregroundStyle(.secondary)
-                Button("貼上座標") { showPaste = true }.buttonStyle(.bordered)
+                Text("點選地圖、搜尋地點、輸入座標，或選擇喜愛地點。").font(.footnote).foregroundStyle(.secondary)
+                Button("輸入精確座標") { showCoordinateEntry = true }.buttonStyle(.bordered)
             }
             if model.geometry.totalDistance > 0 {
+                HStack {
+                    Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                    Text(playback.state == .running || playback.state == .reconnecting ? playback.routeName : model.routeName)
+                        .font(.headline).lineLimit(1)
+                }
                 HStack {
                     Label(model.geometry.totalDistance.formattedDistance, systemImage: "point.topleft.down.to.point.bottomright.curvepath")
                     Spacer()
@@ -105,6 +125,8 @@ struct RouteMapView: View {
                 HStack {
                     Button("開始路線") { Task { await model.startPlayback() } }.buttonStyle(.borderedProminent)
                     Button("停止") { playback.stop(clearMarker: false) }.buttonStyle(.bordered).tint(.red)
+                        .disabled(playback.state != .running && playback.state != .reconnecting)
+                    Button("清除路線", role: .destructive) { model.clearCurrentRoute() }.buttonStyle(.bordered)
                 }
             }
             Button("恢復真實位置", role: .destructive) { Task { await model.returnToRealLocation() } }
@@ -123,6 +145,55 @@ struct RouteMapView: View {
             rect = rect.union(MKMapRect(origin: MKMapPoint(coordinate.clCoordinate), size: .init(width: 0, height: 0)))
         }
         camera = .rect(rect.insetBy(dx: -max(rect.width * 0.15, 500), dy: -max(rect.height * 0.15, 500)))
+    }
+}
+
+private struct CoordinateTeleportView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var coordinateText = ""
+    @State private var errorMessage: String?
+    let onSubmit: (RouteCoordinate, Bool) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("座標") {
+                    TextField("25.033964,121.564468", text: $coordinateText)
+                        .keyboardType(.numbersAndPunctuation)
+                        .textInputAutocapitalization(.never)
+                    Text("依序輸入緯度與經度，使用逗號、分號或 Tab 分隔。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
+                }
+                Section("操作") {
+                    Button("在地圖預覽") { submit(simulateImmediately: false) }
+                    Button("立即模擬此座標") { submit(simulateImmediately: true) }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+            .navigationTitle("輸入精確座標")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("完成") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                }
+            }
+        }
+    }
+
+    private func submit(simulateImmediately: Bool) {
+        do {
+            guard let coordinate = try CoordinateImportParser.parseInline(coordinateText).first else {
+                throw CoordinateImportError.noCoordinates
+            }
+            onSubmit(coordinate, simulateImmediately)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
@@ -171,7 +242,7 @@ struct LocationSearchPicker: View {
             let response = try await MKLocalSearch(request: MKLocalSearch.Request(completion: completion)).start()
             guard let coordinate = response.mapItems.first?.placemark.coordinate else { return }
             onSelect(RouteCoordinate(coordinate)); dismiss()
-        } catch { errorMessage = "搜尋需要網際網路連線：\(error.localizedDescription)" }
+        } catch { errorMessage = L10n.format("搜尋需要網際網路連線：%@", error.localizedDescription) }
     }
 }
 

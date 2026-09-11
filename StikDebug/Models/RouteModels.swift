@@ -27,14 +27,14 @@ enum RouteMode: String, Codable, CaseIterable, Identifiable {
     case straight
     case navigation
     var id: String { rawValue }
-    var title: String { self == .straight ? "直線" : "導航" }
+    var title: String { L10n.text(self == .straight ? "直線" : "導航") }
 }
 
 enum NavigationTransportMode: String, Codable, CaseIterable, Identifiable {
     case automobile
     case walking
     var id: String { rawValue }
-    var title: String { self == .walking ? "步行" : "開車" }
+    var title: String { L10n.text(self == .walking ? "步行" : "開車") }
     var mapKitValue: MKDirectionsTransportType {
         self == .walking ? .walking : .automobile
     }
@@ -44,7 +44,7 @@ enum RoutePlaybackMode: String, Codable, CaseIterable, Identifiable {
     case once
     case infiniteLoop
     var id: String { rawValue }
-    var title: String { self == .once ? "單次" : "無限循環" }
+    var title: String { L10n.text(self == .once ? "單次" : "無限循環") }
 }
 
 struct RouteGeometry: Codable, Equatable {
@@ -156,6 +156,7 @@ struct SavedRoute: Codable, Identifiable, Equatable {
     var preferredSpeedKmh: Double
     var playbackMode: RoutePlaybackMode
     var navigationGeometryNeedsRecalculation: Bool
+    var isFavorite: Bool
     var createdAt: Date
     var updatedAt: Date
 
@@ -165,7 +166,8 @@ struct SavedRoute: Codable, Identifiable, Equatable {
         id: UUID = UUID(), name: String, waypoints: [RouteCoordinate], resolvedGeometry: RouteGeometry,
         routeMode: RouteMode, navigationTransportMode: NavigationTransportMode = .automobile,
         isClosedLoop: Bool, preferredSpeedKmh: Double, playbackMode: RoutePlaybackMode,
-        navigationGeometryNeedsRecalculation: Bool = false, createdAt: Date = .now, updatedAt: Date = .now
+        navigationGeometryNeedsRecalculation: Bool = false, isFavorite: Bool = false,
+        createdAt: Date = .now, updatedAt: Date = .now
     ) {
         self.id = id
         self.name = name
@@ -177,8 +179,32 @@ struct SavedRoute: Codable, Identifiable, Equatable {
         self.preferredSpeedKmh = preferredSpeedKmh
         self.playbackMode = playbackMode
         self.navigationGeometryNeedsRecalculation = navigationGeometryNeedsRecalculation
+        self.isFavorite = isFavorite
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, waypoints, resolvedGeometry, routeMode, navigationTransportMode
+        case isClosedLoop, preferredSpeedKmh, playbackMode, navigationGeometryNeedsRecalculation
+        case isFavorite, createdAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        waypoints = try container.decode([RouteCoordinate].self, forKey: .waypoints)
+        resolvedGeometry = try container.decode(RouteGeometry.self, forKey: .resolvedGeometry)
+        routeMode = try container.decode(RouteMode.self, forKey: .routeMode)
+        navigationTransportMode = try container.decodeIfPresent(NavigationTransportMode.self, forKey: .navigationTransportMode) ?? .automobile
+        isClosedLoop = try container.decode(Bool.self, forKey: .isClosedLoop)
+        preferredSpeedKmh = try container.decode(Double.self, forKey: .preferredSpeedKmh)
+        playbackMode = try container.decode(RoutePlaybackMode.self, forKey: .playbackMode)
+        navigationGeometryNeedsRecalculation = try container.decodeIfPresent(Bool.self, forKey: .navigationGeometryNeedsRecalculation) ?? false
+        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 }
 
