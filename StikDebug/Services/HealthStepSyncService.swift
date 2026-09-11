@@ -9,9 +9,11 @@ struct StepAccumulator {
     mutating func add(distanceMeters: Double, strideLengthMeters: Double, isRunning: Bool) {
         guard isRunning, distanceMeters > 0, strideLengthMeters > 0 else { return }
         let total = fractionalSteps + distanceMeters / strideLengthMeters
-        let whole = Int(total.rounded(.down))
+        // Avoid losing a whole step when binary floating-point represents an
+        // exact boundary (for example 0.25 + 0.75) just below the integer.
+        let whole = Int((total + 1e-9).rounded(.down))
         pendingSteps += whole
-        fractionalSteps = total - Double(whole)
+        fractionalSteps = max(0, total - Double(whole))
     }
 
     mutating func takePending() -> Int {
