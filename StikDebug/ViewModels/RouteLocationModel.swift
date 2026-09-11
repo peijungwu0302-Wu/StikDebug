@@ -6,7 +6,7 @@ import SwiftUI
 final class RouteLocationModel: ObservableObject {
     @Published var selectedCoordinate: RouteCoordinate?
     @Published var waypoints: [RouteCoordinate] = []
-    @Published var routeName = "New Route"
+    @Published var routeName = "新路線"
     @Published var routeMode: RouteMode = .straight { didSet { routeInputsChanged() } }
     @Published var navigationTransport: NavigationTransportMode = .automobile { didSet { routeInputsChanged() } }
     @Published var isClosedLoop = false { didSet { routeInputsChanged() } }
@@ -105,7 +105,7 @@ final class RouteLocationModel: ObservableObject {
             let resolved = try await navigationResolver.resolve(waypoints: waypoints, closedLoop: isClosedLoop, transport: navigationTransport)
             geometry = resolved
             navigationGeometryNeedsRecalculation = false
-            statusMessage = "Navigation geometry calculated and ready to save."
+            statusMessage = "導航路線已計算完成，可以儲存。"
         } catch is CancellationError {
             return
         } catch {
@@ -121,7 +121,7 @@ final class RouteLocationModel: ObservableObject {
             let now = Date()
             let existing = savedRoutes.first { $0.id == loadedRouteID }
             let route = SavedRoute(
-                id: existing?.id ?? UUID(), name: routeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Route" : routeName,
+                id: existing?.id ?? UUID(), name: routeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未命名路線" : routeName,
                 waypoints: waypoints, resolvedGeometry: geometry, routeMode: routeMode,
                 navigationTransportMode: navigationTransport, isClosedLoop: isClosedLoop,
                 preferredSpeedKmh: speedKmh, playbackMode: playbackMode,
@@ -130,7 +130,7 @@ final class RouteLocationModel: ObservableObject {
             try await persistence.saveRoute(route)
             loadedRouteID = route.id
             await reloadRoutes()
-            statusMessage = "Route saved for offline playback."
+            statusMessage = "路線已儲存，可離線播放。"
         } catch { presentedError = error.localizedDescription }
     }
 
@@ -146,7 +146,7 @@ final class RouteLocationModel: ObservableObject {
         playbackMode = route.playbackMode
         geometry = route.resolvedGeometry
         navigationGeometryNeedsRecalculation = route.navigationGeometryNeedsRecalculation
-        statusMessage = "Loaded cached geometry; no route recalculation was performed."
+        statusMessage = "已載入快取路線，沒有重新計算導航。"
     }
 
     func deleteRoute(_ route: SavedRoute) async {
@@ -154,12 +154,12 @@ final class RouteLocationModel: ObservableObject {
             try await persistence.deleteRoute(id: route.id)
             if loadedRouteID == route.id { loadedRouteID = nil }
             await reloadRoutes()
-        } catch { presentedError = "Could not delete the route: \(error.localizedDescription)" }
+        } catch { presentedError = "無法刪除路線：\(error.localizedDescription)" }
     }
 
     func addFavorite(name: String, note: String? = nil, coordinate: RouteCoordinate? = nil) async {
-        guard let coordinate = coordinate ?? selectedCoordinate, coordinate.isValid else { presentedError = "Select a valid coordinate first."; return }
-        let value = FavoriteLocation(name: name.isEmpty ? "Favorite" : name, coordinate: coordinate, note: note)
+        guard let coordinate = coordinate ?? selectedCoordinate, coordinate.isValid else { presentedError = "請先選擇有效座標。"; return }
+        let value = FavoriteLocation(name: name.isEmpty ? "喜好地點" : name, coordinate: coordinate, note: note)
         favorites.append(value)
         await saveFavorites()
     }
@@ -178,7 +178,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func teleport(to coordinate: RouteCoordinate? = nil) async {
-        guard let target = coordinate ?? selectedCoordinate else { presentedError = "Select a coordinate first."; return }
+        guard let target = coordinate ?? selectedCoordinate else { presentedError = "請先選擇座標。"; return }
         playback.stop()
         teleportTask?.cancel()
         do {
@@ -215,7 +215,7 @@ final class RouteLocationModel: ObservableObject {
             try await simulationService.clearSimulatedLocation()
             BackgroundKeepAliveService.shared.release()
             connectionMonitor.reportSession(.idle)
-            statusMessage = "Returned to the real device location."
+            statusMessage = "已恢復裝置的真實位置。"
         } catch { presentedError = error.localizedDescription }
     }
 
@@ -235,7 +235,7 @@ final class RouteLocationModel: ObservableObject {
             async let loadedRoutes = persistence.loadRoutes()
             favorites = try await loadedFavorites
             savedRoutes = try await loadedRoutes
-        } catch { presentedError = "Saved data could not be loaded: \(error.localizedDescription)" }
+        } catch { presentedError = "無法載入已儲存資料：\(error.localizedDescription)" }
     }
 
     private func reloadRoutes() async {
@@ -247,6 +247,6 @@ final class RouteLocationModel: ObservableObject {
         do {
             try await persistence.saveFavorites(favorites)
             favorites.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        } catch { presentedError = "Favorites could not be saved: \(error.localizedDescription)" }
+        } catch { presentedError = "無法儲存喜好地點：\(error.localizedDescription)" }
     }
 }

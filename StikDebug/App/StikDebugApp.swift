@@ -49,8 +49,8 @@ struct RouteLocationApp: App {
         } catch {
             await MainActor.run {
                 showAlert(
-                    title: "An Error has Occurred",
-                    message: "[Download DDI Error]: \(error.localizedDescription)",
+                    title: "發生錯誤",
+                    message: "下載開發者磁碟映像失敗：\(error.localizedDescription)",
                     showOk: true
                 )
             }

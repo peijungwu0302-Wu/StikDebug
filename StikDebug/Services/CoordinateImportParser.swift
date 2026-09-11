@@ -10,10 +10,10 @@ enum CoordinateImportError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .emptyInput: return "The coordinate input is empty."
-        case .invalidCoordinate(let line): return "Line \(line) contains an impossible latitude or longitude."
-        case .noCoordinates: return "No coordinates were found. Use latitude,longitude text, CSV, GPX, KML, JSON, or GeoJSON."
-        case .unsupportedFile(let type): return "The .\(type) file type is not supported."
+        case .emptyInput: return "座標內容是空的。"
+        case .invalidCoordinate(let line): return "第 \(line) 行包含不可能的緯度或經度。"
+        case .noCoordinates: return "找不到座標。請使用緯度,經度文字、CSV、GPX、KML、JSON 或 GeoJSON。"
+        case .unsupportedFile(let type): return "不支援 .\(type) 檔案格式。"
         }
     }
 }

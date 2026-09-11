@@ -9,7 +9,7 @@ struct FavoritesView: View {
         NavigationStack {
             List {
                 if model.favorites.isEmpty {
-                    ContentUnavailableView("No Favorites", systemImage: "star", description: Text("Select a point on the map, then save it as a favorite."))
+                    ContentUnavailableView("尚無喜好地點", systemImage: "star", description: Text("請先在地圖選擇位置，再儲存為喜好地點。"))
                 }
                 ForEach(model.favorites) { favorite in
                     VStack(alignment: .leading, spacing: 8) {
@@ -17,15 +17,15 @@ struct FavoritesView: View {
                         Text(String(format: "%.6f, %.6f", favorite.latitude, favorite.longitude)).font(.caption.monospaced()).foregroundStyle(.secondary)
                         if let note = favorite.note, !note.isEmpty { Text(note).font(.caption) }
                         HStack {
-                            Button("Simulate") { Task { await model.teleport(to: favorite.coordinate) } }
-                            Button("Show on Map") { model.selectedCoordinate = favorite.coordinate }
-                            Button("Add to Route") { model.addWaypoint(favorite.coordinate) }
+                            Button("模擬") { Task { await model.teleport(to: favorite.coordinate) } }
+                            Button("顯示於地圖") { model.selectedCoordinate = favorite.coordinate }
+                            Button("加入路線") { model.addWaypoint(favorite.coordinate) }
                             Spacer(); Button { editingFavorite = favorite } label: { Image(systemName: "pencil") }
                         }.font(.caption)
                     }.padding(.vertical, 4)
                 }.onDelete { offsets in Task { await model.deleteFavorites(at: offsets) } }
             }
-            .navigationTitle("Favorites")
+            .navigationTitle("喜好地點")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     EditButton()
@@ -58,11 +58,11 @@ private struct FavoriteEditor: View {
 
     var body: some View {
         NavigationStack {
-            Form { TextField("Name", text: $name); TextField("Note (optional)", text: $note, axis: .vertical) }
-                .navigationTitle(favorite == nil ? "New Favorite" : "Edit Favorite")
+            Form { TextField("名稱", text: $name); TextField("備註（選填）", text: $note, axis: .vertical) }
+                .navigationTitle(favorite == nil ? "新增喜好地點" : "編輯喜好地點")
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) { Button("Save") { onSave(name, note.isEmpty ? nil : note); dismiss() }.disabled(name.trimmingCharacters(in: .whitespaces).isEmpty) }
+                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) { Button("儲存") { onSave(name, note.isEmpty ? nil : note); dismiss() }.disabled(name.trimmingCharacters(in: .whitespaces).isEmpty) }
                 }
         }
     }

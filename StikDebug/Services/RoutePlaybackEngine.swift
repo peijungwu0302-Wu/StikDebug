@@ -9,11 +9,11 @@ enum PlaybackRunState: Equatable {
 
     var label: String {
         switch self {
-        case .stopped: return "Stopped"
-        case .running: return "Active"
-        case .reconnecting: return "Reconnecting"
-        case .completed: return "Completed"
-        case .error(let message): return "Error: \(message)"
+        case .stopped: return "已停止"
+        case .running: return "模擬中"
+        case .reconnecting: return "重新連線中"
+        case .completed: return "已完成"
+        case .error(let message): return "錯誤：\(message)"
         }
     }
 }
@@ -131,8 +131,8 @@ final class RoutePlaybackEngine: ObservableObject {
             } catch {
                 let recovered = await reconnect()
                 if !recovered {
-                    state = .error("Connect LocalDevVPN and retry. Playback time is preserved.")
-                    reportConnection(.error("Connect LocalDevVPN and retry"))
+                    state = .error("請連接 LocalDevVPN 後重試；播放進度已保留。")
+                    reportConnection(.error("請連接 LocalDevVPN 後重試"))
                     do { try await Task.sleep(for: .seconds(10)) } catch { return }
                 }
             }
@@ -188,11 +188,11 @@ enum RouteLocationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .insufficientWaypoints: return "Add at least two waypoints."
-        case .emptyGeometry: return "The route has no playable geometry."
-        case .invalidSpeed: return "Enter a speed greater than 0 km/h."
-        case .navigationNeedsRecalculation: return "This navigation route changed. Recalculate it before saving or playing."
-        case .loopRequiresClosedRoute: return "Infinite Loop requires a closed route so playback follows real geometry back to the start."
+        case .insufficientWaypoints: return "請至少加入兩個航點。"
+        case .emptyGeometry: return "這條路線沒有可播放的幾何資料。"
+        case .invalidSpeed: return "請輸入大於 0 km/h 的速度。"
+        case .navigationNeedsRecalculation: return "導航路線已變更，請先重新計算再儲存或播放。"
+        case .loopRequiresClosedRoute: return "無限循環需要封閉路線，才能沿著實際路徑回到起點。"
         }
     }
 }

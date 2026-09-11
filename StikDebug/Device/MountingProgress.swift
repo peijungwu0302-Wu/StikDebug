@@ -86,7 +86,7 @@ final class MountingProgress: ObservableObject {
             DispatchQueue.main.async {
                 if let mountError {
                     self.lastErrorMessage = mountError
-                    showAlert(title: "DDI Mount Failed", message: mountError, showOk: true, showTryAgain: true) { shouldTryAgain in
+                    showAlert(title: "DDI 掛載失敗", message: mountError, showOk: true, showTryAgain: true) { shouldTryAgain in
                         if shouldTryAgain {
                             self.pubMount()
                         }

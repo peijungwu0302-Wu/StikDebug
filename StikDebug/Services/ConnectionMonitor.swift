@@ -4,10 +4,10 @@ import Network
 
 enum NetworkInterfaceKind: String {
     case wifi = "Wi-Fi"
-    case cellular = "Cellular"
-    case wired = "Ethernet"
-    case other = "Other"
-    case offline = "Offline"
+    case cellular = "行動網路"
+    case wired = "乙太網路"
+    case other = "其他"
+    case offline = "離線"
 }
 
 enum DeviceSessionStatus: Equatable {
@@ -18,10 +18,10 @@ enum DeviceSessionStatus: Equatable {
 
     var label: String {
         switch self {
-        case .idle: return "Idle"
-        case .connected: return "Connected"
-        case .reconnecting(let attempt): return "Reconnecting (attempt \(attempt))"
-        case .error(let message): return "Error: \(message)"
+        case .idle: return "閒置"
+        case .connected: return "已連線"
+        case .reconnecting(let attempt): return "重新連線中（第 \(attempt) 次）"
+        case .error(let message): return "錯誤：\(message)"
         }
     }
 }

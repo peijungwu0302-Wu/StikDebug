@@ -9,26 +9,26 @@ struct RouteEditorView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Route") {
-                    TextField("Route name", text: $model.routeName)
-                    Picker("Geometry", selection: $model.routeMode) {
+                Section("路線") {
+                    TextField("路線名稱", text: $model.routeName)
+                    Picker("路線類型", selection: $model.routeMode) {
                         ForEach(RouteMode.allCases) { Text($0.title).tag($0) }
                     }.pickerStyle(.segmented)
                     if model.routeMode == .navigation {
-                        Picker("Transport", selection: $model.navigationTransport) {
+                        Picker("交通方式", selection: $model.navigationTransport) {
                             ForEach(NavigationTransportMode.allCases) { Text($0.title).tag($0) }
                         }
                         if model.navigationGeometryNeedsRecalculation {
-                            Label("Geometry needs recalculation", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                            Label("路線需要重新計算", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                         }
-                        Button(model.isResolvingNavigation ? "Calculating…" : "Calculate with Apple Maps") {
+                        Button(model.isResolvingNavigation ? "計算中…" : "使用 Apple 地圖計算") {
                             Task { await model.recalculateNavigation() }
                         }.disabled(model.isResolvingNavigation || model.waypoints.count < 2)
                     }
-                    Toggle("Closed Route", isOn: $model.isClosedLoop)
+                    Toggle("封閉路線", isOn: $model.isClosedLoop)
                 }
 
-                Section("Waypoints (\(model.waypoints.count))") {
+                Section("航點（\(model.waypoints.count)）") {
                     ForEach(Array(model.waypoints.enumerated()), id: \.offset) { index, waypoint in
                         WaypointRow(index: index, waypoint: waypoint) { latitude, longitude in
                             model.updateWaypoint(at: index, latitude: latitude, longitude: longitude)
@@ -37,34 +37,34 @@ struct RouteEditorView: View {
                     .onDelete(perform: model.removeWaypoints)
                     .onMove(perform: model.moveWaypoints)
                     HStack {
-                        Button("Paste") { showPaste = true }
-                        Spacer(); Button("Import File") { showImporter = true }
-                        Spacer(); Button("Search") { showSearch = true }
+                        Button("貼上") { showPaste = true }
+                        Spacer(); Button("匯入檔案") { showImporter = true }
+                        Spacer(); Button("搜尋") { showSearch = true }
                     }
-                    if model.selectedCoordinate != nil { Button("Add Selected Map Point") { model.addSelectedWaypoint() } }
-                    Button("Clear All", role: .destructive) { model.clearWaypoints() }.disabled(model.waypoints.isEmpty)
+                    if model.selectedCoordinate != nil { Button("加入地圖所選位置") { model.addSelectedWaypoint() } }
+                    Button("全部清除", role: .destructive) { model.clearWaypoints() }.disabled(model.waypoints.isEmpty)
                 }
 
-                Section("Playback") {
+                Section("播放") {
                     HStack {
-                        TextField("Speed", value: $model.speedKmh, format: .number)
+                        TextField("速度", value: $model.speedKmh, format: .number)
                             .keyboardType(.decimalPad)
                         Text("km/h").foregroundStyle(.secondary)
                     }
-                    Picker("Mode", selection: $model.playbackMode) {
+                    Picker("模式", selection: $model.playbackMode) {
                         ForEach(RoutePlaybackMode.allCases) { Text($0.title).tag($0) }
                     }
-                    LabeledContent("Distance", value: model.geometry.totalDistance.formattedRouteDistance)
-                    LabeledContent("Estimated lap", value: model.estimatedLapDuration?.formattedDuration ?? "—")
-                    Button("Start Playback") { Task { await model.startPlayback() } }
+                    LabeledContent("距離", value: model.geometry.totalDistance.formattedRouteDistance)
+                    LabeledContent("預估單圈時間", value: model.estimatedLapDuration?.formattedDuration ?? "—")
+                    Button("開始播放") { Task { await model.startPlayback() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
-                    Button("Save Route") { Task { await model.saveCurrentRoute() } }
+                    Button("儲存路線") { Task { await model.saveCurrentRoute() } }
                         .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
                 }
 
-                Section("Saved Routes") {
-                    if model.savedRoutes.isEmpty { Text("No saved routes yet.").foregroundStyle(.secondary) }
+                Section("已儲存路線") {
+                    if model.savedRoutes.isEmpty { Text("尚無已儲存路線。").foregroundStyle(.secondary) }
                     ForEach(model.savedRoutes) { route in
                         Button { model.loadRoute(route) } label: {
                             VStack(alignment: .leading) {
@@ -72,11 +72,11 @@ struct RouteEditorView: View {
                                 Text("\(route.routeMode.title) • \(route.totalDistance.formattedRouteDistance) • \(route.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
-                        }.swipeActions { Button("Delete", role: .destructive) { Task { await model.deleteRoute(route) } } }
+                        }.swipeActions { Button("刪除", role: .destructive) { Task { await model.deleteRoute(route) } } }
                     }
                 }
             }
-            .navigationTitle("Routes")
+            .navigationTitle("路線")
             .toolbar { EditButton() }
         }
         .sheet(isPresented: $showPaste) { CoordinatePasteView { model.replaceWaypoints($0) } }
@@ -105,11 +105,11 @@ private struct WaypointRow: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text("Waypoint \(index + 1)").font(.caption).foregroundStyle(.secondary)
+            Text("航點 \(index + 1)").font(.caption).foregroundStyle(.secondary)
             HStack {
-                TextField("Latitude", text: $latitude).keyboardType(.numbersAndPunctuation)
-                TextField("Longitude", text: $longitude).keyboardType(.numbersAndPunctuation)
-                Button("Update") { if let lat = Double(latitude), let lon = Double(longitude) { onSave(lat, lon) } }
+                TextField("緯度", text: $latitude).keyboardType(.numbersAndPunctuation)
+                TextField("經度", text: $longitude).keyboardType(.numbersAndPunctuation)
+                Button("更新") { if let lat = Double(latitude), let lon = Double(longitude) { onSave(lat, lon) } }
                     .font(.caption)
             }
         }
@@ -131,13 +131,13 @@ struct CoordinatePasteView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading) {
-                Text("One latitude,longitude pair per line. CSV headers, semicolons, and tabs are supported.").font(.footnote).foregroundStyle(.secondary)
+                Text("每行輸入一組緯度,經度；支援 CSV 標題、分號與 Tab 分隔。").font(.footnote).foregroundStyle(.secondary)
                 TextEditor(text: $text).font(.body.monospaced()).border(.quaternary)
                 if let error { Text(error).font(.footnote).foregroundStyle(.red) }
-            }.padding().navigationTitle("Paste Coordinates")
+            }.padding().navigationTitle("貼上座標")
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) { Button("Import") { parse() } }
+                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) { Button("匯入") { parse() } }
                 }
         }
     }

@@ -16,10 +16,10 @@ struct RouteMapView: View {
                 Map(position: $camera) {
                     UserAnnotation()
                     if let selected = model.selectedCoordinate {
-                        Marker("Selected", coordinate: selected.clCoordinate).tint(.blue)
+                        Marker("已選位置", coordinate: selected.clCoordinate).tint(.blue)
                     }
                     ForEach(Array(model.waypoints.enumerated()), id: \.offset) { index, waypoint in
-                        Annotation("Waypoint \(index + 1)", coordinate: waypoint.clCoordinate) {
+                        Annotation("航點 \(index + 1)", coordinate: waypoint.clCoordinate) {
                             ZStack {
                                 Circle().fill(.orange).frame(width: 28, height: 28)
                                 Text("\(index + 1)").font(.caption.bold()).foregroundStyle(.white)
@@ -31,7 +31,7 @@ struct RouteMapView: View {
                             .stroke(.blue, lineWidth: 5)
                     }
                     if let current = playback.currentCoordinate {
-                        Annotation("Simulated position", coordinate: current.clCoordinate) {
+                        Annotation("目前模擬位置", coordinate: current.clCoordinate) {
                             Image(systemName: "location.circle.fill")
                                 .font(.title).foregroundStyle(.green).background(.white, in: Circle())
                         }
@@ -65,10 +65,10 @@ struct RouteMapView: View {
                 if coordinates.count > 1 { model.replaceWaypoints(coordinates) }
             }
         }
-        .alert("Save Favorite", isPresented: $showFavoriteName) {
-            TextField("Name", text: $favoriteName)
-            Button("Save") { Task { await model.addFavorite(name: favoriteName); favoriteName = "" } }
-            Button("Cancel", role: .cancel) {}
+        .alert("儲存喜好地點", isPresented: $showFavoriteName) {
+            TextField("名稱", text: $favoriteName)
+            Button("儲存") { Task { await model.addFavorite(name: favoriteName); favoriteName = "" } }
+            Button("取消", role: .cancel) {}
         }
     }
 
@@ -76,7 +76,7 @@ struct RouteMapView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Circle().fill(model.connectionMonitor.tunnelConnected ? .green : .orange).frame(width: 9, height: 9)
-                Text(model.connectionMonitor.tunnelConnected ? "Device tunnel connected" : "Connect LocalDevVPN")
+                Text(model.connectionMonitor.tunnelConnected ? "裝置通道已連線" : "請連接 LocalDevVPN")
                     .font(.caption)
                 Spacer()
                 Text(playback.state.label).font(.caption).foregroundStyle(.secondary)
@@ -85,13 +85,13 @@ struct RouteMapView: View {
                 Text(String(format: "%.6f, %.6f", selected.latitude, selected.longitude))
                     .font(.footnote.monospaced()).textSelection(.enabled)
                 HStack {
-                    Button("Simulate Here") { Task { await model.teleport() } }.buttonStyle(.borderedProminent)
-                    Button("Add Waypoint") { model.addSelectedWaypoint() }.buttonStyle(.bordered)
+                    Button("模擬此位置") { Task { await model.teleport() } }.buttonStyle(.borderedProminent)
+                    Button("加入航點") { model.addSelectedWaypoint() }.buttonStyle(.bordered)
                     Button { showFavoriteName = true } label: { Image(systemName: "star") }.buttonStyle(.bordered)
                 }
             } else {
-                Text("Tap the map, search, paste coordinates, or choose a favorite.").font(.footnote).foregroundStyle(.secondary)
-                Button("Paste Coordinates") { showPaste = true }.buttonStyle(.bordered)
+                Text("點選地圖、搜尋地點、貼上座標，或選擇喜好地點。").font(.footnote).foregroundStyle(.secondary)
+                Button("貼上座標") { showPaste = true }.buttonStyle(.bordered)
             }
             if model.geometry.totalDistance > 0 {
                 HStack {
@@ -99,15 +99,15 @@ struct RouteMapView: View {
                     Spacer()
                     Text("\(model.speedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
                     if playback.state == .running || playback.state == .reconnecting {
-                        Text("Lap \(playback.lapNumber)").fontWeight(.semibold)
+                        Text("第 \(playback.lapNumber) 圈").fontWeight(.semibold)
                     }
                 }.font(.footnote)
                 HStack {
-                    Button("Start Route") { Task { await model.startPlayback() } }.buttonStyle(.borderedProminent)
-                    Button("Stop") { playback.stop(clearMarker: false) }.buttonStyle(.bordered).tint(.red)
+                    Button("開始路線") { Task { await model.startPlayback() } }.buttonStyle(.borderedProminent)
+                    Button("停止") { playback.stop(clearMarker: false) }.buttonStyle(.bordered).tint(.red)
                 }
             }
-            Button("Return to Real Location", role: .destructive) { Task { await model.returnToRealLocation() } }
+            Button("恢復真實位置", role: .destructive) { Task { await model.returnToRealLocation() } }
                 .font(.footnote)
         }
         .padding(14)
@@ -158,11 +158,11 @@ struct LocationSearchPicker: View {
                     }
                 }
             }
-            .overlay { if completer.results.isEmpty { ContentUnavailableView("Search Apple Maps", systemImage: "magnifyingglass", description: Text(errorMessage ?? "Enter a place or address.")) } }
-            .searchable(text: $query, prompt: "Place or address")
+            .overlay { if completer.results.isEmpty { ContentUnavailableView("搜尋 Apple 地圖", systemImage: "magnifyingglass", description: Text(errorMessage ?? "輸入地點或地址。")) } }
+            .searchable(text: $query, prompt: "地點或地址")
             .onChange(of: query) { _, value in completer.update(value) }
-            .navigationTitle("Search")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .navigationTitle("搜尋")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
         }
     }
 
@@ -171,7 +171,7 @@ struct LocationSearchPicker: View {
             let response = try await MKLocalSearch(request: MKLocalSearch.Request(completion: completion)).start()
             guard let coordinate = response.mapItems.first?.placemark.coordinate else { return }
             onSelect(RouteCoordinate(coordinate)); dismiss()
-        } catch { errorMessage = "Search requires an Internet connection: \(error.localizedDescription)" }
+        } catch { errorMessage = "搜尋需要網際網路連線：\(error.localizedDescription)" }
     }
 }
 

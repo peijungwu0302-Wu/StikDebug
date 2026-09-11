@@ -228,9 +228,10 @@
 				};
 			};
 			buildConfigurationList = DC6F1D322D94EADD0071B2B6 /* Build configuration list for PBXProject "StikDebug" */;
-			developmentRegion = en;
+			developmentRegion = "zh-Hant";
 			hasScannedForEncodings = 0;
 			knownRegions = (
+				"zh-Hant",
 				en,
 				Base,
 				es,
@@ -456,9 +457,9 @@
 				INFOPLIST_KEY_CFBundleDisplayName = RouteLocation;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "RouteLocation uses the local network to reach this iPhone through LocalDevVPN.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "RouteLocation uses low-accuracy location access to continue active route playback in the background.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "RouteLocation uses location access for map positioning and active playback keep-alive.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "RouteLocation 會透過 LocalDevVPN 使用區域網路連接這台 iPhone 或 iPad。";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "RouteLocation 會使用低精確度定位，讓進行中的路線播放能在背景持續運作。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "RouteLocation 會使用位置權限來定位地圖，並維持進行中的路線播放。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -527,9 +528,9 @@
 				INFOPLIST_KEY_CFBundleDisplayName = RouteLocation;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "RouteLocation uses the local network to reach this iPhone through LocalDevVPN.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "RouteLocation uses low-accuracy location access to continue active route playback in the background.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "RouteLocation uses location access for map positioning and active playback keep-alive.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "RouteLocation 會透過 LocalDevVPN 使用區域網路連接這台 iPhone 或 iPad。";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "RouteLocation 會使用低精確度定位，讓進行中的路線播放能在背景持續運作。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "RouteLocation 會使用位置權限來定位地圖，並維持進行中的路線播放。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

@@ -4,6 +4,8 @@ RouteLocation is an iPhone-side location and route simulation app derived from [
 
 RouteLocation is intended for sideloading, not App Store distribution. It has no account, analytics, telemetry, cloud database, or custom backend.
 
+The app's default interface language is Traditional Chinese.
+
 ## Features
 
 - System-wide developer location simulation and immediate single-point teleport
@@ -43,6 +45,8 @@ The pairing file contains sensitive device-trust credentials. Never post it, com
 6. Grant Always location access when requested for the strongest best-effort background behavior.
 
 Normal use does not require a Windows PC or Mac after those prerequisites are ready.
+
+If iLoader's **Manage Pairing File** screen does not list RouteLocation, use iLoader's **Export** action for the same iPhone or iPad. Transfer the exported pairing file to the device, then import it from **RouteLocation → 設定 → 匯入配對檔案**. Do not use another device's file, and do not rely on iLoader's app-specific **Place** list recognizing RouteLocation's bundle identifier.
 
 ## Normal use
 

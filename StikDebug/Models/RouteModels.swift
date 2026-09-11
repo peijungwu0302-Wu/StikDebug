@@ -27,14 +27,14 @@ enum RouteMode: String, Codable, CaseIterable, Identifiable {
     case straight
     case navigation
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String { self == .straight ? "直線" : "導航" }
 }
 
 enum NavigationTransportMode: String, Codable, CaseIterable, Identifiable {
     case automobile
     case walking
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String { self == .walking ? "步行" : "開車" }
     var mapKitValue: MKDirectionsTransportType {
         self == .walking ? .walking : .automobile
     }
@@ -44,7 +44,7 @@ enum RoutePlaybackMode: String, Codable, CaseIterable, Identifiable {
     case once
     case infiniteLoop
     var id: String { rawValue }
-    var title: String { self == .once ? "Once" : "Infinite Loop" }
+    var title: String { self == .once ? "單次" : "無限循環" }
 }
 
 struct RouteGeometry: Codable, Equatable {

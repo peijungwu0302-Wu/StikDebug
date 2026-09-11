@@ -12,14 +12,14 @@ enum LocationSimulationError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .invalidCoordinate: return "The coordinate is invalid."
-        case .invalidTargetAddress: return "The LocalDevVPN target address is invalid."
-        case .pairingFileMissing: return "Import a pairing file before simulating location."
-        case .pairingFileInvalid: return "The pairing file is invalid or expired."
-        case .deviceTunnelUnavailable: return "Connect LocalDevVPN and retry."
-        case .dvtSessionFailure(let code): return "The device location session failed (error \(code))."
-        case .updateFailure(let code): return "The location update failed (error \(code))."
-        case .clearFailure(let code): return "Returning to the real location failed (error \(code))."
+        case .invalidCoordinate: return "座標無效。"
+        case .invalidTargetAddress: return "LocalDevVPN 目標位址無效。"
+        case .pairingFileMissing: return "請先在「設定」匯入這台裝置的配對檔案，再模擬位置。"
+        case .pairingFileInvalid: return "配對檔案無效或已過期，請用 iLoader 重新匯出。"
+        case .deviceTunnelUnavailable: return "請連接 LocalDevVPN 後再試一次。"
+        case .dvtSessionFailure(let code): return "裝置定位工作階段失敗（錯誤 \(code)）。"
+        case .updateFailure(let code): return "更新模擬位置失敗（錯誤 \(code)）。"
+        case .clearFailure(let code): return "恢復真實位置失敗（錯誤 \(code)）。"
         }
     }
 }
