@@ -1,4 +1,4 @@
-﻿import Combine
+import Combine
 import Foundation
 import Network
 
@@ -35,7 +35,7 @@ final class LocationSessionCoordinator: ObservableObject {
         // Observe DataPathHealth
         LocationDataPathHealth.shared.$status
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] status in
+            .sink { [weak self] (status: LocationUpdateHealth) in
                 guard let self else { return }
                 if status == .healthy, let sid = self.currentSessionId {
                     if case .activeHealthy = self.sessionState { } else {

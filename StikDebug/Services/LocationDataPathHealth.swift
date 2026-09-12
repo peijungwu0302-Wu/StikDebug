@@ -31,10 +31,7 @@ final class LocationDataPathHealth: ObservableObject {
     @Published private(set) var lastTunnelHealthProbeResult: String?
     @Published private(set) var reconnectReason: String?
 
-    var status: LocationUpdateHealth {
-        if consecutiveLocationFailures == 0 { return lastSuccessfulLocationUpdate == nil ? .unknown : .healthy }
-        return LocationRecoveryPolicy.shouldRecover(consecutiveFailures: consecutiveLocationFailures) ? .failed : .degraded
-    }
+    @Published private(set) var status: LocationUpdateHealth = .unknown
 
     var hasRecentSuccess: Bool {
         guard let date = lastSuccessfulLocationUpdate else { return false }
@@ -44,12 +41,14 @@ final class LocationDataPathHealth: ObservableObject {
     func recordSuccess() {
         lastSuccessfulLocationUpdate = .now
         consecutiveLocationFailures = 0
+        status = .healthy
         reconnectReason = nil
     }
 
     func recordFailure(_ error: Error) {
         lastLocationUpdateFailure = .now
         consecutiveLocationFailures += 1
+        status = LocationRecoveryPolicy.shouldRecover(consecutiveFailures: consecutiveLocationFailures) ? .failed : .degraded
         reconnectReason = error.localizedDescription
     }
 
