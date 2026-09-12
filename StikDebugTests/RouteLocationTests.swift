@@ -710,7 +710,6 @@ struct CellularBootstrapPreflightTests {
 struct QuickRouteUXEnhancementTests {
     @Test func singlePointMapTapDropsCandidateWithoutImmediateSimulation() {
         let model = RouteLocationModel()
-        model.simulationMode = .idle
         model.selectedCoordinate = nil
 
         let testCoord = CLLocationCoordinate2D(latitude: 25.033964, longitude: 121.564468)
