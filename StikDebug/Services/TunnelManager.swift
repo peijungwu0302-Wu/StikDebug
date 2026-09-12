@@ -111,7 +111,9 @@ final class TunnelManager: ObservableObject {
             }
             self.pathChangeWorkItem?.cancel()
             let item = DispatchWorkItem { [weak self] in
-                self?.performHealthCheckOrConnect(transport: current)
+                Task { @MainActor in
+                    self?.performHealthCheckOrConnect(transport: current)
+                }
             }
             self.pathChangeWorkItem = item
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: item)
@@ -119,11 +121,9 @@ final class TunnelManager: ObservableObject {
         }
     }
 
-    func checkHealthNow(transport: NetworkTransport) {
-        runOnMain {
-            self.activeTransport = transport
-            self.performHealthCheckOrConnect(transport: transport)
-        }
+    @MainActor func checkHealthNow(transport: NetworkTransport) {
+        activeTransport = transport
+        performHealthCheckOrConnect(transport: transport)
     }
 
     func reportLocationFailure(_ error: Error, transport: NetworkTransport) {
@@ -211,7 +211,7 @@ final class TunnelManager: ObservableObject {
         ))
     }
 
-    private func performHealthCheckOrConnect(transport: NetworkTransport) {
+    @MainActor private func performHealthCheckOrConnect(transport: NetworkTransport) {
         guard transport != .offline else { return }
         if ConnectionMonitor.shared.activeDVTSessionAvailable || ConnectionMonitor.shared.locationDataPathHealthy {
             LogManager.shared.addInfoLog("Tunnel health check skipped: active DVT session / location updates healthy on \(transport.rawValue)")
