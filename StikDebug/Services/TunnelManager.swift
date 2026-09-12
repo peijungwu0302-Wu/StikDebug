@@ -75,7 +75,7 @@ final class TunnelManager: ObservableObject {
     @Published private(set) var reconnectAttempt = 0
     @Published private(set) var cellularCompatibilitySuggested = false
     @Published private(set) var bootstrapAvailable = true
-    @Published private(set) var cellularBootstrapRequested = false
+    @Published var cellularBootstrapRequested = false
 
     private let workerQueue = DispatchQueue(label: "com.routelocation.device-tunnel", qos: .userInitiated)
     private var pathChangeWorkItem: DispatchWorkItem?
