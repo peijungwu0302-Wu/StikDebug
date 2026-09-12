@@ -9,7 +9,7 @@ enum LocationSimulationError: LocalizedError, Equatable {
     case rsdDiscoveryFailure(code: Int32)
     case dvtSessionFailure(code: Int32)
     case updateFailure(code: Int32)
-    case clearFailure(code: Int32)
+    case clearFailure(code: Int32, stage: String? = nil, ffiCode: Int32? = nil, ffiSubCode: Int32? = nil, message: String? = nil)
 
     var errorDescription: String? {
         switch self {
@@ -21,7 +21,13 @@ enum LocationSimulationError: LocalizedError, Equatable {
         case .rsdDiscoveryFailure(let code): return L10n.format("無法連接 RSD 裝置服務（錯誤 %d）。", code)
         case .dvtSessionFailure(let code): return L10n.format("裝置定位工作階段失敗（錯誤 %d）。", code)
         case .updateFailure(let code): return L10n.format("更新模擬位置失敗（錯誤 %d）。", code)
-        case .clearFailure(let code): return L10n.format("恢復真實位置失敗（錯誤 %d）。", code)
+        case .clearFailure(let code, let stage, let ffiCode, let ffiSubCode, let message):
+            var details: [String] = ["代碼 \(code)"]
+            if let stage { details.append("階段: \(stage)") }
+            if let ffiCode { details.append("FFI: \(ffiCode)") }
+            if let ffiSubCode { details.append("Sub: \(ffiSubCode)") }
+            if let message, !message.isEmpty { details.append("訊息: \(message)") }
+            return L10n.format("恢復真實位置失敗（%@）。", details.joined(separator: ", "))
         }
     }
 
@@ -72,10 +78,28 @@ final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked 
     }
 
     func clearSimulatedLocation() async throws {
-        let code: Int32 = await withCheckedContinuation { continuation in
-            LocationSimulationCommandQueue.shared.async { continuation.resume(returning: clear_simulated_location()) }
+        let pairingURL = PairingFileStore.prepareURL()
+        let pairingPath = FileManager.default.fileExists(atPath: pairingURL.path) ? pairingURL.path : nil
+        let targetIP = DeviceConnectionContext.targetIPAddress
+
+        let outcome: LocationClearOutcome = await withCheckedContinuation { continuation in
+            LocationSimulationCommandQueue.shared.async {
+                continuation.resume(returning: clear_simulated_location(
+                    deviceIP: targetIP,
+                    pairingFile: pairingPath
+                ))
+            }
         }
-        guard code == 0 else { throw LocationSimulationError.clearFailure(code: code) }
+        LogManager.shared.addDebugLog("clear_simulated_location completed: status=\(outcome.statusCode), stage=\(outcome.stage), reusedSession=\(outcome.reusedActiveSession), freshBootstrap=\(outcome.attemptedFreshBootstrap)")
+        guard outcome.statusCode == 0 else {
+            throw LocationSimulationError.clearFailure(
+                code: outcome.statusCode,
+                stage: outcome.stage,
+                ffiCode: outcome.underlyingFfiCode,
+                ffiSubCode: outcome.underlyingFfiSubCode,
+                message: outcome.underlyingMessage
+            )
+        }
     }
 
     private static func error(for code: Int32) -> LocationSimulationError {

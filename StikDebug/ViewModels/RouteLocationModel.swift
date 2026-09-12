@@ -301,10 +301,15 @@ final class RouteLocationModel: ObservableObject {
     }
 
     var isCellularBootstrapPreparationNeeded: Bool {
+        let policy = ShortcutBootstrapService.shared.cellularBootstrapPolicy
+        if policy == .directOnly { return false }
         let hasActiveDVT = connectionMonitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess
         guard !hasActiveDVT else { return false }
         guard connectionMonitor.currentTransport != .wifi else { return false }
-        return connectionMonitor.currentTransport == .cellular
+        if policy == .assistedFirst {
+            return connectionMonitor.currentTransport == .cellular
+        }
+        return connectionMonitor.currentTransport == .cellular && !TunnelManager.shared.bootstrapAvailable
     }
 
     func requestBootstrapIfCellular(action: @escaping @MainActor () -> Void) {
@@ -379,6 +384,7 @@ final class RouteLocationModel: ObservableObject {
             selectedCoordinate = target
             simulationMode = .singlePoint(target)
             connectionMonitor.reportSession(.connected)
+            LocationSessionCoordinator.shared.markSessionHealthy()
             BackgroundKeepAliveService.shared.acquire()
             teleportTask = Task { [weak self] in
                 var consecutiveFailures = 0
@@ -389,8 +395,10 @@ final class RouteLocationModel: ObservableObject {
                         try await self.simulationService.setCoordinate(target)
                         consecutiveFailures = 0
                         self.connectionMonitor.reportSession(.connected)
+                        LocationSessionCoordinator.shared.markSessionHealthy()
                     } catch {
                         consecutiveFailures += 1
+                        LocationSessionCoordinator.shared.markSessionDegraded(error: error)
                         guard PlaybackReconnectPolicy.shouldRetry(error), consecutiveFailures < 4 else {
                             self.presentedError = error.localizedDescription
                             self.connectionMonitor.reportSession(.error(error.localizedDescription))
@@ -404,7 +412,10 @@ final class RouteLocationModel: ObservableObject {
                     }
                 }
             }
-        } catch { presentedError = error.localizedDescription }
+        } catch {
+            LocationSessionCoordinator.shared.markSessionDegraded(error: error)
+            presentedError = error.localizedDescription
+        }
     }
 
     func teleport(to coordinate: RouteCoordinate? = nil) async {
@@ -434,6 +445,7 @@ final class RouteLocationModel: ObservableObject {
             if routeMode == .navigation, navigationGeometryNeedsRecalculation { throw RouteLocationError.navigationNeedsRecalculation }
             try await playback.start(routeName: routeName, geometry: geometry, speedKmh: speedKmh, mode: playbackMode)
             simulationMode = .routePlaying
+            LocationSessionCoordinator.shared.markSessionHealthy()
         } catch { presentedError = error.localizedDescription }
     }
 
@@ -441,13 +453,33 @@ final class RouteLocationModel: ObservableObject {
         teleportTask?.cancel()
         teleportTask = nil
         playback.stop(clearMarker: true)
+        LocationSessionCoordinator.shared.markRestoringRealLocation()
         do {
-            try await simulationService.clearSimulatedLocation()
+            do {
+                try await simulationService.clearSimulatedLocation()
+            } catch {
+                LogManager.shared.addWarningLog("First clear simulated location attempt failed, retrying once: \(error)")
+                try await Task.sleep(for: .milliseconds(500))
+                try await simulationService.clearSimulatedLocation()
+            }
             BackgroundKeepAliveService.shared.release()
             connectionMonitor.reportSession(.idle)
+            LocationSessionCoordinator.shared.endSession()
             simulationMode = .idle
             statusMessage = L10n.text("已恢復裝置的真實位置。")
-        } catch { presentedError = error.localizedDescription }
+            DeveloperDiagnosticsStore.shared.record(
+                category: .lifecycle,
+                action: "RESTORE_REAL_LOCATION_SUCCESS",
+                details: [:]
+            )
+        } catch {
+            DeveloperDiagnosticsStore.shared.record(
+                category: .lifecycle,
+                action: "RESTORE_REAL_LOCATION_FAILURE",
+                details: ["error": error.localizedDescription]
+            )
+            presentedError = error.localizedDescription
+        }
     }
 
     private func routeInputsChanged() {

@@ -305,3 +305,133 @@ enum RouteBuilder {
         return RouteGeometry(coordinates: coordinates)
     }
 }
+
+enum CellularBootstrapPolicy: String, Codable, CaseIterable, Identifiable {
+    case auto
+    case directOnly
+    case assistedFirst
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .auto: return L10n.text("自動（建議）")
+        case .directOnly: return L10n.text("僅直接連線")
+        case .assistedFirst: return L10n.text("優先提示輔助")
+        }
+    }
+    var detail: String {
+        switch self {
+        case .auto: return L10n.text("在行動網路下先直接嘗試連線；若失敗則提示輔助模式（手動或捷徑）。")
+        case .directOnly: return L10n.text("在行動網路下始終直接嘗試連線，不自動跳出輔助切換提醒。")
+        case .assistedFirst: return L10n.text("在行動網路下啟動前，優先顯示輔助切換提示。")
+        }
+    }
+}
+
+enum CellularAssistedMode: String, Codable, CaseIterable, Identifiable {
+    case manual
+    case shortcut
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .manual: return L10n.text("手動操作")
+        case .shortcut: return L10n.text("Apple 捷徑自動化（選用）")
+        }
+    }
+    var detail: String {
+        switch self {
+        case .manual: return L10n.text("依照引導手動開關行動數據或飛航模式。")
+        case .shortcut: return L10n.text("透過 iOS 內建「捷徑」App 自動化執行快速切換。需預先建立捷徑。")
+        }
+    }
+}
+
+enum ShortcutExecutionPrompt: String, Codable, CaseIterable, Identifiable {
+    case alwaysAsk
+    case executeDirectly
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .alwaysAsk: return L10n.text("每次執行前確認")
+        case .executeDirectly: return L10n.text("直接啟動捷徑")
+        }
+    }
+}
+
+struct TransportHistoryEntry: Identifiable, Codable, Equatable {
+    let id: UUID
+    let timestamp: Date
+    let transport: String
+    let previousTransport: String
+    let isSatisfied: Bool
+    let isExpensive: Bool
+    let usesVPN: Bool
+    let action: String?
+    let reason: String?
+
+    init(
+        id: UUID = UUID(),
+        timestamp: Date = .now,
+        transport: String,
+        previousTransport: String,
+        isSatisfied: Bool,
+        isExpensive: Bool,
+        usesVPN: Bool,
+        action: String? = nil,
+        reason: String? = nil
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.transport = transport
+        self.previousTransport = previousTransport
+        self.isSatisfied = isSatisfied
+        self.isExpensive = isExpensive
+        self.usesVPN = usesVPN
+        self.action = action
+        self.reason = reason
+    }
+}
+
+enum LocationSessionState: Equatable {
+    case noSession
+    case preparing(stage: String)
+    case activeHealthy(sessionId: String)
+    case activeDegraded(sessionId: String, failureCount: Int)
+    case recovering(sessionId: String, attempt: Int)
+    case restoringRealLocation
+
+    var label: String {
+        switch self {
+        case .noSession: return L10n.text("無使用中工作階段")
+        case .preparing(let stage): return L10n.format("準備中（%@）", stage)
+        case .activeHealthy(let id): return L10n.format("已連線正常 (%@)", String(id.prefix(8)))
+        case .activeDegraded(let id, let failures): return L10n.format("連線降級 (%@, 失敗 %d 次)", String(id.prefix(8)), failures)
+        case .recovering(let id, let attempt): return L10n.format("恢復中 (%@, 第 %d 次)", String(id.prefix(8)), attempt)
+        case .restoringRealLocation: return L10n.text("正在恢復真實位置")
+        }
+    }
+
+    var isSimulating: Bool {
+        switch self {
+        case .noSession, .restoringRealLocation: return false
+        case .preparing, .activeHealthy, .activeDegraded, .recovering: return true
+        }
+    }
+
+    var sessionId: String? {
+        switch self {
+        case .noSession, .preparing, .restoringRealLocation: return nil
+        case .activeHealthy(let id), .activeDegraded(let id, _), .recovering(let id, _): return id
+        }
+    }
+}
+
+struct BootstrapTransaction: Identifiable, Codable, Equatable {
+    let id: String
+    let createdAt: Date
+    var completedAt: Date?
+    var status: String
+}
+

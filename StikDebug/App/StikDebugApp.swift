@@ -19,6 +19,10 @@ struct RouteLocationApp: App {
             MainTabView()
                 .task {
                     await downloadMissingDeveloperDiskImageFiles()
+                    LocationSessionCoordinator.shared.prewarmIfAppropriate()
+                }
+                .onOpenURL { url in
+                    _ = ShortcutBootstrapService.shared.handleCallback(url: url)
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     handleScenePhaseChange(newPhase)
@@ -28,6 +32,8 @@ struct RouteLocationApp: App {
 
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         switch newPhase {
+        case .active:
+            LocationSessionCoordinator.shared.prewarmIfAppropriate()
         case .background:
             Task { await HealthStepSyncService.shared.flush() }
         default:

@@ -29,6 +29,14 @@ The app's development, fallback, and first-launch language is Traditional Chines
 - Best-effort background playback using StikDebug's audio/location keep-alive infrastructure
 - Wi-Fi/cellular path monitoring, real RSD tunnel health checks, and bounded device-session reconnect that preserves elapsed progress
 - Comprehensive HealthKit step synchronization: Fixed Cadence (e.g. 160 spm) and Distance-based modes, 10-step write verification, and manual step additions
+- Transport-aware session lifecycle management (`LocationSessionCoordinator`) with canonical session IDs and bounded transport history
+- Automatic background pre-warming of tunnel/RSD/DDI upon app launch and foregrounding without modifying simulated coordinates
+- Cellular Bootstrap policies (Auto, Direct Only, Assisted-First) with optional Apple Shortcut automated mode-switching and manual fallbacks
+- Persistent developer diagnostics surviving app termination/relaunch with append-only JSONL files in Application Support
+- User test markers, operational decision tracking (`START_PREWARM`, `SKIP_RECOVERY`, etc.), and privacy-safe de-identified report export
+- Dynamic VPN peer observation and Direct Cellular Delay Lab (0–5000ms delay experimentation)
+- Secret 7-tap gesture unlock for Developer Diagnostics tools in Settings → About
+- Hardened Restore Real Location command with active DVT session reuse, fresh bootstrap fallback, FFI error extraction, single retry, and strict simulation state preservation (resolves Error 12)
 - Setup diagnostics for pairing, LocalDevVPN tunnel stage, DDI, DVT, location simulation, active transport, and Internet reachability
 - Sanitized on-device diagnostic reports that never include pairing credentials
 

@@ -44,11 +44,28 @@ struct BootstrapPreflightSheet: View {
                 Spacer()
 
                 VStack(spacing: 12) {
+                    if ShortcutBootstrapService.shared.isShortcutAssistedEnabled {
+                        Button {
+                            _ = ShortcutBootstrapService.shared.startShortcutBootstrapTransaction { success in
+                                if success {
+                                    dismiss()
+                                    onRecheck()
+                                }
+                            }
+                        } label: {
+                            Label(L10n.text("啟動捷徑自動切換 (Shortcut)"), systemImage: "arrow.triangle.2.circlepath")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.indigo)
+                    }
+
                     Button {
                         dismiss()
                         onRecheck()
                     } label: {
-                        Text(L10n.text("我已完成，重新檢查"))
+                        Text(L10n.text("我已手動切換，重新檢查"))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 4)
                     }
@@ -58,7 +75,7 @@ struct BootstrapPreflightSheet: View {
                         dismiss()
                         onForceConnect()
                     } label: {
-                        Text(L10n.text("仍要嘗試連線"))
+                        Text(L10n.text("仍要嘗試直接連線"))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

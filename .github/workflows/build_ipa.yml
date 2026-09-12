@@ -59,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#routelocation-v}"
-          if [[ "$GITHUB_REF" != refs/tags/routelocation-v* ]]; then VERSION="1.2.5"; fi
+          if [[ "$GITHUB_REF" != refs/tags/routelocation-v* ]]; then VERSION="1.2.6"; fi
           test -d "$RUNNER_TEMP/RouteLocation.xcarchive/Products/Applications/RouteLocation.app"
           mkdir -p "$RUNNER_TEMP/package/Payload"
           cp -R "$RUNNER_TEMP/RouteLocation.xcarchive/Products/Applications/RouteLocation.app" "$RUNNER_TEMP/package/Payload/RouteLocation.app"
@@ -87,4 +87,4 @@ jobs:
             "RouteLocation-v${GITHUB_REF_NAME#routelocation-v}-unsigned.ipa#RouteLocation-v${GITHUB_REF_NAME#routelocation-v}-unsigned.ipa" \
             RouteLocation-unsigned.ipa#RouteLocation-unsigned.ipa \
             --title "RouteLocation ${GITHUB_REF_NAME#routelocation-}" \
-            --notes "RouteLocation ${GITHUB_REF_NAME#routelocation-}: Cellular/DVT stability fix, optional HealthKit route-step synchronization, auto-dismiss notifications, and public unsigned IPA assets. Re-sign with SideStore, AltStore, or a compatible tool."
+            --notes "RouteLocation ${GITHUB_REF_NAME#routelocation-}: Transport-aware session lifecycle, automatic pre-warming, optional cellular assisted bootstrap (Shortcuts), persistent developer diagnostics (JSONL), dynamic VPN peer observation, and restore real location error 12 fix. Re-sign with SideStore, AltStore, TrollStore, or a compatible tool."

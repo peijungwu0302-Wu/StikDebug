@@ -743,3 +743,205 @@ struct QuickRouteUXEnhancementTests {
         #expect(model.geometry.coordinates.isEmpty)
     }
 }
+
+struct LocationClearOutcomeTests {
+    @Test func clearOutcomeStoresRichDiagnostics() {
+        let outcome = LocationClearOutcome(
+            statusCode: 12,
+            stage: "active-handle-clear-failed",
+            underlyingFfiCode: 61,
+            underlyingFfiSubCode: 104,
+            underlyingMessage: "Connection reset by peer",
+            reusedActiveSession: true,
+            attemptedFreshBootstrap: false
+        )
+        #expect(outcome.statusCode == 12)
+        #expect(outcome.stage == "active-handle-clear-failed")
+        #expect(outcome.underlyingFfiCode == 61)
+        #expect(outcome.underlyingFfiSubCode == 104)
+        #expect(outcome.underlyingMessage == "Connection reset by peer")
+        #expect(outcome.reusedActiveSession)
+        #expect(!outcome.attemptedFreshBootstrap)
+    }
+
+    @Test func clearFailureErrorDescriptionIncludesDiagnostics() {
+        let error = LocationSimulationError.clearFailure(
+            code: 12,
+            stage: "fresh-handle-clear-failed",
+            ffiCode: 61,
+            ffiSubCode: nil,
+            message: "ECONNREFUSED"
+        )
+        let desc = error.errorDescription ?? ""
+        #expect(desc.contains("12"))
+        #expect(desc.contains("fresh-handle-clear-failed"))
+        #expect(desc.contains("61"))
+        #expect(desc.contains("ECONNREFUSED"))
+    }
+}
+
+@MainActor
+struct LocationSessionCoordinatorTests {
+    @Test func tracksSessionLifecycleAndHandoffs() {
+        let coordinator = LocationSessionCoordinator.shared
+        let sessionId = coordinator.startNewSession()
+        #expect(coordinator.currentSessionId == sessionId)
+        #expect(coordinator.activeSessionAvailable)
+
+        coordinator.markSessionDegraded(error: LocationSimulationError.rsdDiscoveryFailure(code: 9))
+        if case .activeDegraded(let id, let failures) = coordinator.sessionState {
+            #expect(id == sessionId)
+            #expect(failures == 1)
+        } else {
+            Issue.record("Expected sessionState to be activeDegraded")
+        }
+
+        coordinator.markSessionHealthy()
+        if case .activeHealthy(let id) = coordinator.sessionState {
+            #expect(id == sessionId)
+        } else {
+            Issue.record("Expected sessionState to be activeHealthy")
+        }
+
+        coordinator.endSession()
+        #expect(coordinator.currentSessionId == nil)
+        #expect(!coordinator.activeSessionAvailable)
+    }
+
+    @Test func prewarmIsIdempotentWhenActiveOrNoPairing() {
+        let coordinator = LocationSessionCoordinator.shared
+        let initialPrewarm = coordinator.isPrewarming
+        coordinator.prewarmIfAppropriate()
+        // Should not crash and should record decision
+        #expect(coordinator.isPrewarming == initialPrewarm || !coordinator.isPrewarming)
+    }
+}
+
+@MainActor
+struct DeveloperDiagnosticsStoreTests {
+    @Test func recordsEventsAndUserMarkers() {
+        let store = DeveloperDiagnosticsStore.shared
+        store.startNewRun(name: "UnitTestRun")
+        #expect(store.activeRun != nil)
+
+        store.addUserMarker(note: "Walking across street test")
+        let hasMarker = store.recentEvents.contains { $0.action == "USER_TEST_MARKER" && $0.details["note"] == "Walking across street test" }
+        #expect(hasMarker)
+
+        store.logDecision(action: "SKIP_RECOVERY", reason: "Transport is already healthy", context: ["testKey": "testVal"])
+        let hasDecision = store.recentEvents.contains { $0.action == "SKIP_RECOVERY" && $0.details["decisionReason"] == "Transport is already healthy" }
+        #expect(hasDecision)
+    }
+
+    @Test func safeExportRedactsSensitiveData() {
+        let store = DeveloperDiagnosticsStore.shared
+        store.record(
+            category: .bootstrap,
+            action: "TEST_PAIRING_EVENT",
+            details: [
+                "pairingKey": "SUPER_SECRET_PAIRING_CERT_12345",
+                "latitude": "25.033964",
+                "searchQuery": "Taipei 101",
+                "nonSensitive": "public_data"
+            ]
+        )
+
+        guard let exportURL = store.exportSafeReport() else {
+            Issue.record("Safe report export URL should not be nil")
+            return
+        }
+
+        defer { try? FileManager.default.removeItem(at: exportURL) }
+        guard let data = try? Data(contentsOf: exportURL),
+              let jsonString = String(data: data, encoding: .utf8) else {
+            Issue.record("Failed to read exported safe report")
+            return
+        }
+
+        #expect(!jsonString.contains("SUPER_SECRET_PAIRING_CERT_12345"))
+        #expect(jsonString.contains("[REDACTED_CREDENTIAL]"))
+        #expect(!jsonString.contains("25.033964"))
+        #expect(jsonString.contains("[REDACTED_COORDINATE]"))
+        #expect(!jsonString.contains("Taipei 101"))
+        #expect(jsonString.contains("[REDACTED_SEARCH]"))
+        #expect(jsonString.contains("public_data"))
+    }
+}
+
+@MainActor
+struct ShortcutBootstrapServiceTests {
+    @Test func defaultIsDisabledAndNeverStartsURL() {
+        let service = ShortcutBootstrapService.shared
+        service.isShortcutAssistedEnabled = false
+
+        var completed = false
+        var successResult = true
+        let started = service.startShortcutBootstrapTransaction { success in
+            completed = true
+            successResult = success
+        }
+
+        #expect(!started)
+        #expect(completed)
+        #expect(!successResult)
+    }
+
+    @Test func handlesCallbackMatchingTransaction() {
+        let service = ShortcutBootstrapService.shared
+        service.isShortcutAssistedEnabled = true
+
+        var callbackSuccess = false
+        _ = service.startShortcutBootstrapTransaction { success in
+            callbackSuccess = success
+        }
+
+        guard let activeTxId = service.activeTransaction?.id else {
+            Issue.record("Active transaction should exist")
+            return
+        }
+
+        // Test mismatched transaction URL
+        let mismatchURL = URL(string: "routelocation://bootstrap-callback?tx=wrong-id&status=success")!
+        let mismatchHandled = service.handleCallback(url: mismatchURL)
+        #expect(!mismatchHandled)
+        #expect(!callbackSuccess)
+
+        // Test matching transaction URL
+        let matchURL = URL(string: "routelocation://bootstrap-callback?tx=\(activeTxId)&status=success")!
+        let matchHandled = service.handleCallback(url: matchURL)
+        #expect(matchHandled)
+        #expect(callbackSuccess)
+
+        // Reset to false for safety
+        service.isShortcutAssistedEnabled = false
+    }
+}
+
+@MainActor
+struct RestoreRealLocationFailureStateTests {
+    private final class FailingClearSink: LocationSimulationSink, @unchecked Sendable {
+        func setCoordinate(_ coordinate: RouteCoordinate) async throws {}
+        func clearSimulatedLocation() async throws {
+            throw LocationSimulationError.clearFailure(code: 12, stage: "mock-failure", message: "Mock clear failed")
+        }
+    }
+
+    @Test func doesNotTransitionToIdleWhenClearFails() async {
+        let failingSink = FailingClearSink()
+        let model = RouteLocationModel(simulationService: failingSink)
+
+        // Set to a simulated mode
+        let testCoord = RouteCoordinate(latitude: 25.0, longitude: 121.0)
+        model.selectedCoordinate = testCoord
+        // Simulate single point mode manually for test
+        model.requestSinglePointSimulation(at: testCoord)
+
+        // Attempt restore
+        await model.returnToRealLocation()
+
+        // Verify that model presented an error and did NOT reset simulationMode to idle
+        #expect(model.presentedError != nil)
+        #expect(model.simulationMode != .idle)
+    }
+}
+

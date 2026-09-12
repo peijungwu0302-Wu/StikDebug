@@ -844,18 +844,238 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     return LocationSimulationStatus.ok
 }
 
-func clear_simulated_location() -> Int32 {
-    guard let locationSimulation = LocationSimulationState.locationSimulation else {
-        return LocationSimulationStatus.locationClear
+struct LocationClearOutcome: Sendable {
+    let statusCode: Int32
+    let stage: String
+    let underlyingFfiCode: Int32?
+    let underlyingFfiSubCode: Int32?
+    let underlyingMessage: String?
+    let reusedActiveSession: Bool
+    let attemptedFreshBootstrap: Bool
+
+    var isSuccess: Bool { statusCode == LocationSimulationStatus.ok }
+}
+
+func clear_simulated_location(deviceIP: String? = nil, pairingFile: String? = nil) -> LocationClearOutcome {
+    // 1. First attempt: Reuse existing active LocationSimulation handle if present
+    if let locationSimulation = LocationSimulationState.locationSimulation {
+        let ffiError = location_simulation_clear(locationSimulation)
+        LocationSimulationState.cleanup()
+
+        if let ffiError {
+            let code = ffiError.pointee.code
+            let subCode = ffiError.pointee.sub_code
+            let msg = ffiError.pointee.message != nil ? String(cString: ffiError.pointee.message) : nil
+            idevice_error_free(ffiError)
+
+            LogManager.shared.addWarningLog(
+                "Active handle clear failed: code=\(code), subCode=\(subCode), msg=\(msg ?? "none")"
+            )
+
+            // If we have target parameters, fall through to attempt fresh connection
+            if deviceIP == nil || pairingFile == nil {
+                return LocationClearOutcome(
+                    statusCode: LocationSimulationStatus.locationClear,
+                    stage: "active-handle-clear-failed",
+                    underlyingFfiCode: code,
+                    underlyingFfiSubCode: subCode,
+                    underlyingMessage: msg,
+                    reusedActiveSession: true,
+                    attemptedFreshBootstrap: false
+                )
+            }
+        } else {
+            return LocationClearOutcome(
+                statusCode: LocationSimulationStatus.ok,
+                stage: "active-handle-clear-success",
+                underlyingFfiCode: nil,
+                underlyingFfiSubCode: nil,
+                underlyingMessage: nil,
+                reusedActiveSession: true,
+                attemptedFreshBootstrap: false
+            )
+        }
     }
 
-    let ffiError = location_simulation_clear(locationSimulation)
+    // 2. Second attempt: If active handle was nil or failed, and parameters provided, bootstrap fresh connection
+    guard let deviceIP, let pairingFile, !deviceIP.isEmpty, !pairingFile.isEmpty else {
+        return LocationClearOutcome(
+            statusCode: LocationSimulationStatus.locationClear,
+            stage: "no-active-session-and-no-bootstrap-params",
+            underlyingFfiCode: nil,
+            underlyingFfiSubCode: nil,
+            underlyingMessage: "No active DVT session handle in memory and bootstrap parameters missing",
+            reusedActiveSession: false,
+            attemptedFreshBootstrap: false
+        )
+    }
+
+    var address = sockaddr_in()
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = in_port_t(49152).bigEndian
+
+    let inetResult = deviceIP.withCString { inet_pton(AF_INET, $0, &address.sin_addr) }
+    guard inetResult == 1 else {
+        return LocationClearOutcome(
+            statusCode: LocationSimulationStatus.invalidIP,
+            stage: "bootstrap-invalid-ip",
+            underlyingFfiCode: nil,
+            underlyingFfiSubCode: nil,
+            underlyingMessage: "Invalid target IP address: \(deviceIP)",
+            reusedActiveSession: false,
+            attemptedFreshBootstrap: true
+        )
+    }
+
+    var pairingHandle: OpaquePointer?
+    let pairingError = pairingFile.withCString { rp_pairing_file_read($0, &pairingHandle) }
+    if let pairingError {
+        let msg = pairingError.pointee.message != nil ? String(cString: pairingError.pointee.message) : nil
+        let c = pairingError.pointee.code
+        idevice_error_free(pairingError)
+        return LocationClearOutcome(
+            statusCode: LocationSimulationStatus.pairingRead,
+            stage: "bootstrap-pairing-read",
+            underlyingFfiCode: c,
+            underlyingFfiSubCode: nil,
+            underlyingMessage: msg,
+            reusedActiveSession: false,
+            attemptedFreshBootstrap: true
+        )
+    }
+
+    guard let pairingHandle else {
+        return LocationClearOutcome(
+            statusCode: LocationSimulationStatus.pairingRead,
+            stage: "bootstrap-pairing-handle-null",
+            underlyingFfiCode: nil,
+            underlyingFfiSubCode: nil,
+            underlyingMessage: "Pairing file handle was null",
+            reusedActiveSession: false,
+            attemptedFreshBootstrap: true
+        )
+    }
+
+    defer { rp_pairing_file_free(pairingHandle) }
+
+    let providerError = withUnsafePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            tunnel_create_rppairing(
+                $0,
+                socklen_t(MemoryLayout<sockaddr_in>.stride),
+                "StikDebugLocation",
+                pairingHandle,
+                nil,
+                nil,
+                &LocationSimulationState.adapter,
+                &LocationSimulationState.handshake
+            )
+        }
+    }
+
+    if let providerError {
+        let msg = providerError.pointee.message != nil ? String(cString: providerError.pointee.message) : nil
+        let c = providerError.pointee.code
+        idevice_error_free(providerError)
+        LocationSimulationState.cleanup()
+        return LocationClearOutcome(
+            statusCode: LocationSimulationStatus.providerCreate,
+            stage: "bootstrap-tunnel-create",
+            underlyingFfiCode: c,
+            underlyingFfiSubCode: nil,
+            underlyingMessage: msg,
+            reusedActiveSession: false,
+            attemptedFreshBootstrap: true
+        )
+    }
+
+    let remoteServerError = remote_server_connect_rsd(
+        LocationSimulationState.adapter,
+        LocationSimulationState.handshake,
+        &LocationSimulationState.remoteServer
+    )
+    if let remoteServerError {
+        let msg = remoteServerError.pointee.message != nil ? String(cString: remoteServerError.pointee.message) : nil
+        let c = remoteServerError.pointee.code
+        idevice_error_free(remoteServerError)
+        LocationSimulationState.cleanup()
+        return LocationClearOutcome(
+            statusCode: LocationSimulationStatus.remoteServer,
+            stage: "bootstrap-rsd-connect",
+            underlyingFfiCode: c,
+            underlyingFfiSubCode: nil,
+            underlyingMessage: msg,
+            reusedActiveSession: false,
+            attemptedFreshBootstrap: true
+        )
+    }
+
+    let locationSimulationError = location_simulation_new(
+        LocationSimulationState.remoteServer,
+        &LocationSimulationState.locationSimulation
+    )
+    if let locationSimulationError {
+        let msg = locationSimulationError.pointee.message != nil ? String(cString: locationSimulationError.pointee.message) : nil
+        let c = locationSimulationError.pointee.code
+        idevice_error_free(locationSimulationError)
+        LocationSimulationState.cleanup()
+        return LocationClearOutcome(
+            statusCode: LocationSimulationStatus.locationSimulation,
+            stage: "bootstrap-service-new",
+            underlyingFfiCode: c,
+            underlyingFfiSubCode: nil,
+            underlyingMessage: msg,
+            reusedActiveSession: false,
+            attemptedFreshBootstrap: true
+        )
+    }
+
+    LocationSimulationState.remoteServer = nil
+
+    guard let newLocationSim = LocationSimulationState.locationSimulation else {
+        LocationSimulationState.cleanup()
+        return LocationClearOutcome(
+            statusCode: LocationSimulationStatus.locationSimulation,
+            stage: "bootstrap-service-null",
+            underlyingFfiCode: nil,
+            underlyingFfiSubCode: nil,
+            underlyingMessage: "Location simulation handle null after creation",
+            reusedActiveSession: false,
+            attemptedFreshBootstrap: true
+        )
+    }
+
+    let clearError = location_simulation_clear(newLocationSim)
     LocationSimulationState.cleanup()
 
-    if let ffiError {
-        idevice_error_free(ffiError)
-        return LocationSimulationStatus.locationClear
+    if let clearError {
+        let msg = clearError.pointee.message != nil ? String(cString: clearError.pointee.message) : nil
+        let c = clearError.pointee.code
+        let sc = clearError.pointee.sub_code
+        idevice_error_free(clearError)
+        return LocationClearOutcome(
+            statusCode: LocationSimulationStatus.locationClear,
+            stage: "fresh-handle-clear-failed",
+            underlyingFfiCode: c,
+            underlyingFfiSubCode: sc,
+            underlyingMessage: msg,
+            reusedActiveSession: false,
+            attemptedFreshBootstrap: true
+        )
     }
 
-    return LocationSimulationStatus.ok
+    return LocationClearOutcome(
+        statusCode: LocationSimulationStatus.ok,
+        stage: "fresh-handle-clear-success",
+        underlyingFfiCode: nil,
+        underlyingFfiSubCode: nil,
+        underlyingMessage: nil,
+        reusedActiveSession: false,
+        attemptedFreshBootstrap: true
+    )
 }
+
+func clear_simulated_location() -> Int32 {
+    clear_simulated_location(deviceIP: nil, pairingFile: nil).statusCode
+}
+

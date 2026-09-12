@@ -9,12 +9,15 @@ struct SetupDiagnosticsView: View {
     @ObservedObject private var backgroundLocation = BackgroundLocationManager.shared
     @ObservedObject private var dataPath = LocationDataPathHealth.shared
     @ObservedObject private var healthSteps = HealthStepSyncService.shared
+    @ObservedObject private var diagnosticsStore = DeveloperDiagnosticsStore.shared
+    @ObservedObject private var shortcutService = ShortcutBootstrapService.shared
     @State private var showPairingImporter = false
     @State private var pairingState: PairingDiagnosticState = .checking
     @State private var diagnosticInfo: DiagnosticInfo?
     @State private var showManualStepEntry = false
     @State private var showManualStepConfirm = false
     @State private var manualStepText = "500"
+    @State private var versionTapCount = 0
     @AppStorage(AppLanguage.defaultsKey) private var appLanguage = AppLanguage.traditionalChinese.rawValue
 
     private var pairingPresent: Bool { FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path) }
@@ -166,10 +169,85 @@ struct SetupDiagnosticsView: View {
                     Text("只在路線實際播放時按新增時間或距離批次寫入；單點傳送不會增加步數。HealthKit 權限或錯誤不會影響定位模擬。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+                Section("行動網路啟動策略") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Picker("啟動策略", selection: $shortcutService.cellularBootstrapPolicy) {
+                            ForEach(CellularBootstrapPolicy.allCases) { policy in
+                                Text(policy.title).tag(policy)
+                            }
+                        }
+                        Text(shortcutService.cellularBootstrapPolicy.detail)
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+
+                    Toggle("Apple 捷徑自動切換輔助（選用）", isOn: $shortcutService.isShortcutAssistedEnabled)
+
+                    if shortcutService.isShortcutAssistedEnabled {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Picker("捷徑執行提示", selection: $shortcutService.shortcutPromptMode) {
+                                ForEach(ShortcutExecutionPrompt.allCases) { prompt in
+                                    Text(prompt.title).tag(prompt)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        HStack {
+                            Text("捷徑名稱")
+                            Spacer()
+                            TextField("RouteLocationBootstrap", text: $shortcutService.shortcutName)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 180)
+                        }
+
+                        Button("複製捷徑設定步驟教學") {
+                            UIPasteboard.general.string = ShortcutBootstrapService.shortcutSetupGuide
+                            ToastManager.shared.show(L10n.text("已複製教學到剪貼簿"), kind: .success)
+                        }
+
+                        Button("測試執行捷徑") {
+                            let started = shortcutService.startShortcutBootstrapTransaction { success in
+                                if success {
+                                    ToastManager.shared.show(L10n.text("捷徑測試成功！"), kind: .success)
+                                } else {
+                                    ToastManager.shared.show(L10n.text("捷徑測試失敗或逾時"), kind: .error)
+                                }
+                            }
+                            if !started {
+                                ToastManager.shared.show(L10n.text("無法啟動捷徑，請檢查名稱是否相符"), kind: .error)
+                            }
+                        }
+
+                        Text("捷徑為完全選用功能；關閉時絕不呼叫 shortcuts://。無論是否開啟捷徑，所有流程均提供手動完成選項。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
                 Section("安全診斷") {
                     Button("複製安全診斷報告") { copySanitizedDiagnosticReport() }
                     Text("報告只包含狀態、傳輸類型、錯誤分類與目標位址；不包含配對檔內容、私鑰、憑證或帳號資料。")
                         .font(.footnote).foregroundStyle(.secondary)
+                }
+                if diagnosticsStore.isDeveloperModeUnlocked {
+                    Section("開發者診斷工具") {
+                        NavigationLink {
+                            DeveloperDiagnosticsView()
+                        } label: {
+                            Label("開發者診斷 (Developer Diagnostics)", systemImage: "stethoscope")
+                        }
+
+                        NavigationLink {
+                            CellularBootstrapLabView()
+                        } label: {
+                            Label("行動網路實驗室 (Cellular Lab)", systemImage: "antenna.radiowaves.left.and.right")
+                        }
+
+                        Button(role: .destructive) {
+                            diagnosticsStore.lockDeveloperMode()
+                            ToastManager.shared.show(L10n.text("已關閉開發者模式"), kind: .info)
+                        } label: {
+                            Text("關閉開發者模式")
+                        }
+                    }
                 }
                 Section("背景播放") {
                     Text(backgroundGuidance).font(.footnote)
@@ -188,6 +266,37 @@ struct SetupDiagnosticsView: View {
                 Section("隱私權") {
                     Text("沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求 MapKit 圖磚、搜尋及導航計算時才會連接 Apple 服務。")
                         .font(.footnote)
+                }
+                Section("關於 RouteLocation") {
+                    HStack {
+                        Text("版本")
+                        Spacer()
+                        Text("RouteLocation 1.2.6")
+                            .foregroundStyle(.secondary)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                versionTapCount += 1
+                                if versionTapCount >= 7 {
+                                    versionTapCount = 0
+                                    diagnosticsStore.isDeveloperModeUnlocked.toggle()
+                                    let generator = UINotificationFeedbackGenerator()
+                                    generator.notificationOccurred(.success)
+                                    ToastManager.shared.show(
+                                        diagnosticsStore.isDeveloperModeUnlocked
+                                            ? L10n.text("已解鎖開發者診斷模式 🛠️")
+                                            : L10n.text("已鎖定開發者診斷模式"),
+                                        kind: .success
+                                    )
+                                }
+                            }
+                    }
+                    if diagnosticsStore.isDeveloperModeUnlocked {
+                        HStack {
+                            Text("開發者模式")
+                            Spacer()
+                            Text("已啟用").foregroundStyle(.green).bold()
+                        }
+                    }
                 }
             }
             .navigationTitle("設定與診斷")
