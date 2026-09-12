@@ -60,7 +60,7 @@ enum HealthAuthorizationState: Equatable {
     }
 }
 
-struct HealthKitLastError: Equatable {
+struct HealthKitLastError: Error, Equatable {
     let domain: String
     let code: Int
     let localizedDescription: String
