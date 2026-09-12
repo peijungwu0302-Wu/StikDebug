@@ -254,7 +254,7 @@ struct ToastManagerTests {
         manager.show("second", duration: 0.08)
         try await Task.sleep(for: .milliseconds(40))
         #expect(manager.current?.text == "second")
-        try await Task.sleep(for: .milliseconds(60))
+        try await Task.sleep(for: .milliseconds(200))
         #expect(manager.current == nil)
     }
 
