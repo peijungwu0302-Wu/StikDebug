@@ -36,7 +36,7 @@ struct RouteLocationRootView: View {
                 model.cancelModeSwitch()
             }
             Button(L10n.text("切換到單點")) {
-                model.confirmModeSwitchToSinglePoint()
+                Task { await model.confirmModeSwitchToSinglePoint() }
             }
         } message: {
             Text(L10n.text("切換到單點定位會停止目前路線，\n但不會刪除路線。"))

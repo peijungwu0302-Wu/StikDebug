@@ -511,8 +511,7 @@ struct SimulationStateMachineTests {
         #expect(model.simulationMode == .routePlaying)
         #expect(model.playback.state == .running)
 
-        model.confirmModeSwitchToSinglePoint()
-        try await Task.sleep(for: .milliseconds(50))
+        await model.confirmModeSwitchToSinglePoint()
         #expect(model.showModeSwitchAlert == false)
         #expect(model.simulationMode == .singlePoint(target))
         #expect(model.playback.state == .stopped)

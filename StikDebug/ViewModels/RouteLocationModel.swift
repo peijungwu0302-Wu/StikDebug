@@ -313,11 +313,11 @@ final class RouteLocationModel: ObservableObject {
         Task { await executeTeleport(to: target) }
     }
 
-    func confirmModeSwitchToSinglePoint() {
+    func confirmModeSwitchToSinglePoint() async {
         guard let target = pendingSinglePointCoordinate else { return }
         pendingSinglePointCoordinate = nil
         showModeSwitchAlert = false
-        Task { await executeTeleport(to: target) }
+        await executeTeleport(to: target)
     }
 
     func cancelModeSwitch() {
