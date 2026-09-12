@@ -205,6 +205,44 @@ struct HealthStepCalculationTests {
         accumulator.restorePending(1)
         #expect(accumulator.takePending() == 1)
     }
+
+    @Test func fixedCadenceCalculationTenMinutesEquals1600Steps() {
+        var accumulator = StepAccumulator()
+        accumulator.addCadence(elapsedSeconds: 600, cadencePerMinute: 160, isRunning: true)
+        #expect(accumulator.takePending() == 1600)
+    }
+
+    @Test func fixedCadencePreservesFractionalRemainder() {
+        var accumulator = StepAccumulator()
+        // 160 steps/min = 2.6666667 steps/sec. 0.5s = 1.333333 steps.
+        accumulator.addCadence(elapsedSeconds: 0.5, cadencePerMinute: 160, isRunning: true)
+        #expect(accumulator.takePending() == 1)
+        accumulator.addCadence(elapsedSeconds: 0.5, cadencePerMinute: 160, isRunning: true)
+        #expect(accumulator.takePending() == 1)
+        accumulator.addCadence(elapsedSeconds: 0.5, cadencePerMinute: 160, isRunning: true)
+        #expect(accumulator.takePending() == 2)
+    }
+
+    @Test func pausedRouteOrSinglePointGeneratesNoAutomaticSteps() {
+        var accumulator = StepAccumulator()
+        accumulator.addCadence(elapsedSeconds: 600, cadencePerMinute: 160, isRunning: false)
+        accumulator.addDistance(distanceMeters: 500, strideLengthMeters: 0.8, isRunning: false)
+        #expect(accumulator.takePending() == 0)
+    }
+
+    @MainActor @Test func manualAddStepsRejectsZeroAndNegative() async {
+        let service = HealthStepSyncService.shared
+        let zeroResult = await service.manualAddSteps(0)
+        let negativeResult = await service.manualAddSteps(-100)
+        switch zeroResult {
+        case .success: Issue.record("0 steps should be rejected")
+        case .failure(let err): #expect(err.code == -2)
+        }
+        switch negativeResult {
+        case .success: Issue.record("Negative steps should be rejected")
+        case .failure(let err): #expect(err.code == -2)
+        }
+    }
 }
 
 @MainActor
@@ -296,7 +334,9 @@ private actor FakeLocationSink: LocationSimulationSink {
         if failCalls.contains(calls) { throw LocationSimulationError.deviceTunnelUnavailable }
         updates.append(coordinate)
     }
-    func clearSimulatedLocation() async throws {}
+    private var clearCalls = 0
+    func clearSimulatedLocation() async throws { clearCalls += 1 }
+    func clearCallCount() -> Int { clearCalls }
     func configureFailures(_ calls: Set<Int>) { failCalls = calls }
     func configureErrors(_ errors: [Int: LocationSimulationError]) { errorsByCall = errors }
     func callCount() -> Int { calls }
@@ -394,5 +434,213 @@ struct PlaybackEngineTests {
         #expect(!PlaybackReconnectPolicy.shouldRetry(LocationSimulationError.invalidTargetAddress))
         #expect(PlaybackReconnectPolicy.shouldRetry(LocationSimulationError.rsdDiscoveryFailure(code: 9)))
         #expect(PlaybackReconnectPolicy.shouldRetry(LocationSimulationError.dvtSessionFailure(code: 10)))
+    }
+}
+
+@MainActor
+struct SimulationStateMachineTests {
+    @Test func singlePointToRouteStartsNormallyWithoutClearingRealLocation() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let target = RouteCoordinate(latitude: 25.03, longitude: 121.56)
+        await model.executeTeleport(to: target)
+        #expect(model.simulationMode == .singlePoint(target))
+        let initialClearCalls = await sink.clearCallCount()
+        #expect(initialClearCalls == 0)
+
+        let points = [
+            RouteCoordinate(latitude: 25.0, longitude: 121.0),
+            RouteCoordinate(latitude: 25.1, longitude: 121.1)
+        ]
+        model.replaceWaypoints(points)
+        await model.startPlayback()
+
+        #expect(model.simulationMode == .routePlaying)
+        #expect(model.playback.state == .running)
+        let afterRouteClearCalls = await sink.clearCallCount()
+        #expect(afterRouteClearCalls == 0)
+        model.playback.stop()
+    }
+
+    @Test func routeToSinglePointStopsPlaybackWithoutClearingRealLocation() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let points = [
+            RouteCoordinate(latitude: 25.0, longitude: 121.0),
+            RouteCoordinate(latitude: 25.1, longitude: 121.1)
+        ]
+        model.replaceWaypoints(points)
+        await model.startPlayback()
+        #expect(model.simulationMode == .routePlaying)
+
+        let target = RouteCoordinate(latitude: 25.05, longitude: 121.55)
+        await model.executeTeleport(to: target)
+
+        #expect(model.simulationMode == .singlePoint(target))
+        #expect(model.playback.state == .stopped)
+        let clearCalls = await sink.clearCallCount()
+        #expect(clearCalls == 0)
+    }
+
+    @Test func routePlayingToSinglePointWithAskFirstPromptsConfirmation() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+        model.modeSwitchConfirmation = .askFirst
+
+        let points = [
+            RouteCoordinate(latitude: 25.0, longitude: 121.0),
+            RouteCoordinate(latitude: 25.1, longitude: 121.1)
+        ]
+        model.replaceWaypoints(points)
+        await model.startPlayback()
+        #expect(model.simulationMode == .routePlaying)
+
+        let target = RouteCoordinate(latitude: 25.05, longitude: 121.55)
+        model.requestSinglePointSimulation(at: target)
+
+        #expect(model.showModeSwitchAlert == true)
+        #expect(model.pendingSinglePointCoordinate == target)
+        #expect(model.simulationMode == .routePlaying)
+        #expect(model.playback.state == .running)
+
+        model.confirmModeSwitchToSinglePoint()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(model.showModeSwitchAlert == false)
+        #expect(model.simulationMode == .singlePoint(target))
+        #expect(model.playback.state == .stopped)
+    }
+
+    @Test func restoreRealLocationClearsSimulationAndResetsMode() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let target = RouteCoordinate(latitude: 25.03, longitude: 121.56)
+        await model.executeTeleport(to: target)
+        #expect(model.simulationMode == .singlePoint(target))
+
+        await model.returnToRealLocation()
+        #expect(model.simulationMode == .idle)
+        let clearCalls = await sink.clearCallCount()
+        #expect(clearCalls == 1)
+    }
+}
+
+@MainActor
+struct SharedRouteDraftAndUITests {
+    @Test func classicAndQuickRouteSwitchPreservesPlaybackState() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let points = [
+            RouteCoordinate(latitude: 25.0, longitude: 121.0),
+            RouteCoordinate(latitude: 25.1, longitude: 121.1)
+        ]
+        model.replaceWaypoints(points)
+        await model.startPlayback()
+
+        #expect(model.playback.state == .running)
+        let initialElapsed = model.playback.elapsedTime
+        let initialLap = model.playback.lapNumber
+        let initialDistance = model.playback.traveledDistance
+
+        model.mapInteractionStyle = .quickRoute
+        #expect(model.playback.state == .running)
+        #expect(model.playback.lapNumber == initialLap)
+        #expect(model.playback.traveledDistance >= initialDistance)
+        #expect(model.playback.elapsedTime >= initialElapsed)
+
+        model.mapInteractionStyle = .classic
+        #expect(model.playback.state == .running)
+        model.playback.stop()
+    }
+
+    @Test func draftRequiresMinimumTwoWaypoints() {
+        let model = RouteLocationModel()
+        model.clearWaypoints()
+        #expect(model.waypoints.isEmpty)
+        #expect(model.geometry.coordinates.isEmpty)
+
+        model.addWaypoint(RouteCoordinate(latitude: 25.0, longitude: 121.0))
+        #expect(model.waypoints.count == 1)
+        #expect(model.geometry.coordinates.count <= 1)
+
+        model.addWaypoint(RouteCoordinate(latitude: 25.1, longitude: 121.1))
+        #expect(model.waypoints.count == 2)
+        #expect(model.geometry.coordinates.count >= 2)
+    }
+
+    @Test func undoRemovesOnlyFinalWaypoint() {
+        let model = RouteLocationModel()
+        let p1 = RouteCoordinate(latitude: 25.0, longitude: 121.0)
+        let p2 = RouteCoordinate(latitude: 25.1, longitude: 121.1)
+        let p3 = RouteCoordinate(latitude: 25.2, longitude: 121.2)
+        model.replaceWaypoints([p1, p2, p3])
+        #expect(model.waypoints.count == 3)
+
+        model.undoLastWaypoint()
+        #expect(model.waypoints == [p1, p2])
+    }
+
+    @Test func clearDraftDoesNotStopActivePlayback() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let points = [
+            RouteCoordinate(latitude: 25.0, longitude: 121.0),
+            RouteCoordinate(latitude: 25.1, longitude: 121.1)
+        ]
+        model.replaceWaypoints(points)
+        await model.startPlayback()
+        #expect(model.playback.state == .running)
+
+        model.clearCurrentDraft()
+        #expect(model.waypoints.isEmpty)
+        #expect(model.playback.state == .running)
+        model.playback.stop()
+    }
+
+    @Test func switchingToSinglePointDoesNotDestroyDraft() {
+        let model = RouteLocationModel()
+        let points = [
+            RouteCoordinate(latitude: 25.0, longitude: 121.0),
+            RouteCoordinate(latitude: 25.1, longitude: 121.1)
+        ]
+        model.replaceWaypoints(points)
+        model.quickRouteMode = .singlePoint
+        #expect(model.waypoints == points)
+        model.quickRouteMode = .route
+        #expect(model.waypoints == points)
+    }
+
+    @Test func savedRouteFromMapAppearsInSharedRoutes() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store)
+
+        let points = [
+            RouteCoordinate(latitude: 25.0, longitude: 121.0),
+            RouteCoordinate(latitude: 25.1, longitude: 121.1)
+        ]
+        model.replaceWaypoints(points)
+        await model.saveCurrentRoute(named: "MapCreatedRoute")
+
+        #expect(model.savedRoutes.contains { $0.name == "MapCreatedRoute" })
+        let loaded = try await store.loadRoutes()
+        #expect(loaded.contains { $0.name == "MapCreatedRoute" })
     }
 }

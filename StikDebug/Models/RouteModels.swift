@@ -47,6 +47,93 @@ enum RoutePlaybackMode: String, Codable, CaseIterable, Identifiable {
     var title: String { L10n.text(self == .once ? "單次" : "無限循環") }
 }
 
+enum MapInteractionStyle: String, Codable, CaseIterable, Identifiable {
+    case classic
+    case quickRoute
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .classic: return L10n.text("經典模式")
+        case .quickRoute: return L10n.text("快速路線 Beta")
+        }
+    }
+    var detail: String {
+        switch self {
+        case .classic: return L10n.text("使用目前既有的地圖與路線操作方式")
+        case .quickRoute: return L10n.text("可直接在地圖新增航點、建立並開始路線")
+        }
+    }
+}
+
+enum ModeSwitchConfirmation: String, Codable, CaseIterable, Identifiable {
+    case askFirst
+    case directSwitch
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .askFirst: return L10n.text("先詢問")
+        case .directSwitch: return L10n.text("直接切換")
+        }
+    }
+    var detail: String {
+        switch self {
+        case .askFirst: return L10n.text("切換定位模式時會先顯示確認對話框")
+        case .directSwitch: return L10n.text("切換定位模式時直接停止既有模式並套用新模式")
+        }
+    }
+}
+
+enum QuickRouteInteractionMode: String, CaseIterable, Identifiable {
+    case singlePoint
+    case route
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .singlePoint: return L10n.text("單點")
+        case .route: return L10n.text("路線")
+        }
+    }
+}
+
+enum StepCalculationMode: String, Codable, CaseIterable, Identifiable {
+    case fixedCadence
+    case distance
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .fixedCadence: return L10n.text("固定步頻")
+        case .distance: return L10n.text("依移動距離")
+        }
+    }
+}
+
+enum SimulationMode: Equatable {
+    case idle
+    case singlePoint(RouteCoordinate)
+    case routePlaying
+    case routePaused
+
+    var isSimulating: Bool {
+        switch self {
+        case .idle: return false
+        case .singlePoint, .routePlaying, .routePaused: return true
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .idle: return L10n.text("未模擬")
+        case .singlePoint: return L10n.text("單點模擬中")
+        case .routePlaying: return L10n.text("路線播放中")
+        case .routePaused: return L10n.text("路線已暫停")
+        }
+    }
+}
+
 struct RouteGeometry: Codable, Equatable {
     let coordinates: [RouteCoordinate]
     let cumulativeDistances: [CLLocationDistance]

@@ -12,6 +12,9 @@ struct SetupDiagnosticsView: View {
     @State private var showPairingImporter = false
     @State private var pairingState: PairingDiagnosticState = .checking
     @State private var diagnosticInfo: DiagnosticInfo?
+    @State private var showManualStepEntry = false
+    @State private var showManualStepConfirm = false
+    @State private var manualStepText = "500"
     @AppStorage(AppLanguage.defaultsKey) private var appLanguage = AppLanguage.traditionalChinese.rawValue
 
     private var pairingPresent: Bool { FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path) }
@@ -55,18 +58,104 @@ struct SetupDiagnosticsView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
+                Section("介面與操作") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Picker("地圖操作模式", selection: $model.mapInteractionStyle) {
+                            ForEach(MapInteractionStyle.allCases) { style in
+                                Text(style.title).tag(style)
+                            }
+                        }
+                        Text(model.mapInteractionStyle.detail)
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Picker("切換定位模式時", selection: $model.modeSwitchConfirmation) {
+                            ForEach(ModeSwitchConfirmation.allCases) { conf in
+                                Text(conf.title).tag(conf)
+                            }
+                        }
+                        Text(model.modeSwitchConfirmation.detail)
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
                 Section("健康同步") {
                     Toggle("路線播放時同步步數", isOn: $healthSteps.isEnabled)
-                        .onChange(of: healthSteps.isEnabled) { _, enabled in if enabled { Task { await healthSteps.requestAuthorization() } } }
-                    HStack { Text("HealthKit 狀態"); Spacer(); Text(healthSteps.status.label).foregroundStyle(.secondary).multilineTextAlignment(.trailing) }
+                        .onChange(of: healthSteps.isEnabled) { _, enabled in
+                            if enabled {
+                                Task { await healthSteps.requestAuthorization() }
+                            }
+                        }
                     HStack {
-                        Text("步幅")
+                        Text("HealthKit 狀態")
                         Spacer()
-                        TextField("0.80", value: $healthSteps.strideLengthMeters, format: .number.precision(.fractionLength(2)))
-                            .keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 90)
-                        Text("m")
+                        Text(healthSteps.isHealthDataAvailable ? L10n.text("可用") : L10n.text("不可用"))
+                            .foregroundStyle(healthSteps.isHealthDataAvailable ? .green : .orange)
                     }
-                    Text("只在路線實際播放時按新增距離批次寫入；單點傳送不會增加步數。HealthKit 不可用不會影響定位。")
+                    HStack {
+                        Text("步數寫入權限")
+                        Spacer()
+                        Text(healthSteps.authorizationState.label)
+                            .foregroundStyle(.secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("計算方式").font(.caption).foregroundStyle(.secondary)
+                        Picker("計算方式", selection: $healthSteps.calculationMode) {
+                            ForEach(StepCalculationMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    if healthSteps.calculationMode == .fixedCadence {
+                        HStack {
+                            Text("步頻")
+                            Spacer()
+                            TextField("160", value: $healthSteps.cadenceStepsPerMinute, format: .number.precision(.fractionLength(0)))
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 80)
+                            Text("步／分鐘")
+                        }
+                    } else {
+                        HStack {
+                            Text("步長")
+                            Spacer()
+                            TextField("0.80", value: $healthSteps.strideLengthMeters, format: .number.precision(.fractionLength(2)))
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 80)
+                            Text("公尺／步")
+                        }
+                    }
+                    HStack {
+                        Text("最近一次寫入")
+                        Spacer()
+                        Text(healthSteps.lastWriteStatus.label)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let lastError = healthSteps.lastError {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("最近錯誤").font(.caption).foregroundStyle(.red)
+                            Text(lastError.formattedDetails)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Button("測試寫入 10 步") {
+                        Task {
+                            let result = await healthSteps.testWriteTenSteps()
+                            switch result {
+                            case .success(let msg):
+                                ToastManager.shared.show(msg, kind: .success)
+                            case .failure(let err):
+                                ToastManager.shared.show(L10n.format("寫入失敗：%@ (%d)", err.localizedDescription, err.code), kind: .error)
+                            }
+                        }
+                    }
+                    Button("手動新增 RouteLocation 步數") {
+                        showManualStepEntry = true
+                    }
+                    Text("只在路線實際播放時按新增時間或距離批次寫入；單點傳送不會增加步數。HealthKit 權限或錯誤不會影響定位模擬。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("安全診斷") {
@@ -108,6 +197,39 @@ struct SetupDiagnosticsView: View {
         .task { refreshPairingState() }
         .alert(item: $diagnosticInfo) { item in
             Alert(title: Text(item.title), message: Text(item.message), dismissButton: .default(Text("好")))
+        }
+        .alert(L10n.text("手動新增 RouteLocation 步數"), isPresented: $showManualStepEntry) {
+            TextField("500", text: $manualStepText)
+                .keyboardType(.numberPad)
+            Button(L10n.text("下一步")) {
+                if let steps = Int(manualStepText), steps > 0 {
+                    showManualStepConfirm = true
+                } else {
+                    ToastManager.shared.show(L10n.text("請輸入大於 0 的有效步數。"), kind: .error)
+                }
+            }
+            Button(L10n.text("取消"), role: .cancel) { manualStepText = "500" }
+        } message: {
+            Text(L10n.text("輸入要新增至 Apple 健康的步數："))
+        }
+        .alert(L10n.text("手動新增步數"), isPresented: $showManualStepConfirm) {
+            Button(L10n.text("新增")) {
+                if let steps = Int(manualStepText), steps > 0 {
+                    Task {
+                        let result = await healthSteps.manualAddSteps(steps)
+                        switch result {
+                        case .success(let msg):
+                            ToastManager.shared.show(msg, kind: .success)
+                        case .failure(let err):
+                            ToastManager.shared.show(L10n.format("寫入失敗：%@ (%d)", err.localizedDescription, err.code), kind: .error)
+                        }
+                    }
+                }
+                manualStepText = "500"
+            }
+            Button(L10n.text("取消"), role: .cancel) { manualStepText = "500" }
+        } message: {
+            Text(L10n.format("將由 RouteLocation 新增 %d 步至 Apple 健康。", Int(manualStepText) ?? 0))
         }
     }
 

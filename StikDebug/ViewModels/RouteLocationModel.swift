@@ -1,3 +1,4 @@
+import Combine
 import CoreLocation
 import Foundation
 import SwiftUI
@@ -14,6 +15,16 @@ final class RouteLocationModel: ObservableObject {
     @Published var speedKmh: Double {
         didSet { if speedKmh.isFinite, speedKmh > 0 { UserDefaults.standard.set(speedKmh, forKey: Self.speedKey) } }
     }
+    @Published var mapInteractionStyle: MapInteractionStyle {
+        didSet { UserDefaults.standard.set(mapInteractionStyle.rawValue, forKey: Self.mapStyleKey) }
+    }
+    @Published var modeSwitchConfirmation: ModeSwitchConfirmation {
+        didSet { UserDefaults.standard.set(modeSwitchConfirmation.rawValue, forKey: Self.modeSwitchKey) }
+    }
+    @Published var quickRouteMode: QuickRouteInteractionMode = .singlePoint
+    @Published private(set) var simulationMode: SimulationMode = .idle
+    @Published var pendingSinglePointCoordinate: RouteCoordinate?
+    @Published var showModeSwitchAlert = false
     @Published private(set) var geometry = RouteGeometry(coordinates: [])
     @Published private(set) var navigationGeometryNeedsRecalculation = false
     @Published private(set) var favorites: [FavoriteLocation] = []
@@ -30,7 +41,10 @@ final class RouteLocationModel: ObservableObject {
     private let simulationService: any LocationSimulationSink
     private var teleportTask: Task<Void, Never>?
     private var loadedRouteID: UUID?
+    private var cancellables: Set<AnyCancellable> = []
     private static let speedKey = "RouteLocation.lastSpeedKmh"
+    private static let mapStyleKey = "RouteLocation.mapInteractionStyle"
+    private static let modeSwitchKey = "RouteLocation.modeSwitchConfirmation"
 
     var hasLoadedRoute: Bool { loadedRouteID != nil }
     var favoriteRoutes: [SavedRoute] { savedRoutes.filter(\.isFavorite) }
@@ -46,8 +60,40 @@ final class RouteLocationModel: ObservableObject {
         self.connectionMonitor = connectionMonitor
         let savedSpeed = UserDefaults.standard.double(forKey: Self.speedKey)
         speedKmh = savedSpeed > 0 ? savedSpeed : 18.6
+
+        if let savedStyleRaw = UserDefaults.standard.string(forKey: Self.mapStyleKey),
+           let savedStyle = MapInteractionStyle(rawValue: savedStyleRaw) {
+            mapInteractionStyle = savedStyle
+        } else {
+            mapInteractionStyle = .classic
+        }
+
+        if let savedConfirmRaw = UserDefaults.standard.string(forKey: Self.modeSwitchKey),
+           let savedConfirm = ModeSwitchConfirmation(rawValue: savedConfirmRaw) {
+            modeSwitchConfirmation = savedConfirm
+        } else {
+            modeSwitchConfirmation = .askFirst
+        }
+
         playback = RoutePlaybackEngine(sink: simulationService, connectionMonitor: connectionMonitor)
         HealthStepSyncService.shared.attach(to: playback)
+
+        playback.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self else { return }
+                if case .completed = state {
+                    if case .routePlaying = self.simulationMode {
+                        self.simulationMode = .idle
+                    }
+                } else if case .stopped = state {
+                    if case .routePlaying = self.simulationMode {
+                        self.simulationMode = .idle
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
         Task { await loadPersistedData() }
     }
 
@@ -109,9 +155,27 @@ final class RouteLocationModel: ObservableObject {
         routeInputsChanged()
     }
 
+    func undoLastWaypoint() {
+        guard !waypoints.isEmpty else { return }
+        waypoints.removeLast()
+        routeInputsChanged()
+    }
+
+    func clearCurrentDraft() {
+        waypoints = []
+        loadedRouteID = nil
+        routeName = L10n.text("新路線")
+        geometry = RouteGeometry(coordinates: [])
+        navigationGeometryNeedsRecalculation = false
+        statusMessage = L10n.text("路線草稿已清除。")
+    }
+
     func clearCurrentRoute() {
         navigationResolver.cancel()
         playback.stop(clearMarker: true)
+        if case .routePlaying = simulationMode {
+            simulationMode = .idle
+        }
         loadedRouteID = nil
         routeName = L10n.text("新路線")
         selectedCoordinate = nil
@@ -234,13 +298,40 @@ final class RouteLocationModel: ObservableObject {
         await saveFavorites()
     }
 
-    func teleport(to coordinate: RouteCoordinate? = nil) async {
-        guard let target = coordinate ?? selectedCoordinate else { presentedError = L10n.text("請先選擇座標。"); return }
-        playback.stop()
+    func requestSinglePointSimulation(at coordinate: RouteCoordinate? = nil) {
+        guard let target = coordinate ?? selectedCoordinate, target.isValid else {
+            presentedError = L10n.text("請先選擇座標。")
+            return
+        }
+        if case .routePlaying = simulationMode {
+            if modeSwitchConfirmation == .askFirst {
+                pendingSinglePointCoordinate = target
+                showModeSwitchAlert = true
+                return
+            }
+        }
+        Task { await executeTeleport(to: target) }
+    }
+
+    func confirmModeSwitchToSinglePoint() {
+        guard let target = pendingSinglePointCoordinate else { return }
+        pendingSinglePointCoordinate = nil
+        showModeSwitchAlert = false
+        Task { await executeTeleport(to: target) }
+    }
+
+    func cancelModeSwitch() {
+        pendingSinglePointCoordinate = nil
+        showModeSwitchAlert = false
+    }
+
+    func executeTeleport(to target: RouteCoordinate) async {
+        playback.stop(clearMarker: false)
         teleportTask?.cancel()
         do {
             try await setCoordinateWithBoundedRecovery(target)
             selectedCoordinate = target
+            simulationMode = .singlePoint(target)
             connectionMonitor.reportSession(.connected)
             BackgroundKeepAliveService.shared.acquire()
             teleportTask = Task { [weak self] in
@@ -270,6 +361,18 @@ final class RouteLocationModel: ObservableObject {
         } catch { presentedError = error.localizedDescription }
     }
 
+    func teleport(to coordinate: RouteCoordinate? = nil) async {
+        if case .routePlaying = simulationMode, modeSwitchConfirmation == .askFirst {
+            requestSinglePointSimulation(at: coordinate)
+        } else {
+            guard let target = coordinate ?? selectedCoordinate, target.isValid else {
+                presentedError = L10n.text("請先選擇座標。")
+                return
+            }
+            await executeTeleport(to: target)
+        }
+    }
+
     func startPlayback() async {
         teleportTask?.cancel()
         teleportTask = nil
@@ -277,17 +380,19 @@ final class RouteLocationModel: ObservableObject {
             if playbackMode == .infiniteLoop, !isClosedLoop { throw RouteLocationError.loopRequiresClosedRoute }
             if routeMode == .navigation, navigationGeometryNeedsRecalculation { throw RouteLocationError.navigationNeedsRecalculation }
             try await playback.start(routeName: routeName, geometry: geometry, speedKmh: speedKmh, mode: playbackMode)
+            simulationMode = .routePlaying
         } catch { presentedError = error.localizedDescription }
     }
 
     func returnToRealLocation() async {
         teleportTask?.cancel()
         teleportTask = nil
-        playback.stop()
+        playback.stop(clearMarker: true)
         do {
             try await simulationService.clearSimulatedLocation()
             BackgroundKeepAliveService.shared.release()
             connectionMonitor.reportSession(.idle)
+            simulationMode = .idle
             statusMessage = L10n.text("已恢復裝置的真實位置。")
         } catch { presentedError = error.localizedDescription }
     }

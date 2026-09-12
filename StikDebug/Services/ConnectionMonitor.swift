@@ -71,6 +71,26 @@ final class ConnectionMonitor: ObservableObject {
 
     var networkInterface: NetworkTransport { currentTransport }
 
+    var effectiveTunnelHealthy: Bool {
+        tunnelConnected || deviceSession == .connected || LocationDataPathHealth.shared.hasRecentSuccess || usesVPNInterface
+    }
+
+    var connectionBannerText: String {
+        if effectiveTunnelHealthy {
+            if deviceSession == .connected || LocationDataPathHealth.shared.hasRecentSuccess {
+                return L10n.text("裝置通道已連線")
+            } else if tunnelConnected {
+                return L10n.text("裝置通道已建立")
+            } else if usesVPNInterface {
+                return L10n.text("LocalDevVPN 已連線")
+            } else {
+                return L10n.text("通道正常")
+            }
+        } else {
+            return L10n.text("請連接 LocalDevVPN")
+        }
+    }
+
     private let pathMonitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.routelocation.network-path", qos: .utility)
     private var started = false

@@ -13,7 +13,7 @@ struct RouteLocationRootView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            RouteMapView().tabItem { Label("地圖", systemImage: "map") }.tag(RouteLocationTab.map)
+            AdaptiveRouteMapView().tabItem { Label("地圖", systemImage: "map") }.tag(RouteLocationTab.map)
             RouteEditorView().tabItem { Label("路線", systemImage: "point.topleft.down.to.point.bottomright.curvepath") }.tag(RouteLocationTab.routes)
             FavoritesView(selectedTab: $selectedTab).tabItem { Label("喜愛", systemImage: "star") }.tag(RouteLocationTab.favorites)
             SetupDiagnosticsView().tabItem { Label("設定", systemImage: "gearshape") }.tag(RouteLocationTab.settings)
@@ -31,6 +31,16 @@ struct RouteLocationRootView: View {
             get: { model.presentedError != nil },
             set: { if !$0 { model.presentedError = nil } }
         )) { Button("好") { model.presentedError = nil } } message: { Text(model.presentedError ?? "") }
+        .alert(L10n.text("目前正在執行路線"), isPresented: $model.showModeSwitchAlert) {
+            Button(L10n.text("取消"), role: .cancel) {
+                model.cancelModeSwitch()
+            }
+            Button(L10n.text("切換到單點")) {
+                model.confirmModeSwitchToSinglePoint()
+            }
+        } message: {
+            Text(L10n.text("切換到單點定位會停止目前路線，\n但不會刪除路線。"))
+        }
         .overlay(alignment: .top) {
             if let message = toast.current {
                 Text(message.text).font(.footnote).padding(10)

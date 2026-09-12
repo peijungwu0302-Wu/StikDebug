@@ -11,6 +11,11 @@ The app's development, fallback, and first-launch language is Traditional Chines
 ## Features
 
 - System-wide developer location simulation and immediate single-point teleport
+- Dual map interaction styles: Classic complete UI (傳統模式) and optional Quick Route Beta (快速路線模式)
+- Single source of truth simulation state (`idle`, `singlePoint`, `routePlaying`, `routePaused`) with seamless mode transitions
+- Safe Single Point <-> Route transitions without reverting to real device GPS mid-transition
+- Configurable mode-switch confirmation (Ask First vs Direct Switch)
+- Shared live route draft synchronized across Map and Routes tabs
 - Coordinate selection by map tap, Apple MapKit search, exact coordinate entry, pasted text, imported file, or favorite
 - Multi-waypoint editing, reordering, coordinate editing, and GPX/CSV/JSON/GeoJSON/KML file import
 - Fully local Straight routes with no routing-server dependency
@@ -23,6 +28,7 @@ The app's development, fallback, and first-launch language is Traditional Chines
 - New routes default to a closed path with Infinite Loop playback; loaded routes preserve their saved behavior
 - Best-effort background playback using StikDebug's audio/location keep-alive infrastructure
 - Wi-Fi/cellular path monitoring, real RSD tunnel health checks, and bounded device-session reconnect that preserves elapsed progress
+- Comprehensive HealthKit step synchronization: Fixed Cadence (e.g. 160 spm) and Distance-based modes, 10-step write verification, and manual step additions
 - Setup diagnostics for pairing, LocalDevVPN tunnel stage, DDI, DVT, location simulation, active transport, and Internet reachability
 - Sanitized on-device diagnostic reports that never include pairing credentials
 
@@ -70,9 +76,18 @@ This offline-bootstrap-then-cellular workflow has been physically confirmed on o
 
 ## Optional HealthKit step synchronization
 
-Settings → Health Sync can write route-derived steps using only new simulated distance and an editable stride length (default 0.80 m). Writes are batched at roughly 30 seconds and flushed when playback stops or the app backgrounds. Teleports generate no steps, and reconnect does not duplicate distance. HealthKit is independent: denial, failure, or unavailable entitlement never interrupts location simulation.
+Settings → Health Sync provides route-derived step synchronization and on-device diagnostics. It supports two distinct calculation modes:
 
-SideStore/AltStore free provisioning may not preserve HealthKit capability. In that case RouteLocation reports that the current signature does not support HealthKit while location features continue normally. Written samples retain RouteLocation as their source and third-party apps may choose not to count them.
+1. **Fixed Cadence (固定步頻模式)**: Calculates steps based on simulated moving time and an editable cadence (default 160 steps/minute). Paused route time generates zero steps. Fractional sub-step remainders are carried across ticks so no steps are lost.
+2. **Distance-based (距離換算模式)**: Calculates steps directly from newly accumulated simulated distance and an editable stride length (default 0.80 m/step).
+
+### Diagnostics and Verification
+- **Accurate status reporting**: The app distinguishes among `authorized` (已授權), `denied` (使用者已拒絕授權), `notDetermined` (尚未詢問), `entitlementMissing` (簽名缺少 HealthKit 權限), and `notSupported` (裝置不支援). It never misdiagnoses a user permission denial as a generic signing error.
+- **10-Step Write Test (測試寫入 10 步)**: A dedicated button in Setup runs a real write test of 10 steps spanning the last 60 seconds. It verifies actual write permissions and shows the exact timestamp and write outcome directly in the UI.
+- **Manual Add Steps Tool (手動補登步數)**: Allows adding arbitrary steps (1–10,000) over a chosen duration (e.g. 15 minutes) with an explicit confirmation dialog.
+- **Isolation & Deduplication**: Teleporting generates no steps. Device tunnel reconnects and cellular handovers do not double-count distance or steps. Any HealthKit error, missing entitlement, or write failure is isolated and will never interrupt or degrade location simulation.
+
+SideStore/AltStore free provisioning may not preserve HealthKit capability. In that case RouteLocation truthfully reports that the current signature lacks the HealthKit entitlement while location features continue normally. Written samples retain RouteLocation as their source and third-party apps may choose not to count them.
 
 RouteLocation uses no NextDNS, custom DNS blocking, backend server, analytics or telemetry. SideStore/AltStore performs user-side signing, installation and seven-day refresh; RouteLocation never asks for Apple ID, Anisette data, certificates or account passwords.
 
@@ -80,6 +95,24 @@ If iLoader's **Manage Pairing File** screen does not list RouteLocation, use iLo
 
 ## Normal use
 
+### Map Interaction Styles (Classic vs Quick Route Beta)
+You can choose your preferred map interface under **Settings → Interface & Interaction**:
+- **Classic UI (傳統模式)**: The full-featured interface with comprehensive route inspection sheets, coordinate lists, and settings.
+- **Quick Route Beta (快速路線模式)**: A streamlined interface with an uncluttered map and a compact bottom card:
+  - Mode toggle: Switch between **[單點] (Single Point)** and **[路線] (Route)** with one tap.
+  - Quick waypoint addition: Tap directly on the map in Route mode to place waypoints.
+  - One-tap Undo: Easily remove the last waypoint.
+  - Clear Draft: Clear the current unstarted draft with an alert confirmation.
+  - Live simulation info: Shows real-time simulated speed, mode, waypoint count, and route distance.
+  - Shared draft: Waypoints tapped in Quick Route are instantly synchronized with the Routes tab's editor, and vice versa. Switching between Classic and Quick Route modes does not interrupt ongoing simulation or discard your draft.
+
+### Simulation State Machine & Mode Transitions
+RouteLocation uses a unified single source of truth for its simulation state (`idle`, `singlePoint`, `routePlaying`, `routePaused`):
+- **Single Point → Route**: When currently in single-point teleportation, tapping **Start Route** smoothly transitions into route playback. The simulated location directly tracks the route without ever resetting to the physical device GPS mid-transition.
+- **Route → Single Point**: When a route is playing or paused, selecting a single point and confirming teleportation stops the route and directly pins the location to the chosen point. Under **Settings → Mode Switch Confirmation**, you can choose between **Ask First (切換前詢問)** (default: prompts a confirmation alert) or **Direct Switch (直接切換)**. In all cases, the real device GPS is never restored during the switch.
+- **Return to Real Location (返回真實位置)**: This is the ONLY operation that issues `clear_simulated_location()` to release developer location override and restore real hardware GPS.
+
+### Route Playback
 Open RouteLocation → load a favorite route → set **18.6 km/h** → select **Infinite Loop** → Start Playback → switch to another app. The Map tab shows the route name, current simulated position, distance, speed, and lap number when RouteLocation is foregrounded. It also provides distinct Stop, Clear Route, and Return to Real Location actions.
 
 To teleport, tap the map or search for a place and choose **Simulate Here**. **Return to Real Location** clears the developer-simulated location.

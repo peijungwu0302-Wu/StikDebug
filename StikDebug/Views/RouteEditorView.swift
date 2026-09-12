@@ -158,7 +158,7 @@ struct RouteEditorView: View {
     }
 }
 
-private struct RouteSaveView: View {
+struct RouteSaveView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     let updatingExisting: Bool
