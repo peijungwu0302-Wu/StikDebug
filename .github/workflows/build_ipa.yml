@@ -59,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#routelocation-v}"
-          if [[ "$GITHUB_REF" != refs/tags/routelocation-v* ]]; then VERSION="1.2.4"; fi
+          if [[ "$GITHUB_REF" != refs/tags/routelocation-v* ]]; then VERSION="1.2.5"; fi
           test -d "$RUNNER_TEMP/RouteLocation.xcarchive/Products/Applications/RouteLocation.app"
           mkdir -p "$RUNNER_TEMP/package/Payload"
           cp -R "$RUNNER_TEMP/RouteLocation.xcarchive/Products/Applications/RouteLocation.app" "$RUNNER_TEMP/package/Payload/RouteLocation.app"

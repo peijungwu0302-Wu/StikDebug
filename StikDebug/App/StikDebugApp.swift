@@ -10,8 +10,6 @@ import SwiftUI
 @main
 struct RouteLocationApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var shouldAttemptTunnelReconnect = false
-
     init() {
         AppBootstrapper.configure()
     }
@@ -31,13 +29,7 @@ struct RouteLocationApp: App {
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         switch newPhase {
         case .background:
-            shouldAttemptTunnelReconnect = true
             Task { await HealthStepSyncService.shared.flush() }
-        case .active:
-            if shouldAttemptTunnelReconnect {
-                shouldAttemptTunnelReconnect = false
-                startTunnelInBackground(showErrorUI: false)
-            }
         default:
             break
         }

@@ -99,7 +99,7 @@ final class TunnelManager: ObservableObject {
         guard cellularBootstrapRequested else { return }
         cellularBootstrapRequested = false
         cellularCompatibilitySuggested = false
-        ToastManager.shared.show(L10n.text("定位通道已就緒，現在可以重新開啟行動數據。"), kind: .success, duration: 5)
+        ToastManager.shared.show(L10n.text("定位通道已就緒\n現在可以重新開啟行動數據／關閉飛航模式。"), kind: .success, duration: 5)
     }
 
     func handleNetworkTransition(from previous: NetworkTransport, to current: NetworkTransport) {
@@ -213,6 +213,10 @@ final class TunnelManager: ObservableObject {
 
     private func performHealthCheckOrConnect(transport: NetworkTransport) {
         guard transport != .offline else { return }
+        if ConnectionMonitor.shared.activeDVTSessionAvailable || ConnectionMonitor.shared.locationDataPathHealthy {
+            LogManager.shared.addInfoLog("Tunnel health check skipped: active DVT session / location updates healthy on \(transport.rawValue)")
+            return
+        }
         guard isConnected else {
             start(showErrorUI: false)
             return

@@ -25,6 +25,8 @@ final class RouteLocationModel: ObservableObject {
     @Published private(set) var simulationMode: SimulationMode = .idle
     @Published var pendingSinglePointCoordinate: RouteCoordinate?
     @Published var showModeSwitchAlert = false
+    @Published var showBootstrapPreflightSheet = false
+    private var pendingBootstrapAction: (@MainActor () -> Void)?
     @Published private(set) var geometry = RouteGeometry(coordinates: [])
     @Published private(set) var navigationGeometryNeedsRecalculation = false
     @Published private(set) var favorites: [FavoriteLocation] = []
@@ -298,6 +300,47 @@ final class RouteLocationModel: ObservableObject {
         await saveFavorites()
     }
 
+    var isCellularBootstrapPreparationNeeded: Bool {
+        let hasActiveDVT = connectionMonitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess
+        guard !hasActiveDVT else { return false }
+        guard connectionMonitor.currentTransport != .wifi else { return false }
+        return connectionMonitor.currentTransport == .cellular
+    }
+
+    func requestBootstrapIfCellular(action: @escaping @MainActor () -> Void) {
+        if isCellularBootstrapPreparationNeeded {
+            pendingBootstrapAction = action
+            TunnelManager.shared.cellularBootstrapRequested = true
+            showBootstrapPreflightSheet = true
+        } else {
+            action()
+        }
+    }
+
+    func confirmBootstrapPreflightRecheck() {
+        showBootstrapPreflightSheet = false
+        TunnelManager.shared.cellularBootstrapRequested = true
+        if let action = pendingBootstrapAction {
+            pendingBootstrapAction = nil
+            action()
+        }
+    }
+
+    func confirmBootstrapPreflightForce() {
+        showBootstrapPreflightSheet = false
+        TunnelManager.shared.cellularBootstrapRequested = true
+        if let action = pendingBootstrapAction {
+            pendingBootstrapAction = nil
+            action()
+        }
+    }
+
+    func cancelBootstrapPreflight() {
+        showBootstrapPreflightSheet = false
+        pendingBootstrapAction = nil
+        TunnelManager.shared.cellularBootstrapRequested = false
+    }
+
     func requestSinglePointSimulation(at coordinate: RouteCoordinate? = nil) {
         guard let target = coordinate ?? selectedCoordinate, target.isValid else {
             presentedError = L10n.text("請先選擇座標。")
@@ -310,7 +353,10 @@ final class RouteLocationModel: ObservableObject {
                 return
             }
         }
-        Task { await executeTeleport(to: target) }
+        requestBootstrapIfCellular { [weak self] in
+            guard let self else { return }
+            Task { await self.executeTeleport(to: target) }
+        }
     }
 
     func confirmModeSwitchToSinglePoint() async {
@@ -374,6 +420,13 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func startPlayback() async {
+        if isCellularBootstrapPreparationNeeded {
+            requestBootstrapIfCellular { [weak self] in
+                guard let self else { return }
+                Task { await self.startPlayback() }
+            }
+            return
+        }
         teleportTask?.cancel()
         teleportTask = nil
         do {

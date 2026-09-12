@@ -643,3 +643,104 @@ struct SharedRouteDraftAndUITests {
         #expect(loaded.contains { $0.name == "MapCreatedRoute" })
     }
 }
+
+@MainActor
+struct DVTRecoveryAndSearchIsolationTests {
+    @Test func locationDataPathHealthReportsSuccessAndRecentState() {
+        let health = LocationDataPathHealth.shared
+        health.recordSuccess()
+
+        #expect(health.status == .healthy)
+        #expect(health.hasRecentSuccess == true)
+        #expect(health.consecutiveLocationFailures == 0)
+    }
+
+    @Test func auxiliaryProbePolicyRetainsActiveDVTDataPath() {
+        #expect(AuxiliaryProbePolicy.shouldRetainActiveSession(dvtConnected: true, locationActive: false, recentLocationSuccess: false))
+        #expect(AuxiliaryProbePolicy.shouldRetainActiveSession(dvtConnected: false, locationActive: true, recentLocationSuccess: false))
+        #expect(AuxiliaryProbePolicy.shouldRetainActiveSession(dvtConnected: false, locationActive: false, recentLocationSuccess: true))
+        #expect(!AuxiliaryProbePolicy.shouldRetainActiveSession(dvtConnected: false, locationActive: false, recentLocationSuccess: false))
+    }
+
+    @Test func locationRecoveryPolicyThresholdRequiresMultipleFailures() {
+        #expect(!LocationRecoveryPolicy.shouldRecover(consecutiveFailures: 0))
+        #expect(!LocationRecoveryPolicy.shouldRecover(consecutiveFailures: 1))
+        #expect(!LocationRecoveryPolicy.shouldRecover(consecutiveFailures: 2))
+        #expect(LocationRecoveryPolicy.shouldRecover(consecutiveFailures: 3))
+        #expect(LocationRecoveryPolicy.shouldRecover(consecutiveFailures: 5))
+    }
+
+    @Test func connectionMonitorBannerShowsConnectedWhenDVTHasRecentSuccess() {
+        LocationDataPathHealth.shared.recordSuccess()
+        let monitor = ConnectionMonitor.shared
+        #expect(monitor.activeDVTSessionAvailable == true)
+        #expect(monitor.locationDataPathHealthy == true)
+        #expect(monitor.connectionBannerText == "裝置通道已連線")
+    }
+}
+
+@MainActor
+struct CellularBootstrapPreflightTests {
+    @Test func bootstrapPreflightNeededWhenDisconnectedOnCellular() {
+        let model = RouteLocationModel()
+        // Default mock / idle state with no active DVT session
+        if model.connectionMonitor.activeDVTSessionAvailable || model.connectionMonitor.locationDataPathHealthy {
+            #expect(!model.isCellularBootstrapPreparationNeeded)
+        } else if model.connectionMonitor.currentTransport == .cellular {
+            #expect(model.isCellularBootstrapPreparationNeeded)
+        }
+    }
+
+    @Test func forceBootstrapPreflightDismissesSheet() {
+        let model = RouteLocationModel()
+        model.showBootstrapPreflightSheet = true
+        model.confirmBootstrapPreflightForce()
+        #expect(!model.showBootstrapPreflightSheet)
+    }
+
+    @Test func cancelBootstrapPreflightDismissesSheetAndResetsPending() {
+        let model = RouteLocationModel()
+        model.showBootstrapPreflightSheet = true
+        model.cancelBootstrapPreflight()
+        #expect(!model.showBootstrapPreflightSheet)
+    }
+}
+
+@MainActor
+struct QuickRouteUXEnhancementTests {
+    @Test func singlePointMapTapDropsCandidateWithoutImmediateSimulation() {
+        let model = RouteLocationModel()
+        model.simulationMode = .idle
+        model.selectedCoordinate = nil
+
+        let testCoord = CLLocationCoordinate2D(latitude: 25.033964, longitude: 121.564468)
+        model.select(testCoord)
+
+        #expect(model.selectedCoordinate == RouteCoordinate(testCoord))
+        #expect(model.simulationMode == .idle)
+    }
+
+    @Test func addSelectedWaypointTransfersCandidateToWaypoints() {
+        let model = RouteLocationModel()
+        model.clearWaypoints()
+        let testCoord = CLLocationCoordinate2D(latitude: 25.033964, longitude: 121.564468)
+        model.select(testCoord)
+        #expect(model.selectedCoordinate != nil)
+
+        model.addSelectedWaypoint()
+        #expect(model.selectedCoordinate == nil)
+        #expect(model.waypoints.count == 1)
+        #expect(model.waypoints.first == RouteCoordinate(testCoord))
+    }
+
+    @Test func undoLastWaypointOnSinglePointClearsWaypointsSafely() {
+        let model = RouteLocationModel()
+        model.clearWaypoints()
+        model.addWaypoint(RouteCoordinate(latitude: 25.0, longitude: 121.0))
+        #expect(model.waypoints.count == 1)
+
+        model.undoLastWaypoint()
+        #expect(model.waypoints.isEmpty)
+        #expect(model.geometry.coordinates.isEmpty)
+    }
+}

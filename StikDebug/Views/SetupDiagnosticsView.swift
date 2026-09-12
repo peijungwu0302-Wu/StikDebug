@@ -44,7 +44,15 @@ struct SetupDiagnosticsView: View {
                     Button(L10n.text(pairingPresent ? "更換配對檔案" : "匯入配對檔案")) { showPairingImporter = true }
                 }
                 Section("連線") {
-                    Button("檢查／重試裝置通道") { tunnel.checkHealthNow(transport: model.connectionMonitor.currentTransport) }
+                    Button("檢查／重試裝置通道") {
+                        if model.isCellularBootstrapPreparationNeeded {
+                            model.requestBootstrapIfCellular {
+                                tunnel.checkHealthNow(transport: model.connectionMonitor.currentTransport)
+                            }
+                        } else {
+                            tunnel.checkHealthNow(transport: model.connectionMonitor.currentTransport)
+                        }
+                    }
                     Button("檢查／掛載 DDI") { MountingProgress.shared.pubMount() }
                     Text("請啟動 LocalDevVPN，使用 Wi-Fi 或行動網路皆可。設定期間保持裝置喚醒及解鎖，並確認配對檔案屬於目前這台 iPhone 或 iPad。")
                         .font(.footnote).foregroundStyle(.secondary)

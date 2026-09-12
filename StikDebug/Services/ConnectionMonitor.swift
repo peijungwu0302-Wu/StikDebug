@@ -71,23 +71,37 @@ final class ConnectionMonitor: ObservableObject {
 
     var networkInterface: NetworkTransport { currentTransport }
 
+    var localDevVPNAvailable: Bool {
+        usesVPNInterface || tunnelConnected
+    }
+
+    var activeDVTSessionAvailable: Bool {
+        deviceSession == .connected || LocationDataPathHealth.shared.hasRecentSuccess
+    }
+
+    var locationDataPathHealthy: Bool {
+        LocationDataPathHealth.shared.status == .healthy || LocationDataPathHealth.shared.hasRecentSuccess
+    }
+
+    var newBootstrapAvailable: Bool {
+        TunnelManager.shared.bootstrapAvailable
+    }
+
     var effectiveTunnelHealthy: Bool {
-        tunnelConnected || deviceSession == .connected || LocationDataPathHealth.shared.hasRecentSuccess || usesVPNInterface
+        activeDVTSessionAvailable || locationDataPathHealthy || localDevVPNAvailable
     }
 
     var connectionBannerText: String {
-        if effectiveTunnelHealthy {
-            if deviceSession == .connected || LocationDataPathHealth.shared.hasRecentSuccess {
-                return L10n.text("裝置通道已連線")
-            } else if tunnelConnected {
-                return L10n.text("裝置通道已建立")
-            } else if usesVPNInterface {
-                return L10n.text("LocalDevVPN 已連線")
+        if activeDVTSessionAvailable || locationDataPathHealthy {
+            return L10n.text("裝置通道已連線")
+        } else if localDevVPNAvailable {
+            if currentTransport == .cellular && !newBootstrapAvailable {
+                return L10n.text("LocalDevVPN 已連線，但目前無法建立新的定位通道")
             } else {
-                return L10n.text("通道正常")
+                return L10n.text("LocalDevVPN 已連線")
             }
         } else {
-            return L10n.text("請連接 LocalDevVPN")
+            return L10n.text("請先連接 LocalDevVPN")
         }
     }
 
@@ -141,6 +155,14 @@ final class ConnectionMonitor: ObservableObject {
         LogManager.shared.addInfoLog(
             "Network path changed: transport=\(transport.rawValue), satisfied=\(satisfied), vpn=\(vpnDetected), expensive=\(path.isExpensive)"
         )
+
+        if activeDVTSessionAvailable || locationDataPathHealthy {
+            hasReceivedInitialPath = true
+            LogManager.shared.addInfoLog(
+                "NWPath changed: \(transport.rawValue). Recovery decision: SKIPPED. Reason: Recent successful location update / active DVT session"
+            )
+            return
+        }
 
         let shouldCheck = !hasReceivedInitialPath
             ? transport != .offline

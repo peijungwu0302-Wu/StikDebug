@@ -98,15 +98,21 @@ If iLoader's **Manage Pairing File** screen does not list RouteLocation, use iLo
 ### Map Interaction Styles (Classic vs Quick Route Beta)
 You can choose your preferred map interface under **Settings → Interface & Interaction**:
 - **Classic UI (傳統模式)**: The full-featured interface with comprehensive route inspection sheets, coordinate lists, and settings.
-- **Quick Route Beta (快速路線模式)**: A streamlined interface with an uncluttered map and a compact bottom card:
-  - Mode toggle: Switch between **[單點] (Single Point)** and **[路線] (Route)** with one tap.
-  - Quick waypoint addition: Tap directly on the map in Route mode to place waypoints.
-  - One-tap Undo: Easily remove the last waypoint.
-  - Clear Draft: Clear the current unstarted draft with an alert confirmation.
-  - Live simulation info: Shows real-time simulated speed, mode, waypoint count, and route distance.
-  - Shared draft: Waypoints tapped in Quick Route are instantly synchronized with the Routes tab's editor, and vice versa. Switching between Classic and Quick Route modes does not interrupt ongoing simulation or discard your draft.
+- **Quick Route Beta (快速路線模式)**: A streamlined interface with an uncluttered map and a collapsible bottom card:
+  - **Collapsible Bottom Card (伸縮底部視窗)**: Tap the expand/collapse button to shrink the bottom card into a slim, single-row action bar to maximize map visibility.
+  - **Mode switcher**: Toggle between **[單點] (Single Point)** and **[路線] (Route)** seamlessly with a segmented picker.
+  - **Single Point candidate selection**: Map tap places a candidate pin without immediate teleportation; tap **[在此模擬]** when ready.
+  - **Active Route Mini Player**: When a route is playing, a compact player displays route name, lap count, distance, speed, and Stop control directly on the map.
+  - **DVT-safe Search**: MapKit search is completely isolated from DVT recovery, allowing searches on cellular without disrupting ongoing simulations.
+  - **Quick waypoint addition & Undo**: Tap directly on the map in Route mode to place numbered waypoints (①, ②, ③); use one-tap Undo to remove the last point.
+  - **Clear Draft & Save**: Clear draft or save with custom names; waypoints remain synchronized with the Routes tab.
 
-### Simulation State Machine & Mode Transitions
+### Cellular & Airplane Mode Bootstrap Guidance
+When establishing a *new* session on pure Cellular Data (no Wi-Fi), iOS LocalDevVPN bootstrap can be blocked by cellular routing. RouteLocation detects this condition and automatically presents a **Bootstrap Preflight Sheet**:
+1. Temporarily turn Cellular Data OFF or turn Airplane Mode ON.
+2. Tap **[我已完成，重新檢查]** to establish Pairing → Tunnel → DDI → DVT over the local VPN loopback.
+3. Once the tunnel is verified and ready, an auto-dismissing toast alerts you that the channel is ready, and you can safely turn Cellular Data back ON.
+4. An active, healthy DVT session will never be disrupted by subsequent NWPath changes or map search activity.
 RouteLocation uses a unified single source of truth for its simulation state (`idle`, `singlePoint`, `routePlaying`, `routePaused`):
 - **Single Point → Route**: When currently in single-point teleportation, tapping **Start Route** smoothly transitions into route playback. The simulated location directly tracks the route without ever resetting to the physical device GPS mid-transition.
 - **Route → Single Point**: When a route is playing or paused, selecting a single point and confirming teleportation stops the route and directly pins the location to the chosen point. Under **Settings → Mode Switch Confirmation**, you can choose between **Ask First (切換前詢問)** (default: prompts a confirmation alert) or **Direct Switch (直接切換)**. In all cases, the real device GPS is never restored during the switch.

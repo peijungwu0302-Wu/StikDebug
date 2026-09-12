@@ -41,6 +41,13 @@ struct RouteLocationRootView: View {
         } message: {
             Text(L10n.text("切換到單點定位會停止目前路線，\n但不會刪除路線。"))
         }
+        .sheet(isPresented: $model.showBootstrapPreflightSheet) {
+            BootstrapPreflightSheet(
+                onRecheck: { model.confirmBootstrapPreflightRecheck() },
+                onForceConnect: { model.confirmBootstrapPreflightForce() },
+                onCancel: { model.cancelBootstrapPreflight() }
+            )
+        }
         .overlay(alignment: .top) {
             if let message = toast.current {
                 Text(message.text).font(.footnote).padding(10)
