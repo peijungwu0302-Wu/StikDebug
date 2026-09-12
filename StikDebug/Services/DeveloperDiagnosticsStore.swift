@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 import UIKit
 
 enum DiagnosticEventCategory: String, Codable, CaseIterable {
@@ -244,7 +244,11 @@ final class DeveloperDiagnosticsStore: ObservableObject {
         guard let targetRun = (runId != nil ? runs.first(where: { $0.id == runId }) : activeRun) else {
             return nil
         }
-        let events = loadEventsFromDisk(for: targetRun.id)
+        fileQueue.sync {}
+        var events = loadEventsFromDisk(for: targetRun.id)
+        if events.isEmpty && targetRun.id == activeRun?.id {
+            events = recentEvents.filter { $0.runId == targetRun.id }.reversed()
+        }
         let sanitizedEvents = events.map { event -> [String: Any] in
             var dict: [String: Any] = [
                 "id": event.id.uuidString,
@@ -307,6 +311,7 @@ final class DeveloperDiagnosticsStore: ObservableObject {
         guard let targetRun = (runId != nil ? runs.first(where: { $0.id == runId }) : activeRun) else {
             return nil
         }
+        fileQueue.sync {}
         let runDir = runsDirectory.appendingPathComponent(targetRun.id, isDirectory: true)
         let eventsFile = runDir.appendingPathComponent("events.jsonl")
         guard FileManager.default.fileExists(atPath: eventsFile.path) else { return nil }

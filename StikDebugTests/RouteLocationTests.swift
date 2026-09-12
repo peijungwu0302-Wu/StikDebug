@@ -835,6 +835,7 @@ struct DeveloperDiagnosticsStoreTests {
 
     @Test func safeExportRedactsSensitiveData() {
         let store = DeveloperDiagnosticsStore.shared
+        store.startNewRun(name: "ExportTestRun")
         store.record(
             category: .bootstrap,
             action: "TEST_PAIRING_EVENT",
