@@ -25,10 +25,37 @@ RouteLocation 提供官方 SideStore / AltStore Source，支援在 SideStore 內
 > - **手動 IPA 下載**：您仍可隨時前往 [GitHub Releases](https://github.com/peijungwu0302-Wu/StikDebug/releases) 或直接下載最新未簽名版本：[RouteLocation-unsigned.ipa](https://github.com/peijungwu0302-Wu/StikDebug/releases/latest/download/RouteLocation-unsigned.ipa)。
 
 
+## RouteLocation 1.2.7 特性亮點
+
+- **配對檔案維護增強 (Pairing Maintenance)**：
+  - 支援內容導向驗證（副檔名無關，支援 `.plist`、`.xml`、`.mobiledevicepairing`、`.mobiledevicepair`）。
+  - 完整校驗 Apple 配對憑證字典欄位（`DeviceCertificate`、`HostCertificate`、`HostID`、`RootCertificate`、`SystemBUID`）。
+  - 安全原子替換（失敗時絕不覆蓋損壞既有合法配對檔）。
+  - 標準儲存於 `Application Support/Pairing/pairingFile.plist`，支援啟動自動遷移。
+  - 啟用 `LSSupportsOpeningDocumentsInPlace` 與 `UIFileSharingEnabled`，改善與 iLoader / 檔案 App 的檔案互通性。
+  - 提供重新驗證與安全移除功能。
+- **側載簽名狀態與安裝身分 (Signing Status & Installation Identity)**：
+  - 直接解析 `embedded.mobileprovision` PKCS#7 結構，取得真實到期時間、剩餘時間、開發者團隊 ID 與 Entitlements。
+  - 每次冷啟動與回到前景自動重新校驗。
+  - 產生去識別化的容器識別雜湊（`Container Identity Hash`，例如 `A81F-92C3`），診斷報告中自動遮蔽原始容器路徑。
+- **實驗性自我重新整理 (Experimental Self Refresh)**：
+  - 手動專用續期工具，僅針對 RouteLocation 本身（1.2.7 -> 1.2.7），不升級版本、不影響其他 App。
+  - 嚴格前置檢查：需要 Wi-Fi 與 LocalDevVPN，封鎖行動網路單獨重新整理。
+  - 模擬安全保護：重新整理前提示停止模擬並恢復真實位置；若復原失敗則終止重新整理以防止 Error 12。
+  - 下次啟動自動確認：比對到期日變化並記錄操作日誌。提供 `[在 SideStore 中重新整理]` 一鍵捷徑回退。
+- **地圖快速選擇路線 (Map Quick Saved Routes)**：
+  - 地圖 Route 模式新增精簡 `[★ 我的路線]` 按鈕，直接開啟我的路線面板。
+  - 智慧分類排序：最愛路線置頂、最近使用排序、其他已儲存路線。
+  - 點選路線立即在地圖預覽（縮放至完整視野），不自動觸發模擬或 DVT。
+  - 提供 `[開始路線]`、`[編輯 (前往路線分頁)]`、`[取消預覽]` 操作。
+  - 正在執行路線時點選開始其他路線，提供確認切換提示，確認後無縫切換，不重置回真實 GPS。
+  - 自動記錄路線的 `lastUsedAt` 時間戳記。
+
 ## Features
 
 - System-wide developer location simulation and immediate single-point teleport
 - Dual map interaction styles: Classic complete UI (傳統模式) and optional Quick Route Beta (快速路線模式)
+- Direct quick saved route preview and seamless switching in Map Tab (`[★ 我的路線]`)
 - Single source of truth simulation state (`idle`, `singlePoint`, `routePlaying`, `routePaused`) with seamless mode transitions
 - Safe Single Point <-> Route transitions without reverting to real device GPS mid-transition
 - Configurable mode-switch confirmation (Ask First vs Direct Switch)
@@ -54,8 +81,11 @@ RouteLocation 提供官方 SideStore / AltStore Source，支援在 SideStore 內
 - Dynamic VPN peer observation and Direct Cellular Delay Lab (0–5000ms delay experimentation)
 - Secret 7-tap gesture unlock for Developer Diagnostics tools in Settings → About
 - Hardened Restore Real Location command with active DVT session reuse, fresh bootstrap fallback, FFI error extraction, single retry, and strict simulation state preservation (resolves Error 12)
+- Real-time sideload signing status monitoring and expiration countdown from `embedded.mobileprovision`
+- Experimental manual self refresh with Wi-Fi + LocalDevVPN preflight and active simulation protection
+- Enhanced pairing file maintenance with multi-format content validation, atomic replacement, and secure container management
 - Setup diagnostics for pairing, LocalDevVPN tunnel stage, DDI, DVT, location simulation, active transport, and Internet reachability
-- Sanitized on-device diagnostic reports that never include pairing credentials
+- Sanitized on-device diagnostic reports that never include pairing credentials or raw container paths
 
 Fixed-speed playback never uses OpenStreetMap/Overpass speed limits or `MKRoute.expectedTravelTime`. `MKDirections` determines geometry only; the selected km/h value controls movement.
 

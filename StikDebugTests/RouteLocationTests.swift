@@ -1033,11 +1033,11 @@ struct SideStoreSourceTests {
             Issue.record("Failed to read latest version")
             return
         }
-        #expect(latest["version"] as? String == "1.2.6")
+        #expect(latest["version"] as? String == "1.2.7")
         #expect((latest["size"] as? Int ?? 0) > 0)
         #expect(latest["minOSVersion"] as? String == "17.4")
         let downloadURL = latest["downloadURL"] as? String ?? ""
-        #expect(downloadURL.contains("routelocation-v1.2.6"))
+        #expect(downloadURL.contains("routelocation-v1.2.7"))
         #expect(downloadURL.hasSuffix(".ipa"))
     }
 
@@ -1129,5 +1129,297 @@ struct SideStoreSourceTests {
         #expect(!model.showBootstrapPreflightSheet)
     }
 }
+
+// MARK: - RouteLocation 1.2.7 Test Suites
+
+struct PairingMaintenanceTests {
+    private func makeValidPairingDict() -> [String: Any] {
+        [
+            "DeviceCertificate": Data([0x01, 0x02, 0x03]),
+            "HostCertificate": Data([0x04, 0x05, 0x06]),
+            "HostID": "test-host-id-12345",
+            "RootCertificate": Data([0x07, 0x08, 0x09]),
+            "SystemBUID": "test-system-buid-67890"
+        ]
+    }
+
+    @Test func p1_validPairingDataPassesValidation() throws {
+        let dict = makeValidPairingDict()
+        let data = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
+        let result = PairingFileStore.validatePairingData(data)
+        #expect(result.isValid)
+        #expect(result == .valid)
+        #expect(result.label.contains("已驗證"))
+    }
+
+    @Test func p2_missingRequiredKeysFailsValidation() throws {
+        var dict = makeValidPairingDict()
+        dict.removeValue(forKey: "SystemBUID")
+        let data = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
+        let result = PairingFileStore.validatePairingData(data)
+        #expect(!result.isValid)
+        if case .invalid(let reason) = result {
+            #expect(reason.contains("SystemBUID"))
+        } else {
+            Issue.record("Expected .invalid result")
+        }
+    }
+
+    @Test func p3_emptyCertificatesFailsValidation() throws {
+        var dict = makeValidPairingDict()
+        dict["DeviceCertificate"] = Data()
+        let data = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
+        let result = PairingFileStore.validatePairingData(data)
+        #expect(!result.isValid)
+        if case .invalid(let reason) = result {
+            #expect(reason.contains("DeviceCertificate"))
+        } else {
+            Issue.record("Expected .invalid result")
+        }
+    }
+
+    @Test func p4_corruptDataReturnsParseError() {
+        let corruptData = Data([0x00, 0x11, 0x22, 0x33, 0xFF])
+        let result = PairingFileStore.validatePairingData(corruptData)
+        #expect(!result.isValid)
+        if case .parseError = result {
+            // Expected
+        } else {
+            Issue.record("Expected .parseError")
+        }
+    }
+
+    @Test func p5_canonicalRelativePathIsPreserved() {
+        #expect(PairingFileStore.canonicalRelativePath == "Application Support/Pairing/pairingFile.plist")
+    }
+
+    @Test func p6_pairingSourceEnumCodingAndLabels() throws {
+        let sources: [PairingSource] = [.manualImport, .externalPlacement, .legacyMigration, .unknown]
+        for src in sources {
+            #expect(!src.label.isEmpty)
+            let encoded = try JSONEncoder().encode(src)
+            let decoded = try JSONDecoder().decode(PairingSource.self, from: encoded)
+            #expect(decoded == src)
+        }
+    }
+}
+
+struct InstallationIdentityTests {
+    @Test func i1_installationIdentityHasCorrectVersionAndBuild() {
+        let identity = DeveloperDiagnosticsStore.shared.installationIdentity
+        #expect(identity.version == "1.2.7")
+        #expect(identity.build == "4")
+        #expect(identity.bundleIdentifier == "com.routelocation.app")
+    }
+
+    @Test func i2_containerIdentityHashProducesConsistentEightHexDash() {
+        let identity = DeveloperDiagnosticsStore.shared.installationIdentity
+        let hash = identity.containerIdentityHash
+        #expect(hash.count == 9)
+        #expect(hash.contains("-"))
+        let parts = hash.split(separator: "-")
+        #expect(parts.count == 2)
+        #expect(parts[0].count == 4)
+        #expect(parts[1].count == 4)
+    }
+
+    @Test func i3_safeReportRedactsRawContainerPath() {
+        guard let url = DeveloperDiagnosticsStore.shared.exportSafeReport(),
+              let text = try? String(contentsOf: url, encoding: .utf8) else {
+            Issue.record("Failed to generate or read safe report")
+            return
+        }
+        #expect(!text.contains("/var/mobile/Containers/Data/Application/"))
+        #expect(text.contains("1.2.7"))
+    }
+}
+
+struct SigningStatusTests {
+    private func makeMockProfileEnvelope(expiration: Date, teamId: String = "TEAM999999") throws -> Data {
+        let formatter = ISO8601DateFormatter()
+        let dateStr = formatter.string(from: expiration)
+        let xmlString = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Name</key>
+            <string>RouteLocation Sideload</string>
+            <key>AppIDName</key>
+            <string>RouteLocation</string>
+            <key>TeamIdentifier</key>
+            <array>
+                <string>\(teamId)</string>
+            </array>
+            <key>ExpirationDate</key>
+            <date>\(dateStr)</date>
+        </dict>
+        </plist>
+        """
+        var data = Data([0x30, 0x82, 0x01, 0x00]) // Mock PKCS#7 prefix
+        data.append(Data(xmlString.utf8))
+        data.append(Data([0x00, 0x00])) // Mock PKCS#7 suffix
+        return data
+    }
+
+    @Test func sg1_parserExtractsProfileInfoSuccessfully() throws {
+        let futureDate = Date().addingTimeInterval(5 * 86400)
+        let data = try makeMockProfileEnvelope(expiration: futureDate)
+        let info = try ProvisioningProfileParser.parse(data: data)
+        #expect(info.name == "RouteLocation Sideload")
+        #expect(info.teamIdentifier == ["TEAM999999"])
+        #expect(!info.isExpired)
+        #expect(info.remainingTimeInterval > 4 * 86400)
+    }
+
+    @Test func sg2_parserDetectsExpiredProfile() throws {
+        let pastDate = Date().addingTimeInterval(-3600)
+        let data = try makeMockProfileEnvelope(expiration: pastDate)
+        let info = try ProvisioningProfileParser.parse(data: data)
+        #expect(info.isExpired)
+        #expect(info.remainingTimeInterval <= 0)
+    }
+
+    @Test func sg3_parserThrowsOnMissingXMLHeader() {
+        let corruptData = Data("Just some binary without plist".utf8)
+        #expect(throws: SigningParseError.self) {
+            _ = try ProvisioningProfileParser.parse(data: corruptData)
+        }
+    }
+
+    @Test func sg4_signingStatusLabelsAndColors() {
+        let futureDate = Date().addingTimeInterval(5 * 86400)
+        let info = ProvisioningProfileInfo(
+            name: "Test", appIDName: "App", teamName: "Team",
+            teamIdentifier: ["TEAM1"], creationDate: nil,
+            expirationDate: futureDate, entitlements: [:],
+            uuid: nil, isProvisionsAllDevices: false
+        )
+        let validStatus = SigningStatus.valid(info)
+        #expect(validStatus.label == "有效")
+        #expect(validStatus.color == .green)
+
+        let expiredInfo = ProvisioningProfileInfo(
+            name: "Test", appIDName: "App", teamName: "Team",
+            teamIdentifier: ["TEAM1"], creationDate: nil,
+            expirationDate: Date().addingTimeInterval(-100), entitlements: [:],
+            uuid: nil, isProvisionsAllDevices: false
+        )
+        let expiredStatus = SigningStatus.expired(expiredInfo)
+        #expect(expiredStatus.label == "已過期")
+        #expect(expiredStatus.color == .red)
+    }
+}
+
+struct QuickSavedRoutesTests {
+    private func makeRoute(name: String, isFavorite: Bool, lastUsedAt: Date?) -> SavedRoute {
+        SavedRoute(
+            id: UUID(),
+            name: name,
+            waypoints: [
+                RouteCoordinate(latitude: 25.033, longitude: 121.564),
+                RouteCoordinate(latitude: 25.034, longitude: 121.565)
+            ],
+            resolvedGeometry: RouteGeometry(coordinates: [
+                RouteCoordinate(latitude: 25.033, longitude: 121.564),
+                RouteCoordinate(latitude: 25.034, longitude: 121.565)
+            ]),
+            routeMode: .straight,
+            navigationTransportMode: .automobile,
+            isClosedLoop: false,
+            preferredSpeedKmh: 18.0,
+            playbackMode: .once,
+            navigationGeometryNeedsRecalculation: false,
+            isFavorite: isFavorite,
+            createdAt: Date(),
+            updatedAt: Date(),
+            lastUsedAt: lastUsedAt
+        )
+    }
+
+    @Test func m1_savedRouteDecodesWithoutLastUsedAtGracefully() throws {
+        let route = makeRoute(name: "Classic", isFavorite: true, lastUsedAt: nil)
+        let data = try JSONEncoder().encode(route)
+        let decoded = try JSONDecoder().decode(SavedRoute.self, from: data)
+        #expect(decoded.lastUsedAt == nil)
+        #expect(decoded.isFavorite == true)
+        #expect(decoded.name == "Classic")
+    }
+
+    @Test func m2_sortedForQuickSelectionPrioritizesFavoritesThenRecents() {
+        let now = Date()
+        let r1_favRecent = makeRoute(name: "FavRecent", isFavorite: true, lastUsedAt: now.addingTimeInterval(-100))
+        let r2_favOlder = makeRoute(name: "FavOlder", isFavorite: true, lastUsedAt: now.addingTimeInterval(-5000))
+        let r3_recentNonFav = makeRoute(name: "RecentNonFav", isFavorite: false, lastUsedAt: now.addingTimeInterval(-50))
+        let r4_neverUsed = makeRoute(name: "NeverUsed", isFavorite: false, lastUsedAt: nil)
+
+        let sorted = [r4_neverUsed, r3_recentNonFav, r2_favOlder, r1_favRecent].sortedForQuickSelection
+
+        // Favorite routes must be at the top
+        #expect(sorted[0].name == "FavRecent")
+        #expect(sorted[1].name == "FavOlder")
+        // Then recently used non-favorite
+        #expect(sorted[2].name == "RecentNonFav")
+        // Then never-used non-favorite
+        #expect(sorted[3].name == "NeverUsed")
+    }
+
+    @MainActor
+    @Test func m3_previewRouteUpdatesModelWithoutStartingSimulation() {
+        let model = RouteLocationModel()
+        let route = makeRoute(name: "PreviewTest", isFavorite: false, lastUsedAt: nil)
+
+        model.previewRoute(route)
+
+        #expect(model.previewingRoute?.id == route.id)
+        #expect(model.routeName == "PreviewTest")
+        #expect(model.waypoints.count == 2)
+        #expect(model.simulationMode == .idle)
+    }
+
+    @MainActor
+    @Test func m4_cancelRoutePreviewClearsDraftWhenIdle() {
+        let model = RouteLocationModel()
+        let route = makeRoute(name: "CancelTest", isFavorite: false, lastUsedAt: nil)
+
+        model.previewRoute(route)
+        #expect(model.previewingRoute != nil)
+
+        model.cancelRoutePreview()
+        #expect(model.previewingRoute == nil)
+        #expect(model.waypoints.isEmpty)
+    }
+}
+
+struct SelfRefreshCoordinatorTests {
+    @Test func sr1_pendingVerificationModelRoundTrip() throws {
+        let now = Date()
+        let pv = SelfRefreshPendingVerification(
+            operationId: "op-test-123",
+            beforeExpiration: now,
+            expectedVersion: "1.2.7",
+            requestedAt: now
+        )
+        let data = try JSONEncoder().encode(pv)
+        let decoded = try JSONDecoder().decode(SelfRefreshPendingVerification.self, from: data)
+        #expect(decoded.operationId == "op-test-123")
+        #expect(decoded.expectedVersion == "1.2.7")
+        #expect(decoded.beforeExpiration == now)
+    }
+
+    @Test func sr2_selfRefreshStateBusyFlagAndLabels() {
+        #expect(!SelfRefreshState.idle.isBusy)
+        #expect(!SelfRefreshState.authenticationRequired.isBusy)
+        #expect(SelfRefreshState.preflight.isBusy)
+        #expect(SelfRefreshState.signing.isBusy)
+        #expect(SelfRefreshState.installing.isBusy)
+        #expect(!SelfRefreshState.success(message: "成功").isBusy)
+        #expect(!SelfRefreshState.failed(reason: "錯誤").isBusy)
+
+        #expect(!SelfRefreshState.signing.statusText.isEmpty)
+        #expect(!SelfRefreshState.preflight.statusText.isEmpty)
+    }
+}
+
 
 

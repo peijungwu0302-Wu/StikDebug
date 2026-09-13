@@ -11,7 +11,10 @@ struct SetupDiagnosticsView: View {
     @ObservedObject private var healthSteps = HealthStepSyncService.shared
     @ObservedObject private var diagnosticsStore = DeveloperDiagnosticsStore.shared
     @ObservedObject private var shortcutService = ShortcutBootstrapService.shared
+    @ObservedObject private var signingService = SigningStatusService.shared
+    @ObservedObject private var selfRefresh = SelfRefreshCoordinator.shared
     @State private var showPairingImporter = false
+    @State private var showDeletePairingConfirm = false
     @State private var pairingState: PairingDiagnosticState = .checking
     @State private var diagnosticInfo: DiagnosticInfo?
     @State private var showManualStepEntry = false
@@ -40,11 +43,42 @@ struct SetupDiagnosticsView: View {
                     status("VPN 介面", model.connectionMonitor.usesVPNInterface ? "已偵測" : "未偵測", .gray, info: "顯示系統是否偵測到 VPN 介面。這只能作為提示，不等同於 DVT 工作階段已成功連線。")
                 }
                 Section("配對檔案") {
+                    HStack {
+                        Text("配對驗證狀態")
+                        Spacer()
+                        Text(pairingState.label)
+                            .foregroundStyle(pairingState == .present ? .green : (pairingState == .invalid ? .red : .orange))
+                    }
+                    HStack {
+                        Text("來源")
+                        Spacer()
+                        Text(PairingFileStore.currentSource.label)
+                            .foregroundStyle(.secondary)
+                    }
+                    if pairingPresent {
+                        HStack {
+                            Text("儲存位置")
+                            Spacer()
+                            Text(PairingFileStore.canonicalRelativePath)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Button("重新驗證配對檔案") {
+                        refreshPairingState()
+                    }
+                    Button(L10n.text(pairingPresent ? "更換配對檔案" : "匯入配對檔案")) {
+                        showPairingImporter = true
+                    }
+                    if pairingPresent {
+                        Button("移除配對檔案", role: .destructive) {
+                            showDeletePairingConfirm = true
+                        }
+                    }
                     Text("配對檔案是敏感的裝置信任憑證。請妥善保管；RouteLocation 只會儲存在本機，絕不會上傳內容。")
                         .font(.footnote)
-                    Text("如果 iLoader 的「Manage Pairing File」沒有列出 RouteLocation，請在 iLoader 選擇 Export，將這台 iPhone 或 iPad 的配對檔案傳到裝置，再按下方按鈕手動匯入。")
+                    Text("如果 iLoader 的「Manage Pairing File」沒有列出 RouteLocation，請在 iLoader 選擇 Export，將這台 iPhone 或 iPad 的配對檔案傳到裝置，再按「匯入配對檔案」按鈕手動匯入。")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Button(L10n.text(pairingPresent ? "更換配對檔案" : "匯入配對檔案")) { showPairingImporter = true }
                 }
                 Section("連線") {
                     Button("檢查／重試裝置通道") {
@@ -267,6 +301,78 @@ struct SetupDiagnosticsView: View {
                     Text("沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求 MapKit 圖磚、搜尋及導航計算時才會連接 Apple 服務。")
                         .font(.footnote)
                 }
+                Section("簽名狀態與重新整理") {
+                    HStack {
+                        Text("簽名狀態")
+                        Spacer()
+                        Text(signingService.currentStatus.label)
+                            .foregroundStyle(signingService.currentStatus.color)
+                    }
+                    HStack {
+                        Text("剩餘有效時間")
+                        Spacer()
+                        Text(signingService.remainingTimeFormatted)
+                            .foregroundStyle(.secondary)
+                    }
+                    if signingService.expirationFormatted != "無" {
+                        HStack {
+                            Text("到期時間")
+                            Spacer()
+                            Text(signingService.expirationFormatted)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if let team = signingService.profileInfo?.teamIdentifier.first {
+                        HStack {
+                            Text("開發者團隊 ID")
+                            Spacer()
+                            Text(team)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    HStack {
+                        Text("容器識別雜湊")
+                        Spacer()
+                        Text(diagnosticsStore.installationIdentity.containerIdentityHash)
+                            .font(.caption.monospaced().bold())
+                            .foregroundStyle(.blue)
+                    }
+
+                    if selfRefresh.state.isBusy {
+                        HStack {
+                            ProgressView()
+                                .controlSize(.small)
+                                .padding(.trailing, 4)
+                            Text(selfRefresh.state.statusText)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if let err = selfRefresh.lastErrorMessage {
+                        Text(err)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+
+                    Button {
+                        selfRefresh.startSelfRefresh(model: model)
+                    } label: {
+                        Label("重新整理 RouteLocation", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(selfRefresh.state.isBusy)
+
+                    Button {
+                        openSideStoreApp()
+                    } label: {
+                        Label("在 SideStore 中重新整理", systemImage: "arrow.up.forward.app")
+                    }
+
+                    Text("手動重新整理僅續期目前安裝的 RouteLocation 簽名，不跨版本升級，也不會重新整理其他 App。建議在 Wi-Fi 並啟動 LocalDevVPN 的環境下執行。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("SideStore 更新") {
                     Text("RouteLocation 不會自動更新。您可以加入官方 SideStore Source，由 SideStore 進行簽名與更新管理，或前往 GitHub 查看發行版本。")
                         .font(.footnote)
@@ -296,7 +402,7 @@ struct SetupDiagnosticsView: View {
                     HStack {
                         Text("版本")
                         Spacer()
-                        Text("RouteLocation 1.2.6")
+                        Text("RouteLocation 1.2.7")
                             .foregroundStyle(.secondary)
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -373,6 +479,42 @@ struct SetupDiagnosticsView: View {
         } message: {
             Text(L10n.format("將由 RouteLocation 新增 %d 步至 Apple 健康。", Int(manualStepText) ?? 0))
         }
+        .alert(L10n.text("確定要移除配對檔案？"), isPresented: $showDeletePairingConfirm) {
+            Button(L10n.text("移除"), role: .destructive) {
+                try? PairingFileStore.remove()
+                refreshPairingState()
+                ToastManager.shared.show(L10n.text("已移除配對檔案"), kind: .info)
+            }
+            Button(L10n.text("取消"), role: .cancel) {}
+        } message: {
+            Text(L10n.text("移除後將無法建立新的 DVT 裝置通道，直到重新匯入有效的配對檔案。"))
+        }
+        .alert(L10n.text("目前正在模擬位置"), isPresented: $selfRefresh.showSimulationStopPrompt) {
+            Button(L10n.text("停止模擬並重新整理")) {
+                selfRefresh.confirmStopSimulationAndContinue(model: model)
+            }
+            Button(L10n.text("取消"), role: .cancel) {}
+        } message: {
+            Text(L10n.text("重新整理簽名前必須先停止目前模擬並恢復裝置真實位置。"))
+        }
+        .alert(L10n.text("目前需要 Wi-Fi"), isPresented: $selfRefresh.showCellularBlockedAlert) {
+            Button(L10n.text("好"), role: .cancel) {}
+        } message: {
+            Text(L10n.text("重新整理簽名目前僅支援 Wi-Fi + LocalDevVPN 連線，不支援行動網路單獨重新整理。請連線至 Wi-Fi 後再試。"))
+        }
+        .alert(L10n.text("需要 LocalDevVPN"), isPresented: $selfRefresh.showMissingVPNAlert) {
+            Button(L10n.text("好"), role: .cancel) {}
+        } message: {
+            Text(L10n.text("請先至 WireGuard 或設定中啟動 LocalDevVPN 介面。"))
+        }
+        .alert(L10n.text("重新整理提示"), isPresented: $selfRefresh.showActionableErrorAlert) {
+            Button(L10n.text("在 SideStore 中開啟")) {
+                openSideStoreApp()
+            }
+            Button(L10n.text("好"), role: .cancel) {}
+        } message: {
+            Text(selfRefresh.lastErrorMessage ?? L10n.text("重新整理需要 SideStore 支援。"))
+        }
     }
 
     private var ddiStatus: String {
@@ -413,6 +555,16 @@ struct SetupDiagnosticsView: View {
         case .reconnecting: return .orange
         case .error: return .red
         case .idle: return .gray
+        }
+    }
+
+    private func openSideStoreApp() {
+        if let url = URL(string: "sidestore://"), UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+        } else if let url = SideStoreSourceConfig.sideStoreDeepLinkURL {
+            UIApplication.shared.open(url)
+        } else {
+            ToastManager.shared.show(L10n.text("未偵測到 SideStore App，請手動開啟 SideStore 進行重新整理。"), kind: .info)
         }
     }
 
@@ -477,7 +629,8 @@ struct SetupDiagnosticsView: View {
         guard pairingPresent else { pairingState = .missing; return }
         pairingState = .checking
         Task.detached {
-            let valid = isPairing()
+            let validation = PairingFileStore.validateCurrentPairing()
+            let valid = validation.isValid && isPairing()
             await MainActor.run { pairingState = valid ? .present : .invalid }
         }
     }

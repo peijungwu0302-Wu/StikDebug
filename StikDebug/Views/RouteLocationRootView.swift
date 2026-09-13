@@ -41,6 +41,25 @@ struct RouteLocationRootView: View {
         } message: {
             Text(L10n.text("切換到單點定位會停止目前路線，\n但不會刪除路線。"))
         }
+        .alert(L10n.text("切換模擬路線"), isPresented: $model.showActiveRouteSwitchAlert) {
+            Button(L10n.text("取消"), role: .cancel) {
+                model.pendingSwitchRoute = nil
+            }
+            Button(L10n.text("切換路線")) {
+                if let route = model.pendingSwitchRoute {
+                    Task { await model.confirmSwitchToRoute(route) }
+                }
+            }
+        } message: {
+            if let pending = model.pendingSwitchRoute {
+                Text(L10n.format("目前正在模擬「%@」，是否切換到「%@」？", model.playback.routeName, pending.name))
+            } else {
+                Text(L10n.text("是否切換模擬路線？"))
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .switchToRoutesTab)) { _ in
+            selectedTab = .routes
+        }
         .sheet(isPresented: $model.showBootstrapPreflightSheet) {
             BootstrapPreflightSheet(
                 onRecheck: { model.confirmBootstrapPreflightRecheck() },

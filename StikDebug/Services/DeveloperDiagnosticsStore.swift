@@ -1,5 +1,17 @@
+import CryptoKit
 import Foundation
 import UIKit
+
+public struct InstallationIdentityInfo: Equatable, Sendable {
+    public let bundleIdentifier: String
+    public let applicationIdentifier: String
+    public let teamIdentifier: String
+    public let version: String
+    public let build: String
+    public let pairingStatus: String
+    public let pairingStorage: String
+    public let containerIdentityHash: String
+}
 
 enum DiagnosticEventCategory: String, Codable, CaseIterable {
     case lifecycle
@@ -120,7 +132,7 @@ final class DeveloperDiagnosticsStore: ObservableObject {
     func startNewRun(name: String? = nil) {
         let runId = UUID().uuidString
         let date = Date()
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.6"
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.7"
         let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         let osVersion = UIDevice.current.systemVersion
 
@@ -262,6 +274,7 @@ final class DeveloperDiagnosticsStore: ObservableObject {
             var safeDetails: [String: String] = [:]
             for (k, v) in event.details {
                 let lowerKey = k.lowercased()
+                let lowerVal = v.lowercased()
                 if lowerKey.contains("pair") || lowerKey.contains("secret") || lowerKey.contains("key") {
                     safeDetails[k] = "[REDACTED_CREDENTIAL]"
                 } else if lowerKey.contains("lat") || lowerKey.contains("lon") || lowerKey.contains("coord") {
@@ -270,6 +283,8 @@ final class DeveloperDiagnosticsStore: ObservableObject {
                     safeDetails[k] = "[REDACTED_SEARCH]"
                 } else if lowerKey.contains("routename") {
                     safeDetails[k] = "[REDACTED_NAME]"
+                } else if lowerVal.contains("/var/mobile") || lowerVal.contains("containers/data") || lowerKey.contains("containerpath") {
+                    safeDetails[k] = "[REDACTED_CONTAINER_PATH]"
                 } else {
                     safeDetails[k] = v
                 }
@@ -280,7 +295,7 @@ final class DeveloperDiagnosticsStore: ObservableObject {
 
         let reportDict: [String: Any] = [
             "reportType": "RouteLocation_Sanitized_Developer_Diagnostics",
-            "formatVersion": "1.2.6",
+            "formatVersion": "1.2.7",
             "exportedAt": ISO8601DateFormatter().string(from: Date()),
             "run": [
                 "id": targetRun.id,
@@ -350,6 +365,36 @@ final class DeveloperDiagnosticsStore: ObservableObject {
             list.append(event)
         }
         return list
+    }
+
+    public var installationIdentity: InstallationIdentityInfo {
+        let bundleId = Bundle.main.bundleIdentifier ?? "com.routelocation.app"
+        let teamId = SigningStatusService.shared.profileInfo?.teamIdentifier.first ?? "APPLE_DEV"
+        let redactedTeam = teamId.count > 3 ? "\(teamId.prefix(3))•••••••" : "••••••••••"
+        let redactedAppId = "\(redactedTeam).\(bundleId)"
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.7"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "4"
+        let pairingPresent = FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path)
+
+        return InstallationIdentityInfo(
+            bundleIdentifier: bundleId,
+            applicationIdentifier: redactedAppId,
+            teamIdentifier: redactedTeam,
+            version: version,
+            build: build,
+            pairingStatus: pairingPresent ? "已存在" : "尚未設定",
+            pairingStorage: PairingFileStore.canonicalRelativePath,
+            containerIdentityHash: containerIdentityHash
+        )
+    }
+
+    public var containerIdentityHash: String {
+        let home = NSHomeDirectory()
+        let digest = SHA256.hash(data: Data(home.utf8))
+        let hex = digest.map { String(format: "%02X", $0) }.joined()
+        let part1 = hex.prefix(4)
+        let part2 = hex.dropFirst(4).prefix(4)
+        return "\(part1)-\(part2)"
     }
 
     @discardableResult

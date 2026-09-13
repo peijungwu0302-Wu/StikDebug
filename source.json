@@ -15,6 +15,24 @@
       "tintColor": "#007AFF",
       "versions": [
         {
+          "version": "1.2.7",
+          "date": "2026-09-13",
+          "size": 6200000,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.7/RouteLocation-v1.2.7-unsigned.ipa",
+          "localizedDescription": "RouteLocation 1.2.7：配對檔案維護增強、側載簽名到期時間監控、實驗性手動自我重新整理、地圖快速儲存路線與安裝身分診斷。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        },
+        {
           "version": "1.2.6",
           "date": "2026-09-12",
           "size": 6163324,

@@ -21,6 +21,7 @@ struct RouteMapView: View {
     @State private var showSearch = false
     @State private var showFavoriteName = false
     @State private var showCoordinateEntry = false
+    @State private var showMyRoutes = false
     @State private var favoriteName = ""
     @State private var isCardExpanded = true
 
@@ -60,6 +61,8 @@ struct RouteMapView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
+                        .accessibilityLabel("我的路線")
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
                         .accessibilityLabel("搜尋地點")
                     Button { showCoordinateEntry = true } label: { Image(systemName: "number") }
@@ -68,6 +71,12 @@ struct RouteMapView: View {
                         .accessibilityLabel("顯示完整路線")
                         .disabled(model.geometry.coordinates.isEmpty)
                 }
+            }
+        }
+        .sheet(isPresented: $showMyRoutes) {
+            MyRoutesSheet { route in
+                model.previewRoute(route)
+                fitRoute()
             }
         }
         .sheet(isPresented: $showSearch) {
@@ -118,7 +127,28 @@ struct RouteMapView: View {
                 }
             }
             if isCardExpanded {
-                if let selected = model.selectedCoordinate {
+                if let previewing = model.previewingRoute {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "eye.fill").foregroundStyle(.blue)
+                            Text(previewing.name).font(.headline).lineLimit(1)
+                            Spacer()
+                            Text("預覽中").font(.caption2.bold())
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.blue.opacity(0.15), in: Capsule())
+                                .foregroundStyle(.blue)
+                        }
+                        HStack {
+                            Text("\(previewing.waypoints.count) 航點 · \(previewing.totalDistance.formattedDistance) · \(previewing.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Button("開始路線") { model.requestStartRoute(previewing) }.buttonStyle(.borderedProminent)
+                            Button("編輯") { NotificationCenter.default.post(name: .switchToRoutesTab, object: nil) }.buttonStyle(.bordered)
+                            Button("取消預覽", role: .cancel) { model.cancelRoutePreview() }.buttonStyle(.bordered)
+                        }
+                    }
+                } else if let selected = model.selectedCoordinate {
                     Text(String(format: "%.6f, %.6f", selected.latitude, selected.longitude))
                         .font(.footnote.monospaced()).textSelection(.enabled)
                     HStack {
@@ -180,6 +210,7 @@ struct QuickRouteMapView: View {
     @State private var showSaveSheet = false
     @State private var showClearDraftAlert = false
     @State private var showFavoriteName = false
+    @State private var showMyRoutes = false
     @State private var favoriteName = ""
     @State private var isCardExpanded = false
     @FocusState private var isSpeedFieldFocused: Bool
@@ -238,6 +269,10 @@ struct QuickRouteMapView: View {
                     .frame(width: 150)
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if model.quickRouteMode == .route {
+                        Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
+                            .accessibilityLabel("我的路線")
+                    }
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
                         .accessibilityLabel("搜尋地點")
                     Button { showCoordinateEntry = true } label: { Image(systemName: "number") }
@@ -270,6 +305,12 @@ struct QuickRouteMapView: View {
                     model.selectedCoordinate = coordinate
                 }
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
+            }
+        }
+        .sheet(isPresented: $showMyRoutes) {
+            MyRoutesSheet { route in
+                model.previewRoute(route)
+                fitRoute()
             }
         }
         .sheet(isPresented: $showSaveSheet) {
@@ -323,7 +364,9 @@ struct QuickRouteMapView: View {
                 .accessibilityLabel(isCardExpanded ? "收合卡片" : "展開卡片")
             }
 
-            if isPlaybackActive {
+            if let previewing = model.previewingRoute {
+                previewRouteContent(previewing)
+            } else if isPlaybackActive {
                 activePlaybackContent
             } else if model.quickRouteMode == .singlePoint {
                 singlePointContent
@@ -339,6 +382,55 @@ struct QuickRouteMapView: View {
 
     private var isPlaybackActive: Bool {
         playback.state == .running || playback.state == .reconnecting
+    }
+
+    @ViewBuilder
+    private func previewRouteContent(_ route: SavedRoute) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "eye.fill")
+                    .foregroundStyle(.blue)
+                Text(route.name)
+                    .font(.subheadline.bold())
+                    .lineLimit(1)
+                Spacer()
+                Text("預覽中")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.blue.opacity(0.15), in: Capsule())
+                    .foregroundStyle(.blue)
+            }
+
+            HStack {
+                Text("\(route.waypoints.count) 點 · \(route.totalDistance.formattedDistance) · \(route.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+
+            HStack(spacing: 8) {
+                Button("開始路線") {
+                    model.requestStartRoute(route)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                Button("編輯") {
+                    NotificationCenter.default.post(name: .switchToRoutesTab, object: nil)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Spacer()
+
+                Button("取消預覽", role: .cancel) {
+                    model.cancelRoutePreview()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
     }
 
     @ViewBuilder
@@ -469,6 +561,16 @@ struct QuickRouteMapView: View {
                     Text("在路線模式下點選地圖或使用搜尋以依序新增航點。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    HStack {
+                        Button {
+                            showMyRoutes = true
+                        } label: {
+                            Label("我的路線", systemImage: "star.circle.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        Spacer()
+                    }
                     if model.simulationMode.isSimulating {
                         Button("恢復真實位置", role: .destructive) {
                             Task { await model.returnToRealLocation() }
@@ -477,9 +579,19 @@ struct QuickRouteMapView: View {
                     }
                 }
             } else {
-                Text("點選地圖以新增航點")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("點選地圖以新增航點")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        showMyRoutes = true
+                    } label: {
+                        Label("我的路線", systemImage: "star.circle.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
             }
         } else if model.waypoints.count == 1 {
             HStack {
@@ -545,6 +657,8 @@ struct QuickRouteMapView: View {
                             .buttonStyle(.bordered)
                         Button("清除", role: .destructive) { showClearDraftAlert = true }
                             .buttonStyle(.bordered)
+                        Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
+                            .buttonStyle(.bordered)
                         Spacer()
                         Button("儲存路線") { showSaveSheet = true }
                             .buttonStyle(.bordered)
@@ -567,7 +681,7 @@ struct QuickRouteMapView: View {
                         .font(.caption)
                         .lineLimit(1)
                     Spacer()
-                    Button("復原") { model.undoLastWaypoint() }
+                    Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                     Button("開始路線") { Task { await model.startPlayback() } }

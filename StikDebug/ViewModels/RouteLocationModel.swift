@@ -26,6 +26,9 @@ final class RouteLocationModel: ObservableObject {
     @Published var pendingSinglePointCoordinate: RouteCoordinate?
     @Published var showModeSwitchAlert = false
     @Published var showBootstrapPreflightSheet = false
+    @Published var previewingRoute: SavedRoute?
+    @Published var showActiveRouteSwitchAlert = false
+    @Published var pendingSwitchRoute: SavedRoute?
     private var pendingBootstrapAction: (@MainActor () -> Void)?
     @Published private(set) var geometry = RouteGeometry(coordinates: [])
     @Published private(set) var navigationGeometryNeedsRecalculation = false
@@ -272,6 +275,62 @@ final class RouteLocationModel: ObservableObject {
         statusMessage = L10n.text("已載入快取路線，沒有重新計算導航。")
     }
 
+    func previewRoute(_ route: SavedRoute) {
+        previewingRoute = route
+        loadRoute(route)
+        mapFocusRevision = UUID()
+    }
+
+    func cancelRoutePreview() {
+        previewingRoute = nil
+        if case .routePlaying = simulationMode {
+            // Keep active route simulation running
+        } else {
+            clearCurrentRoute()
+        }
+    }
+
+    func requestStartRoute(_ route: SavedRoute) {
+        if playback.state == .running || playback.state == .reconnecting {
+            if playback.routeName == route.name && loadedRouteID == route.id {
+                statusMessage = L10n.format("目前正在模擬「%@」。", route.name)
+                return
+            }
+            pendingSwitchRoute = route
+            showActiveRouteSwitchAlert = true
+        } else {
+            Task {
+                await startRoute(route)
+            }
+        }
+    }
+
+    func startRoute(_ route: SavedRoute) async {
+        previewingRoute = nil
+        loadRoute(route)
+        await markRouteUsed(id: route.id)
+        await startPlayback()
+    }
+
+    func confirmSwitchToRoute(_ route: SavedRoute) async {
+        showActiveRouteSwitchAlert = false
+        pendingSwitchRoute = nil
+        playback.stop(clearMarker: false)
+        previewingRoute = nil
+        loadRoute(route)
+        await markRouteUsed(id: route.id)
+        await startPlayback()
+        statusMessage = L10n.format("已切換至路線「%@」。", route.name)
+    }
+
+    func markRouteUsed(id: UUID) async {
+        guard let index = savedRoutes.firstIndex(where: { $0.id == id }) else { return }
+        var updated = savedRoutes[index]
+        updated.lastUsedAt = Date()
+        savedRoutes[index] = updated
+        try? await persistence.saveRoute(updated)
+    }
+
     func deleteRoute(_ route: SavedRoute) async {
         do {
             try await persistence.deleteRoute(id: route.id)
@@ -446,6 +505,9 @@ final class RouteLocationModel: ObservableObject {
             try await playback.start(routeName: routeName, geometry: geometry, speedKmh: speedKmh, mode: playbackMode)
             simulationMode = .routePlaying
             LocationSessionCoordinator.shared.markSessionHealthy()
+            if let loadedRouteID {
+                await markRouteUsed(id: loadedRouteID)
+            }
         } catch { presentedError = error.localizedDescription }
     }
 

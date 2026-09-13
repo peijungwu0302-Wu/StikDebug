@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 import UIKit
 
 struct DeveloperDiagnosticsView: View {
@@ -53,6 +53,55 @@ struct DeveloperDiagnosticsView: View {
                 } label: {
                     Label(L10n.text("建立新測試回合 (New Run)"), systemImage: "plus.circle")
                 }
+            }
+
+            Section("安裝身分與容器 (Installation Identity)") {
+                let identity = store.installationIdentity
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Bundle ID")
+                        Spacer()
+                        Text(identity.bundleIdentifier).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("App ID")
+                        Spacer()
+                        Text(identity.appIdentifier).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Team ID")
+                        Spacer()
+                        Text(identity.teamIdentifier).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("版本")
+                        Spacer()
+                        Text("\(identity.version) (\(identity.build))").font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("容器識別雜湊")
+                        Spacer()
+                        Text(identity.containerIdentityHash).font(.caption.monospaced().bold()).foregroundStyle(.blue)
+                    }
+                    HStack {
+                        Text("配對檔狀態")
+                        Spacer()
+                        Text(identity.pairingFileStatus).font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("簽名設定檔")
+                        Spacer()
+                        Text(identity.provisioningProfileStatus).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let exp = identity.signingExpirationDate {
+                        HStack {
+                            Text("簽名到期")
+                            Spacer()
+                            Text(exp).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
             }
 
             Section("匯出與分享 (Export & Share)") {

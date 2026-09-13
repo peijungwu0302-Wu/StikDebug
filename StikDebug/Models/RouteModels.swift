@@ -244,6 +244,7 @@ struct SavedRoute: Codable, Identifiable, Equatable {
     var playbackMode: RoutePlaybackMode
     var navigationGeometryNeedsRecalculation: Bool
     var isFavorite: Bool
+    var lastUsedAt: Date?
     var createdAt: Date
     var updatedAt: Date
 
@@ -254,7 +255,7 @@ struct SavedRoute: Codable, Identifiable, Equatable {
         routeMode: RouteMode, navigationTransportMode: NavigationTransportMode = .automobile,
         isClosedLoop: Bool, preferredSpeedKmh: Double, playbackMode: RoutePlaybackMode,
         navigationGeometryNeedsRecalculation: Bool = false, isFavorite: Bool = false,
-        createdAt: Date = .now, updatedAt: Date = .now
+        lastUsedAt: Date? = nil, createdAt: Date = .now, updatedAt: Date = .now
     ) {
         self.id = id
         self.name = name
@@ -267,6 +268,7 @@ struct SavedRoute: Codable, Identifiable, Equatable {
         self.playbackMode = playbackMode
         self.navigationGeometryNeedsRecalculation = navigationGeometryNeedsRecalculation
         self.isFavorite = isFavorite
+        self.lastUsedAt = lastUsedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -274,7 +276,7 @@ struct SavedRoute: Codable, Identifiable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case id, name, waypoints, resolvedGeometry, routeMode, navigationTransportMode
         case isClosedLoop, preferredSpeedKmh, playbackMode, navigationGeometryNeedsRecalculation
-        case isFavorite, createdAt, updatedAt
+        case isFavorite, lastUsedAt, createdAt, updatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -290,8 +292,24 @@ struct SavedRoute: Codable, Identifiable, Equatable {
         playbackMode = try container.decode(RoutePlaybackMode.self, forKey: .playbackMode)
         navigationGeometryNeedsRecalculation = try container.decodeIfPresent(Bool.self, forKey: .navigationGeometryNeedsRecalculation) ?? false
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        lastUsedAt = try container.decodeIfPresent(Date.self, forKey: .lastUsedAt)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
+}
+
+extension Array where Element == SavedRoute {
+    public var sortedForQuickSelection: [SavedRoute] {
+        let favorites = self.filter(\.isFavorite).sorted {
+            ($0.lastUsedAt ?? $0.updatedAt) > ($1.lastUsedAt ?? $1.updatedAt)
+        }
+        let nonFavoritesWithRecent = self.filter { !$0.isFavorite && $0.lastUsedAt != nil }.sorted {
+            ($0.lastUsedAt ?? .distantPast) > ($1.lastUsedAt ?? .distantPast)
+        }
+        let others = self.filter { !$0.isFavorite && $0.lastUsedAt == nil }.sorted {
+            $0.updatedAt > $1.updatedAt
+        }
+        return favorites + nonFavoritesWithRecent + others
     }
 }
 
