@@ -1,0 +1,56 @@
+{
+  "name": "RouteLocation Source",
+  "identifier": "com.routelocation.source",
+  "subtitle": "RouteLocation 官方更新來源",
+  "description": "RouteLocation 官方 SideStore / AltStore 軟體來源。提供經過驗證的未簽名 IPA 發行版本，支援自主簽名與覆蓋更新。",
+  "website": "https://github.com/peijungwu0302-Wu/StikDebug",
+  "apps": [
+    {
+      "name": "RouteLocation",
+      "bundleIdentifier": "com.routelocation.app",
+      "developerName": "peijungwu0302",
+      "subtitle": "iOS DVT 定位與路徑模擬工具",
+      "localizedDescription": "專為 iOS 打造的高效能開發者定位模擬與路徑測試工具。支援 DVT 協定、LocalDevVPN、單點瞬移、自訂速度路線模擬及 Apple 健康步數同步。完全本機運作，無遙測與個資收集。",
+      "iconURL": "https://raw.githubusercontent.com/peijungwu0302-Wu/StikDebug/main/assets/StikDebug.png",
+      "tintColor": "#007AFF",
+      "versions": [
+        {
+          "version": "1.2.6",
+          "date": "2026-09-12",
+          "size": 6163324,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.6/RouteLocation-v1.2.6-unsigned.ipa",
+          "localizedDescription": "RouteLocation 1.2.6：支援傳輸感知工作階段生命週期、自動預熱、選用行動網路捷徑輔助啟動、持久化開發者診斷（JSONL）與恢復真實位置 Error 12 修復。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        },
+        {
+          "version": "1.2.5",
+          "date": "2026-09-12",
+          "size": 6040590,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.5/RouteLocation-v1.2.5-unsigned.ipa",
+          "localizedDescription": "RouteLocation 1.2.5：修正搜尋／網路活動對既有 DVT 工作階段的干擾、加入行動網路初始化提示、優化地圖快速路線操作體驗。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

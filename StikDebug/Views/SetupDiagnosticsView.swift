@@ -267,6 +267,31 @@ struct SetupDiagnosticsView: View {
                     Text("沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求 MapKit 圖磚、搜尋及導航計算時才會連接 Apple 服務。")
                         .font(.footnote)
                 }
+                Section("SideStore 更新") {
+                    Text("RouteLocation 不會自動更新。您可以加入官方 SideStore Source，由 SideStore 進行簽名與更新管理，或前往 GitHub 查看發行版本。")
+                        .font(.footnote)
+
+                    Button {
+                        openSideStoreSource()
+                    } label: {
+                        Label("加入 RouteLocation Source", systemImage: "plus.circle")
+                    }
+
+                    Button {
+                        copySourceURL()
+                    } label: {
+                        Label("複製 Source URL", systemImage: "doc.on.doc")
+                    }
+
+                    Button {
+                        openReleasesPage()
+                    } label: {
+                        Label("查看 GitHub Releases", systemImage: "arrow.up.right.square")
+                    }
+
+                    Text("選用功能：您可隨時透過 SideStore 檢查與更新，舊版本仍可正常使用各項功能。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("關於 RouteLocation") {
                     HStack {
                         Text("版本")
@@ -389,6 +414,26 @@ struct SetupDiagnosticsView: View {
         case .error: return .red
         case .idle: return .gray
         }
+    }
+
+    private func openSideStoreSource() {
+        guard let url = SideStoreSourceConfig.sideStoreDeepLinkURL else { return }
+        UIApplication.shared.open(url) { success in
+            if !success {
+                UIPasteboard.general.string = SideStoreSourceConfig.rawSourceURLString
+                ToastManager.shared.show(L10n.text("無法直接開啟 SideStore，已複製 Source 網址到剪貼簿。"), kind: .info)
+            }
+        }
+    }
+
+    private func copySourceURL() {
+        UIPasteboard.general.string = SideStoreSourceConfig.rawSourceURLString
+        ToastManager.shared.show(L10n.text("已複製 SideStore Source 網址。"), kind: .success)
+    }
+
+    private func openReleasesPage() {
+        guard let url = SideStoreSourceConfig.releasesWebURL else { return }
+        UIApplication.shared.open(url)
     }
 
     private func copySanitizedDiagnosticReport() {

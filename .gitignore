@@ -102,3 +102,9 @@ iOSInjectionProject/
 *.mobiledevicepair
 *.mobileprovision
 *.p12
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+

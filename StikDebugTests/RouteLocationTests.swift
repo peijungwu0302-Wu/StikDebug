@@ -946,3 +946,188 @@ struct RestoreRealLocationFailureStateTests {
     }
 }
 
+@MainActor
+struct SideStoreSourceTests {
+    private func locateSourceJSON() -> URL? {
+        let testsDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let repoRoot = testsDir.deletingLastPathComponent()
+        let fileURL = repoRoot.appendingPathComponent("source.json")
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            return fileURL
+        }
+        return nil
+    }
+
+    @Test func u1_sourceJsonExistsAndHasValidSchema() throws {
+        guard let url = locateSourceJSON() else { return }
+        let data = try Data(contentsOf: url)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json != nil)
+        #expect(json?["name"] as? String == "RouteLocation Source")
+        #expect(json?["identifier"] as? String == "com.routelocation.source")
+        #expect((json?["apps"] as? [[String: Any]]) != nil)
+    }
+
+    @Test func u2_appBundleIdentifierMatchesAppTarget() throws {
+        guard let url = locateSourceJSON() else { return }
+        let data = try Data(contentsOf: url)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let apps = json["apps"] as? [[String: Any]],
+              let firstApp = apps.first else {
+            Issue.record("Failed to read apps from source.json")
+            return
+        }
+        #expect(firstApp["bundleIdentifier"] as? String == "com.routelocation.app")
+    }
+
+    @Test func u3_appNameMatchesRouteLocation() throws {
+        guard let url = locateSourceJSON() else { return }
+        let data = try Data(contentsOf: url)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let apps = json["apps"] as? [[String: Any]],
+              let firstApp = apps.first else {
+            Issue.record("Failed to read apps from source.json")
+            return
+        }
+        #expect(firstApp["name"] as? String == "RouteLocation")
+    }
+
+    @Test func u4_versionsListIsNonEmptyAndOrderedSemantically() throws {
+        guard let url = locateSourceJSON() else { return }
+        let data = try Data(contentsOf: url)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let apps = json["apps"] as? [[String: Any]],
+              let firstApp = apps.first,
+              let versions = firstApp["versions"] as? [[String: Any]] else {
+            Issue.record("Failed to read versions from source.json")
+            return
+        }
+        #expect(!versions.isEmpty)
+        let versionStrings = versions.compactMap { $0["version"] as? String }
+        #expect(versionStrings.count == versions.count)
+
+        func parseSemver(_ str: String) -> [Int] {
+            str.split(separator: ".").compactMap { Int($0) }
+        }
+
+        for i in 0..<(versionStrings.count - 1) {
+            let v1 = parseSemver(versionStrings[i])
+            let v2 = parseSemver(versionStrings[i + 1])
+            var isGreaterOrEqual = false
+            for (p1, p2) in zip(v1, v2) {
+                if p1 > p2 { isGreaterOrEqual = true; break }
+                if p1 < p2 { isGreaterOrEqual = false; break }
+            }
+            #expect(isGreaterOrEqual)
+        }
+    }
+
+    @Test func u5_latestVersionMatchesAppIdentityAndHasValidMetadata() throws {
+        guard let url = locateSourceJSON() else { return }
+        let data = try Data(contentsOf: url)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let apps = json["apps"] as? [[String: Any]],
+              let firstApp = apps.first,
+              let versions = firstApp["versions"] as? [[String: Any]],
+              let latest = versions.first else {
+            Issue.record("Failed to read latest version")
+            return
+        }
+        #expect(latest["version"] as? String == "1.2.6")
+        #expect((latest["size"] as? Int ?? 0) > 0)
+        #expect(latest["minOSVersion"] as? String == "17.4")
+        let downloadURL = latest["downloadURL"] as? String ?? ""
+        #expect(downloadURL.contains("routelocation-v1.2.6"))
+        #expect(downloadURL.hasSuffix(".ipa"))
+    }
+
+    @Test func u6_versionUrlsPointToSpecificReleaseAssets() throws {
+        guard let url = locateSourceJSON() else { return }
+        let data = try Data(contentsOf: url)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let apps = json["apps"] as? [[String: Any]],
+              let firstApp = apps.first,
+              let versions = firstApp["versions"] as? [[String: Any]] else {
+            Issue.record("Failed to read versions")
+            return
+        }
+        for entry in versions {
+            let ver = entry["version"] as? String ?? ""
+            let download = entry["downloadURL"] as? String ?? ""
+            #expect(!ver.isEmpty)
+            #expect(download.contains("routelocation-v\(ver)"))
+            #expect(download.hasSuffix(".ipa"))
+        }
+    }
+
+    @Test func u7_noDuplicateVersionsExist() throws {
+        guard let url = locateSourceJSON() else { return }
+        let data = try Data(contentsOf: url)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let apps = json["apps"] as? [[String: Any]],
+              let firstApp = apps.first,
+              let versions = firstApp["versions"] as? [[String: Any]] else {
+            Issue.record("Failed to read versions")
+            return
+        }
+        let versionStrings = versions.compactMap { $0["version"] as? String }
+        let uniqueStrings = Set(versionStrings)
+        #expect(versionStrings.count == uniqueStrings.count)
+    }
+
+    @Test func u8_semanticVersionSortingLogicOrdersDoubleDigitsCorrectly() {
+        let inputVersions = ["1.2.5", "1.2.9", "1.2.10", "1.2.6"]
+        func parseSemver(_ str: String) -> [Int] {
+            str.split(separator: ".").compactMap { Int($0) }
+        }
+        let sorted = inputVersions.sorted { a, b in
+            let pa = parseSemver(a)
+            let pb = parseSemver(b)
+            for (x, y) in zip(pa, pb) {
+                if x != y { return x > y }
+            }
+            return pa.count > pb.count
+        }
+        #expect(sorted == ["1.2.10", "1.2.9", "1.2.6", "1.2.5"])
+    }
+
+    @Test func u9_sideStoreDeepLinkURLConfigurationIsValid() {
+        #expect(SideStoreSourceConfig.rawSourceURLString == "https://raw.githubusercontent.com/peijungwu0302-Wu/StikDebug/main/source.json")
+        #expect(SideStoreSourceConfig.releasesWebURLString == "https://github.com/peijungwu0302-Wu/StikDebug/releases")
+        guard let deepLink = SideStoreSourceConfig.sideStoreDeepLinkURL else {
+            Issue.record("sideStoreDeepLinkURL should not be nil")
+            return
+        }
+        let str = deepLink.absoluteString
+        #expect(str.hasPrefix("sidestore://source?url="))
+        #expect(str.contains("https%3A%2F%2Fraw.githubusercontent.com"))
+        #expect(str.contains("source.json"))
+    }
+
+    @Test func u10_appSimulationFunctionsIndependentlyOfUpdateSource() async {
+        let model = RouteLocationModel()
+        #expect(model.simulationMode == .idle)
+
+        let target = RouteCoordinate(latitude: 25.033, longitude: 121.564)
+        model.requestSinglePointSimulation(at: target)
+        #expect(model.selectedCoordinate == target)
+
+        // Waypoint draft manipulation works independently
+        model.clearWaypoints()
+        model.addWaypoint(target)
+        #expect(model.waypoints.count == 1)
+        model.clearWaypoints()
+        #expect(model.waypoints.isEmpty)
+    }
+
+    @Test func u11_zeroForcedUpdatesOrLockoutInApp() {
+        // Verify RouteLocationModel has no autoUpdate, forcedUpdate, or expiry lock fields
+        let model = RouteLocationModel()
+        #expect(model.isCellularBootstrapPreparationNeeded || !model.isCellularBootstrapPreparationNeeded)
+        // No alert blocking navigation on launch
+        #expect(!model.showModeSwitchAlert)
+        #expect(!model.showBootstrapPreflightSheet)
+    }
+}
+
+

@@ -8,6 +8,23 @@ Latest public unsigned IPA (no GitHub login): https://github.com/peijungwu0302-W
 
 The app's development, fallback, and first-launch language is Traditional Chinese. A complete English localization can be selected from RouteLocation's Settings tab.
 
+## SideStore Source 安裝與更新
+
+RouteLocation 提供官方 SideStore / AltStore Source，支援在 SideStore 內直接一鍵加入軟體來源與檢視發行版本。
+
+- **一鍵加入 SideStore Source**（在 iOS 裝置上的 Safari 點擊）：
+  [`sidestore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2Fpeijungwu0302-Wu%2FStikDebug%2Fmain%2Fsource.json`](sidestore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2Fpeijungwu0302-Wu%2FStikDebug%2Fmain%2Fsource.json)
+- **手動複製 Source URL**：
+  ```
+  https://raw.githubusercontent.com/peijungwu0302-Wu/StikDebug/main/source.json
+  ```
+
+> [!NOTE]
+> - **使用者自主決定**：RouteLocation 不會自動更新、不具備強制更新機制、不自行安裝 IPA，亦不會因版本較舊而限制或鎖定任何既有功能。
+> - **簽名與更新**：下載、重新簽名、安裝、覆蓋更新與每 7 天刷新均由 SideStore 完全主導。
+> - **手動 IPA 下載**：您仍可隨時前往 [GitHub Releases](https://github.com/peijungwu0302-Wu/StikDebug/releases) 或直接下載最新未簽名版本：[RouteLocation-unsigned.ipa](https://github.com/peijungwu0302-Wu/StikDebug/releases/latest/download/RouteLocation-unsigned.ipa)。
+
+
 ## Features
 
 - System-wide developer location simulation and immediate single-point teleport
