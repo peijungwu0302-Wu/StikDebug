@@ -1204,6 +1204,7 @@ struct PairingMaintenanceTests {
     }
 }
 
+@MainActor
 struct InstallationIdentityTests {
     @Test func i1_installationIdentityHasCorrectVersionAndBuild() {
         let identity = DeveloperDiagnosticsStore.shared.installationIdentity
@@ -1331,9 +1332,9 @@ struct QuickSavedRoutesTests {
             playbackMode: .once,
             navigationGeometryNeedsRecalculation: false,
             isFavorite: isFavorite,
+            lastUsedAt: lastUsedAt,
             createdAt: Date(),
-            updatedAt: Date(),
-            lastUsedAt: lastUsedAt
+            updatedAt: Date()
         )
     }
 
