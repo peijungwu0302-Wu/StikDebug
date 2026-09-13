@@ -301,78 +301,13 @@ struct SetupDiagnosticsView: View {
                     Text("沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求 MapKit 圖磚、搜尋及導航計算時才會連接 Apple 服務。")
                         .font(.footnote)
                 }
-                Section("簽名狀態與重新整理") {
-                    HStack {
-                        Text("簽名狀態")
-                        Spacer()
-                        Text(signingService.currentStatus.label)
-                            .foregroundStyle(signingService.currentStatus.color)
-                    }
-                    HStack {
-                        Text("剩餘有效時間")
-                        Spacer()
-                        Text(signingService.remainingTimeFormatted)
-                            .foregroundStyle(.secondary)
-                    }
-                    if signingService.expirationFormatted != "無" {
-                        HStack {
-                            Text("到期時間")
-                            Spacer()
-                            Text(signingService.expirationFormatted)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    if let team = signingService.profileInfo?.teamIdentifier.first {
-                        HStack {
-                            Text("開發者團隊 ID")
-                            Spacer()
-                            Text(team)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    HStack {
-                        Text("容器識別雜湊")
-                        Spacer()
-                        Text(diagnosticsStore.installationIdentity.containerIdentityHash)
-                            .font(.caption.monospaced().bold())
-                            .foregroundStyle(.blue)
-                    }
-
-                    if selfRefresh.state.isBusy {
-                        HStack {
-                            ProgressView()
-                                .controlSize(.small)
-                                .padding(.trailing, 4)
-                            Text(selfRefresh.state.statusText)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    if let err = selfRefresh.lastErrorMessage {
-                        Text(err)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-
-                    Button {
-                        selfRefresh.startSelfRefresh(model: model)
-                    } label: {
-                        Label("重新整理 RouteLocation", systemImage: "arrow.clockwise")
-                    }
-                    .disabled(selfRefresh.state.isBusy)
-
-                    Button {
-                        openSideStoreApp()
-                    } label: {
-                        Label("在 SideStore 中重新整理", systemImage: "arrow.up.forward.app")
-                    }
-
-                    Text("手動重新整理僅續期目前安裝的 RouteLocation 簽名，不跨版本升級，也不會重新整理其他 App。建議在 Wi-Fi 並啟動 LocalDevVPN 的環境下執行。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
+                SigningAndRefreshSectionView(
+                    signingService: signingService,
+                    diagnosticsStore: diagnosticsStore,
+                    selfRefresh: selfRefresh,
+                    model: model,
+                    openSideStoreApp: openSideStoreApp
+                )
                 Section("SideStore 更新") {
                     Text("RouteLocation 不會自動更新。您可以加入官方 SideStore Source，由 SideStore 進行簽名與更新管理，或前往 GitHub 查看發行版本。")
                         .font(.footnote)
@@ -655,6 +590,90 @@ struct SetupDiagnosticsView: View {
             Spacer()
             Circle().fill(color).frame(width: 8, height: 8)
             Text(value).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+private struct SigningAndRefreshSectionView: View {
+    @ObservedObject var signingService: SigningStatusService
+    @ObservedObject var diagnosticsStore: DeveloperDiagnosticsStore
+    @ObservedObject var selfRefresh: SelfRefreshCoordinator
+    @ObservedObject var model: RouteLocationModel
+    let openSideStoreApp: () -> Void
+
+    var body: some View {
+        Section("簽名狀態與重新整理") {
+            HStack {
+                Text("簽名狀態")
+                Spacer()
+                let status = signingService.currentStatus
+                Text(status.label)
+                    .foregroundStyle(status.color)
+            }
+            HStack {
+                Text("剩餘有效時間")
+                Spacer()
+                Text(signingService.remainingTimeFormatted)
+                    .foregroundStyle(.secondary)
+            }
+            if signingService.expirationFormatted != "無" {
+                HStack {
+                    Text("到期時間")
+                    Spacer()
+                    Text(signingService.expirationFormatted)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if let team = signingService.profileInfo?.teamIdentifier.first {
+                HStack {
+                    Text("開發者團隊 ID")
+                    Spacer()
+                    Text(team)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            HStack {
+                Text("容器識別雜湊")
+                Spacer()
+                Text(diagnosticsStore.installationIdentity.containerIdentityHash)
+                    .font(.caption.monospaced().bold())
+                    .foregroundStyle(.blue)
+            }
+
+            if selfRefresh.state.isBusy {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.trailing, 4)
+                    Text(selfRefresh.state.statusText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let err = selfRefresh.lastErrorMessage {
+                Text(err)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+
+            Button {
+                selfRefresh.startSelfRefresh(model: model)
+            } label: {
+                Label("重新整理 RouteLocation", systemImage: "arrow.clockwise")
+            }
+            .disabled(selfRefresh.state.isBusy)
+
+            Button {
+                openSideStoreApp()
+            } label: {
+                Label("在 SideStore 中重新整理", systemImage: "arrow.up.forward.app")
+            }
+
+            Text("手動重新整理僅續期目前安裝的 RouteLocation 簽名，不跨版本升級，也不會重新整理其他 App。建議在 Wi-Fi 並啟動 LocalDevVPN 的環境下執行。")
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 }

@@ -5,12 +5,40 @@ import UIKit
 public struct InstallationIdentityInfo: Equatable, Sendable {
     public let bundleIdentifier: String
     public let applicationIdentifier: String
+    public var appIdentifier: String { applicationIdentifier }
     public let teamIdentifier: String
     public let version: String
     public let build: String
     public let pairingStatus: String
+    public var pairingFileStatus: String { pairingStatus }
     public let pairingStorage: String
     public let containerIdentityHash: String
+    public let provisioningProfileStatus: String
+    public let signingExpirationDate: String?
+
+    public init(
+        bundleIdentifier: String,
+        applicationIdentifier: String,
+        teamIdentifier: String,
+        version: String,
+        build: String,
+        pairingStatus: String,
+        pairingStorage: String,
+        containerIdentityHash: String,
+        provisioningProfileStatus: String = "有效",
+        signingExpirationDate: String? = nil
+    ) {
+        self.bundleIdentifier = bundleIdentifier
+        self.applicationIdentifier = applicationIdentifier
+        self.teamIdentifier = teamIdentifier
+        self.version = version
+        self.build = build
+        self.pairingStatus = pairingStatus
+        self.pairingStorage = pairingStorage
+        self.containerIdentityHash = containerIdentityHash
+        self.provisioningProfileStatus = provisioningProfileStatus
+        self.signingExpirationDate = signingExpirationDate
+    }
 }
 
 enum DiagnosticEventCategory: String, Codable, CaseIterable {
@@ -376,6 +404,10 @@ final class DeveloperDiagnosticsStore: ObservableObject {
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "4"
         let pairingPresent = FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path)
 
+        let profileInfo = SigningStatusService.shared.profileInfo
+        let profileStatus = profileInfo != nil ? "已讀取" : "無嵌入描述檔"
+        let expDate = SigningStatusService.shared.remainingFormatted
+
         return InstallationIdentityInfo(
             bundleIdentifier: bundleId,
             applicationIdentifier: redactedAppId,
@@ -384,7 +416,9 @@ final class DeveloperDiagnosticsStore: ObservableObject {
             build: build,
             pairingStatus: pairingPresent ? "已存在" : "尚未設定",
             pairingStorage: PairingFileStore.canonicalRelativePath,
-            containerIdentityHash: containerIdentityHash
+            containerIdentityHash: containerIdentityHash,
+            provisioningProfileStatus: profileStatus,
+            signingExpirationDate: expDate
         )
     }
 
