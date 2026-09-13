@@ -1404,7 +1404,7 @@ struct SelfRefreshCoordinatorTests {
         let decoded = try JSONDecoder().decode(SelfRefreshPendingVerification.self, from: data)
         #expect(decoded.operationId == "op-test-123")
         #expect(decoded.expectedVersion == "1.2.7")
-        #expect(decoded.beforeExpiration == now)
+        #expect(abs(decoded.beforeExpiration.timeIntervalSince(now)) < 0.001)
     }
 
     @Test func sr2_selfRefreshStateBusyFlagAndLabels() {

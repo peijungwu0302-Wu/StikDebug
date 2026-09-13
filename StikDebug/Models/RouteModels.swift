@@ -299,7 +299,7 @@ struct SavedRoute: Codable, Identifiable, Equatable {
 }
 
 extension Array where Element == SavedRoute {
-    public var sortedForQuickSelection: [SavedRoute] {
+    var sortedForQuickSelection: [SavedRoute] {
         let favorites = self.filter(\.isFavorite).sorted {
             ($0.lastUsedAt ?? $0.updatedAt) > ($1.lastUsedAt ?? $1.updatedAt)
         }

@@ -8,7 +8,7 @@ import Foundation
 import SwiftUI
 import UIKit
 
-public enum SelfRefreshState: Equatable, Sendable {
+enum SelfRefreshState: Equatable, Sendable {
     case idle
     case preflight
     case authenticationRequired
@@ -23,7 +23,7 @@ public enum SelfRefreshState: Equatable, Sendable {
     case success(message: String)
     case failed(reason: String)
 
-    public var isBusy: Bool {
+    var isBusy: Bool {
         switch self {
         case .idle, .success, .failed, .authenticationRequired:
             return false
@@ -32,7 +32,7 @@ public enum SelfRefreshState: Equatable, Sendable {
         }
     }
 
-    public var statusText: String {
+    var statusText: String {
         switch self {
         case .idle:
             return L10n.text("閒置")
@@ -64,23 +64,23 @@ public enum SelfRefreshState: Equatable, Sendable {
     }
 }
 
-public struct SelfRefreshPendingVerification: Codable, Equatable, Sendable {
-    public let operationId: String
-    public let beforeExpiration: Date
-    public let expectedVersion: String
-    public let requestedAt: Date
+struct SelfRefreshPendingVerification: Codable, Equatable, Sendable {
+    let operationId: String
+    let beforeExpiration: Date
+    let expectedVersion: String
+    let requestedAt: Date
 }
 
 @MainActor
-public final class SelfRefreshCoordinator: ObservableObject {
-    public static let shared = SelfRefreshCoordinator()
+final class SelfRefreshCoordinator: ObservableObject {
+    static let shared = SelfRefreshCoordinator()
 
-    @Published public private(set) var state: SelfRefreshState = .idle
-    @Published public var showSimulationStopPrompt = false
-    @Published public var showCellularBlockedAlert = false
-    @Published public var showMissingVPNAlert = false
-    @Published public var showActionableErrorAlert = false
-    @Published public var lastErrorMessage: String?
+    @Published private(set) var state: SelfRefreshState = .idle
+    @Published var showSimulationStopPrompt = false
+    @Published var showCellularBlockedAlert = false
+    @Published var showMissingVPNAlert = false
+    @Published var showActionableErrorAlert = false
+    @Published var lastErrorMessage: String?
 
     private static let pendingVerificationKey = "RouteLocation.selfRefreshPendingVerification"
 
@@ -88,7 +88,7 @@ public final class SelfRefreshCoordinator: ObservableObject {
         checkPendingVerificationOnLaunch()
     }
 
-    public func startSelfRefresh(model: RouteLocationModel) {
+    func startSelfRefresh(model: RouteLocationModel) {
         DeveloperDiagnosticsStore.shared.record(
             category: .lifecycle,
             action: "self_refresh_requested",
@@ -133,7 +133,7 @@ public final class SelfRefreshCoordinator: ObservableObject {
         proceedWithPreflight(model: model)
     }
 
-    public func confirmStopSimulationAndContinue(model: RouteLocationModel) {
+    func confirmStopSimulationAndContinue(model: RouteLocationModel) {
         showSimulationStopPrompt = false
         state = .preflight
         Task {
