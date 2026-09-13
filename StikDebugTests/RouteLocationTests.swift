@@ -1109,7 +1109,7 @@ struct SideStoreSourceTests {
         #expect(model.simulationMode == .idle)
 
         let target = RouteCoordinate(latitude: 25.033, longitude: 121.564)
-        model.requestSinglePointSimulation(at: target)
+        model.select(CLLocationCoordinate2D(latitude: 25.033, longitude: 121.564))
         #expect(model.selectedCoordinate == target)
 
         // Waypoint draft manipulation works independently
