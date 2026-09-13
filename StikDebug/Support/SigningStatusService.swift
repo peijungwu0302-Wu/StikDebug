@@ -248,6 +248,10 @@ public final class SigningStatusService: ObservableObject {
         }
     }
 
+    public var remainingTimeFormatted: String {
+        remainingFormatted
+    }
+
     public var expirationFormatted: String {
         guard let info = profileInfo else {
             return L10n.text("無")
