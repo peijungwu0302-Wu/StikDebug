@@ -100,8 +100,8 @@ final class SelfRefreshCoordinator: ObservableObject {
 
         // Preflight Check 1: Transport
         let transport = model.connectionMonitor.currentTransport
-        if transport == .cellular && model.connectionMonitor.wifiSSID == nil {
-            // Cellular-only refresh is NOT supported
+        if transport != .wifi {
+            // Cellular-only or non-Wi-Fi refresh is NOT supported
             DeveloperDiagnosticsStore.shared.record(
                 category: .decision,
                 action: "self_refresh_preflight_result",

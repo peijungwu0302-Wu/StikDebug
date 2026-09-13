@@ -65,6 +65,20 @@ public enum PairingFileStore {
     private static let legacyFileName = "rp_pairing_file.plist"
     private static let sourceDefaultsKey = "RouteLocation.pairingSource"
 
+    private static func logDiagnostic(
+        category: DiagnosticEventCategory,
+        action: String,
+        details: [String: String] = [:]
+    ) {
+        Task { @MainActor in
+            DeveloperDiagnosticsStore.shared.record(
+                category: category,
+                action: action,
+                details: details
+            )
+        }
+    }
+
     public static let supportedContentTypes: [UTType] = {
         var types: [UTType] = [
             UTType(filenameExtension: "mobiledevicepairing", conformingTo: .data)!,
@@ -107,7 +121,7 @@ public enum PairingFileStore {
                     try? replaceItem(at: destination, with: documentURL, fileManager: fileManager)
                     protectPairingFile(at: destination, fileManager: fileManager)
                     currentSource = .externalPlacement
-                    DeveloperDiagnosticsStore.shared.record(
+                    logDiagnostic(
                         category: .bootstrap,
                         action: "pairing_external_placement_synced",
                         details: [:]
@@ -182,7 +196,7 @@ public enum PairingFileStore {
     }
 
     public static func importFromPicker(_ sourceURL: URL, fileManager: FileManager = .default) throws {
-        DeveloperDiagnosticsStore.shared.record(
+        logDiagnostic(
             category: .bootstrap,
             action: "pairing_import_requested",
             details: [:]
@@ -199,7 +213,7 @@ public enum PairingFileStore {
             throw PairingError.fileNotFound
         }
 
-        DeveloperDiagnosticsStore.shared.record(
+        logDiagnostic(
             category: .bootstrap,
             action: "pairing_file_selected",
             details: ["extension": sourceURL.pathExtension]
@@ -212,32 +226,32 @@ public enum PairingFileStore {
         let validation = validatePairingData(data)
         switch validation {
         case .valid:
-            DeveloperDiagnosticsStore.shared.record(
+            logDiagnostic(
                 category: .bootstrap,
                 action: "pairing_parse_success",
                 details: [:]
             )
-            DeveloperDiagnosticsStore.shared.record(
+            logDiagnostic(
                 category: .bootstrap,
                 action: "pairing_validation_success",
                 details: [:]
             )
         case .invalid(let reason):
-            DeveloperDiagnosticsStore.shared.record(
+            logDiagnostic(
                 category: .bootstrap,
                 action: "pairing_validation_failure",
                 details: ["reason": reason]
             )
             throw PairingError.validationFailed(reason)
         case .parseError(let reason):
-            DeveloperDiagnosticsStore.shared.record(
+            logDiagnostic(
                 category: .bootstrap,
                 action: "pairing_parse_failure",
                 details: ["reason": reason]
             )
             throw PairingError.validationFailed(reason)
         case .unsupported:
-            DeveloperDiagnosticsStore.shared.record(
+            logDiagnostic(
                 category: .bootstrap,
                 action: "pairing_validation_failure",
                 details: ["reason": "unsupported"]
@@ -247,7 +261,7 @@ public enum PairingFileStore {
 
         try replace(with: sourceURL, fileManager: fileManager)
         currentSource = .manualImport
-        DeveloperDiagnosticsStore.shared.record(
+        logDiagnostic(
             category: .bootstrap,
             action: "pairing_replace_success",
             details: [:]
@@ -273,7 +287,7 @@ public enum PairingFileStore {
         }
         removeLegacyCopies(fileManager: fileManager)
         UserDefaults.standard.removeObject(forKey: sourceDefaultsKey)
-        DeveloperDiagnosticsStore.shared.record(
+        logDiagnostic(
             category: .bootstrap,
             action: "pairing_removed",
             details: [:]
@@ -305,10 +319,10 @@ public enum PairingFileStore {
 
     private static func documentSourceURL(fileManager: FileManager) -> URL? {
         [documentsURL, URL.documentsDirectory.appendingPathComponent(legacyFileName)]
-            .filter { fileManager.fileExists(atPath: .path) }
-            .max {
-                let firstDate = (try? .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                let secondDate = (try? .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            .filter { fileManager.fileExists(atPath: $0.path) }
+            .max { a, b in
+                let firstDate = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                let secondDate = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
                 return firstDate < secondDate
             }
     }
@@ -318,7 +332,7 @@ public enum PairingFileStore {
             guard let data = try? Data(contentsOf: legacyURL), validatePairingData(data).isValid else {
                 continue
             }
-            DeveloperDiagnosticsStore.shared.record(
+            logDiagnostic(
                 category: .bootstrap,
                 action: "pairing_legacy_found",
                 details: ["source": legacyURL.lastPathComponent]
@@ -327,7 +341,7 @@ public enum PairingFileStore {
                 try replaceItem(at: destination, with: legacyURL, fileManager: fileManager)
                 protectPairingFile(at: destination, fileManager: fileManager)
                 currentSource = .legacyMigration
-                DeveloperDiagnosticsStore.shared.record(
+                logDiagnostic(
                     category: .bootstrap,
                     action: "pairing_migration_success",
                     details: [:]
@@ -338,7 +352,7 @@ public enum PairingFileStore {
                     try? data.write(to: destination, options: .atomic)
                     protectPairingFile(at: destination, fileManager: fileManager)
                     currentSource = .legacyMigration
-                    DeveloperDiagnosticsStore.shared.record(
+                    logDiagnostic(
                         category: .bootstrap,
                         action: "pairing_migration_success",
                         details: [:]
