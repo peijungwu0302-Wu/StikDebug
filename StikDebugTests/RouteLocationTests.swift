@@ -435,6 +435,44 @@ struct PlaybackEngineTests {
         #expect(PlaybackReconnectPolicy.shouldRetry(LocationSimulationError.rsdDiscoveryFailure(code: 9)))
         #expect(PlaybackReconnectPolicy.shouldRetry(LocationSimulationError.dvtSessionFailure(code: 10)))
     }
+
+    @Test func pauseAndResumeMaintainsProgressWithoutReconnection() async throws {
+        let sink = FakeLocationSink()
+        let clock = UptimeBox()
+        var reconnects = 0
+        let geometry = RouteGeometry(coordinates: [
+            RouteCoordinate(latitude: 0, longitude: 0),
+            RouteCoordinate(latitude: 0, longitude: 0.01)
+        ])
+        let engine = RoutePlaybackEngine(
+            sink: sink, updateInterval: 60, uptime: { clock.get() },
+            acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: { reconnects += 1 },
+            reconnectDelays: [0.001], transportDebounce: 0
+        )
+        try await engine.start(routeName: "PauseTest", geometry: geometry, speedKmh: 18.6, mode: .once)
+        clock.set(5)
+        await engine.verifyConnectionAfterTransportChange()
+        let distanceBeforePause = engine.traveledDistance
+        #expect(distanceBeforePause > 25)
+
+        engine.pause()
+        #expect(engine.state == .paused)
+        #expect(engine.traveledDistance == distanceBeforePause)
+        #expect(reconnects == 0)
+
+        // Advancing clock while paused should not advance distance
+        clock.set(15)
+        #expect(engine.traveledDistance == distanceBeforePause)
+
+        // Resuming should continue from paused distance
+        await engine.resume()
+        #expect(engine.state == .running)
+        clock.set(20)
+        await engine.verifyConnectionAfterTransportChange()
+        #expect(engine.traveledDistance > distanceBeforePause)
+        #expect(reconnects == 0)
+        engine.stop()
+    }
 }
 
 @MainActor

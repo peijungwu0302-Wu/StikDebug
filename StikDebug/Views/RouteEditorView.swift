@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct RouteEditorView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: RouteLocationModel
     @State private var showPaste = false
     @State private var showImporter = false
@@ -108,8 +109,15 @@ struct RouteEditorView: View {
                     }
                 }
             }
-            .navigationTitle("路線")
-            .toolbar { EditButton() }
+            .navigationTitle(L10n.text("路線"))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.text("完成")) { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    EditButton()
+                }
+            }
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()

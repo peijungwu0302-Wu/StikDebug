@@ -4,6 +4,7 @@ import Foundation
 enum PlaybackRunState: Equatable {
     case stopped
     case running
+    case paused
     case reconnecting
     case completed
     case error(String)
@@ -12,6 +13,7 @@ enum PlaybackRunState: Equatable {
         switch self {
         case .stopped: return L10n.text("已停止")
         case .running: return L10n.text("模擬中")
+        case .paused: return L10n.text("已暫停")
         case .reconnecting: return L10n.text("重新連線中")
         case .completed: return L10n.text("已完成")
         case .error(let message): return L10n.format("錯誤：%@", message)
@@ -74,6 +76,7 @@ final class RoutePlaybackEngine: ObservableObject {
     private var lastReconnectError: Error?
     private var lastReconnectWasPermanent = false
     private var consecutiveCommandFailures = 0
+    private var pausedOffset: Double = 0
     private var cancellables: Set<AnyCancellable> = []
 
     init(
@@ -154,6 +157,27 @@ final class RoutePlaybackEngine: ObservableObject {
     func clearAndStop() async throws {
         stop()
         try await sink.clearSimulatedLocation()
+    }
+
+    /// Pause route progression. Keeps the last simulated coordinate active and keep-alive acquired.
+    /// Does NOT trigger DVT/tunnel reconnect or restore real location.
+    func pause() {
+        guard state == .running || state == .reconnecting else { return }
+        task?.cancel()
+        task = nil
+        transportHealthTask?.cancel()
+        transportHealthTask = nil
+        pausedOffset = traveledDistance
+        state = .paused
+    }
+
+    /// Resume route from the paused offset. Does NOT trigger DVT/tunnel rebuild.
+    func resume() async {
+        guard state == .paused, let geometry else { return }
+        startingOffset = pausedOffset
+        startTime = uptime()
+        state = .running
+        task = Task { [weak self] in await self?.runLoop() }
     }
 
     private func runLoop() async {
@@ -250,7 +274,7 @@ final class RoutePlaybackEngine: ObservableObject {
     }
 
     private func scheduleTransportHealthCheck() {
-        guard geometry != nil, state == .running || state == .reconnecting || isWaitingForConnection else { return }
+        guard geometry != nil, state == .running || state == .paused || state == .reconnecting || isWaitingForConnection else { return }
         transportHealthTask?.cancel()
         transportHealthTask = Task { [weak self] in
             guard let self else { return }

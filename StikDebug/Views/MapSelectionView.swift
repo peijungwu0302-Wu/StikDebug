@@ -6,10 +6,10 @@ struct AdaptiveRouteMapView: View {
     @EnvironmentObject private var model: RouteLocationModel
 
     var body: some View {
-        if model.mapInteractionStyle == .quickRoute {
-            QuickRouteMapView()
-        } else {
+        if model.mapInteractionStyle == .classic {
             RouteMapView()
+        } else {
+            MapHomeView()
         }
     }
 }

@@ -29,6 +29,7 @@ final class RouteLocationModel: ObservableObject {
     @Published var previewingRoute: SavedRoute?
     @Published var showActiveRouteSwitchAlert = false
     @Published var pendingSwitchRoute: SavedRoute?
+    @Published var showEndRouteOptions = false
     private var pendingBootstrapAction: (@MainActor () -> Void)?
     @Published private(set) var geometry = RouteGeometry(coordinates: [])
     @Published private(set) var navigationGeometryNeedsRecalculation = false
@@ -70,7 +71,7 @@ final class RouteLocationModel: ObservableObject {
            let savedStyle = MapInteractionStyle(rawValue: savedStyleRaw) {
             mapInteractionStyle = savedStyle
         } else {
-            mapInteractionStyle = .classic
+            mapInteractionStyle = .quickRoute
         }
 
         if let savedConfirmRaw = UserDefaults.standard.string(forKey: Self.modeSwitchKey),
@@ -94,6 +95,14 @@ final class RouteLocationModel: ObservableObject {
                 } else if case .stopped = state {
                     if case .routePlaying = self.simulationMode {
                         self.simulationMode = .idle
+                    }
+                } else if case .paused = state {
+                    if case .routePlaying = self.simulationMode {
+                        self.simulationMode = .routePaused
+                    }
+                } else if case .running = state {
+                    if case .routePaused = self.simulationMode {
+                        self.simulationMode = .routePlaying
                     }
                 }
             }
@@ -509,6 +518,19 @@ final class RouteLocationModel: ObservableObject {
                 await markRouteUsed(id: loadedRouteID)
             }
         } catch { presentedError = error.localizedDescription }
+    }
+
+    /// End route playback but keep the last simulated coordinate active.
+    /// Does NOT restore real location. Shows options to keep position or restore.
+    func endRoute() {
+        playback.stop(clearMarker: false)
+        if let lastCoord = playback.currentCoordinate {
+            simulationMode = .singlePoint(lastCoord)
+        } else {
+            simulationMode = .idle
+        }
+        showEndRouteOptions = true
+        statusMessage = L10n.text("路線已結束，目前位置仍為模擬位置。")
     }
 
     func returnToRealLocation() async {

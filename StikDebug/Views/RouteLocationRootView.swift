@@ -2,22 +2,42 @@ import SwiftUI
 import UIKit
 
 enum RouteLocationTab: Hashable {
-    case map, routes, favorites, settings
+    case map, my, settings
 }
 
 struct RouteLocationRootView: View {
     @EnvironmentObject private var model: RouteLocationModel
+    @EnvironmentObject private var playback: RoutePlaybackEngine
     @State private var selectedTab: RouteLocationTab = .map
     @AppStorage(AppLanguage.defaultsKey) private var appLanguage = AppLanguage.traditionalChinese.rawValue
+    @AppStorage("RouteLocation.showMiniPlayer") private var showMiniPlayer = true
     @ObservedObject private var toast = ToastManager.shared
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            AdaptiveRouteMapView().tabItem { Label("地圖", systemImage: "map") }.tag(RouteLocationTab.map)
-            RouteEditorView().tabItem { Label("路線", systemImage: "point.topleft.down.to.point.bottomright.curvepath") }.tag(RouteLocationTab.routes)
-            FavoritesView(selectedTab: $selectedTab).tabItem { Label("喜愛", systemImage: "star") }.tag(RouteLocationTab.favorites)
-            SetupDiagnosticsView().tabItem { Label("設定", systemImage: "gearshape") }.tag(RouteLocationTab.settings)
+        ZStack(alignment: .bottom) {
+            TabView(selection: $selectedTab) {
+                AdaptiveRouteMapView()
+                    .tabItem { Label(L10n.text("地圖"), systemImage: "map") }
+                    .tag(RouteLocationTab.map)
+                MyLibraryView(selectedTab: $selectedTab)
+                    .tabItem { Label(L10n.text("我的"), systemImage: "tray.full") }
+                    .tag(RouteLocationTab.my)
+                SettingsView()
+                    .tabItem { Label(L10n.text("設定"), systemImage: "gearshape") }
+                    .tag(RouteLocationTab.settings)
+            }
+
+            // Active Mini Player — only visible on non-map tabs when simulation is active
+            if selectedTab != .map && model.simulationMode.isSimulating && showMiniPlayer {
+                ActiveSimulationMiniPlayer {
+                    selectedTab = .map
+                }
+                .padding(.bottom, 50) // Above tab bar
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        .animation(.easeInOut(duration: 0.25), value: selectedTab)
+        .animation(.easeInOut(duration: 0.25), value: model.simulationMode.isSimulating)
         .onChange(of: selectedTab) { _, _ in
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
@@ -30,7 +50,7 @@ struct RouteLocationRootView: View {
         .alert("RouteLocation", isPresented: Binding(
             get: { model.presentedError != nil },
             set: { if !$0 { model.presentedError = nil } }
-        )) { Button("好") { model.presentedError = nil } } message: { Text(model.presentedError ?? "") }
+        )) { Button(L10n.text("好")) { model.presentedError = nil } } message: { Text(model.presentedError ?? "") }
         .alert(L10n.text("目前正在執行路線"), isPresented: $model.showModeSwitchAlert) {
             Button(L10n.text("取消"), role: .cancel) {
                 model.cancelModeSwitch()
@@ -58,7 +78,7 @@ struct RouteLocationRootView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .switchToRoutesTab)) { _ in
-            selectedTab = .routes
+            selectedTab = .my
         }
         .sheet(isPresented: $model.showBootstrapPreflightSheet) {
             BootstrapPreflightSheet(
