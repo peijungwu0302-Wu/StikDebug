@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 enum RouteFloatingCardMode {
     case preview(SavedRoute)
