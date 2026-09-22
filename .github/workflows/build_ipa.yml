@@ -5,13 +5,17 @@ on:
     branches: [main]
     paths-ignore:
       - 'source.json'
+      - 'source-test.json'
       - 'README.md'
       - 'docs/**'
-    tags: ['routelocation-v*']
+    tags:
+      - 'routelocation-v*'
+      - 'routelocation-test-v*'
   pull_request:
     branches: [main]
     paths-ignore:
       - 'source.json'
+      - 'source-test.json'
       - 'README.md'
       - 'docs/**'
   workflow_dispatch:
@@ -28,6 +32,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -66,15 +72,52 @@ jobs:
       - name: Package unsigned IPA
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#routelocation-v}"
-          if [[ "$GITHUB_REF" != refs/tags/routelocation-v* ]]; then VERSION="1.2.7"; fi
-          test -d "$RUNNER_TEMP/RouteLocation.xcarchive/Products/Applications/RouteLocation.app"
+          APP_PATH="$RUNNER_TEMP/RouteLocation.xcarchive/Products/Applications/RouteLocation.app"
+          test -d "$APP_PATH"
           mkdir -p "$RUNNER_TEMP/package/Payload"
-          cp -R "$RUNNER_TEMP/RouteLocation.xcarchive/Products/Applications/RouteLocation.app" "$RUNNER_TEMP/package/Payload/RouteLocation.app"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/package/Payload/RouteLocation.app"
           cd "$RUNNER_TEMP/package"
           /usr/bin/zip -qry "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" Payload
-          cp "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" "$GITHUB_WORKSPACE/RouteLocation-v${VERSION}-unsigned.ipa"
+
+          if [[ "$GITHUB_REF" == refs/tags/routelocation-test-v* ]]; then
+            VERSION="${GITHUB_REF_NAME#routelocation-test-v}"
+            cp "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" "$GITHUB_WORKSPACE/RouteLocation-v${VERSION}-test-unsigned.ipa"
+          elif [[ "$GITHUB_REF" == refs/tags/routelocation-v* ]]; then
+            VERSION="${GITHUB_REF_NAME#routelocation-v}"
+            cp "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" "$GITHUB_WORKSPACE/RouteLocation-v${VERSION}-unsigned.ipa"
+          else
+            VERSION="1.2.8"
+            cp "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" "$GITHUB_WORKSPACE/RouteLocation-v${VERSION}-unsigned.ipa"
+          fi
           /usr/bin/unzip -l "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" | grep 'Payload/RouteLocation.app/'
+
+      - name: Verify IPA Info.plist
+        run: |
+          set -euo pipefail
+          PLIST_PATH="$RUNNER_TEMP/RouteLocation.xcarchive/Products/Applications/RouteLocation.app/Info.plist"
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$PLIST_PATH")
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST_PATH")
+          echo "Verified Bundle ID: $BUNDLE_ID"
+          echo "Verified CFBundleShortVersionString: $APP_VERSION"
+
+          if [[ "$BUNDLE_ID" != "com.routelocation.app" ]]; then
+            echo "ERROR: Unexpected Bundle ID: $BUNDLE_ID"
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF" == refs/tags/routelocation-test-v* ]]; then
+            EXPECTED_VERSION="${GITHUB_REF_NAME#routelocation-test-v}"
+            if [[ "$APP_VERSION" != "$EXPECTED_VERSION" ]]; then
+              echo "ERROR: Version mismatch for test tag: expected $EXPECTED_VERSION, got $APP_VERSION"
+              exit 1
+            fi
+          elif [[ "$GITHUB_REF" == refs/tags/routelocation-v* ]]; then
+            EXPECTED_VERSION="${GITHUB_REF_NAME#routelocation-v}"
+            if [[ "$APP_VERSION" != "$EXPECTED_VERSION" ]]; then
+              echo "ERROR: Version mismatch for production tag: expected $EXPECTED_VERSION, got $APP_VERSION"
+              exit 1
+            fi
+          fi
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v7
@@ -83,6 +126,7 @@ jobs:
           path: |
             RouteLocation-unsigned.ipa
             RouteLocation-v*-unsigned.ipa
+            RouteLocation-v*-test-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
 
@@ -118,3 +162,55 @@ jobs:
             git push origin HEAD:main
           fi
 
+      - name: Publish Test GitHub Release
+        if: startsWith(github.ref, 'refs/tags/routelocation-test-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#routelocation-test-v}"
+          IPA_TEST_FILE="RouteLocation-v${VERSION}-test-unsigned.ipa"
+          gh release create "$GITHUB_REF_NAME" \
+            "$IPA_TEST_FILE#$IPA_TEST_FILE" \
+            RouteLocation-unsigned.ipa#RouteLocation-unsigned.ipa \
+            --prerelease \
+            --title "RouteLocation ${VERSION} Test" \
+            --notes "RouteLocation ${VERSION} 測試版：UX v2 + Cellular Bootstrap Diagnostics。僅供實機驗證，尚未視為正式穩定版本。Re-sign with SideStore, AltStore, TrollStore, or a compatible tool."
+
+      - name: Update and sync SideStore Test Source
+        if: startsWith(github.ref, 'refs/tags/routelocation-test-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#routelocation-test-v}"
+          IPA_TEST_FILE="RouteLocation-v${VERSION}-test-unsigned.ipa"
+          
+          python3 tools/update_source_json.py \
+            --source-path source-test.json \
+            --ipa-path "$IPA_TEST_FILE" \
+            --version "$VERSION" \
+            --tag "$GITHUB_REF_NAME" \
+            --description "RouteLocation ${VERSION} 測試版：UX v2 + Cellular Bootstrap Diagnostics。僅供實機驗證，尚未視為正式穩定版本。" \
+            --repo "${{ github.repository }}"
+
+          cp source-test.json "$RUNNER_TEMP/source-test.json"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin sidestore-test; then
+            git fetch origin sidestore-test:sidestore-test
+            git checkout sidestore-test
+          else
+            git checkout --orphan sidestore-test
+            git rm -rf .
+          fi
+
+          cp "$RUNNER_TEMP/source-test.json" source-test.json
+          git add source-test.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(test-release): update RouteLocation test source ${VERSION}"
+            git push origin sidestore-test
+          else
+            echo "No changes to source-test.json"
+          fi

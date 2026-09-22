@@ -1,0 +1,38 @@
+{
+  "name": "RouteLocation Test Source",
+  "identifier": "com.routelocation.test-source",
+  "subtitle": "RouteLocation 實機測試更新來源",
+  "description": "此來源僅供 RouteLocation 開發／實機驗證，版本可能包含尚未合併至正式版的實驗功能。",
+  "website": "https://github.com/peijungwu0302-Wu/StikDebug",
+  "apps": [
+    {
+      "name": "RouteLocation",
+      "bundleIdentifier": "com.routelocation.app",
+      "developerName": "peijungwu0302",
+      "subtitle": "iOS DVT 定位與路徑模擬工具",
+      "localizedDescription": "RouteLocation 1.2.8 測試版：UX v2 + Cellular Bootstrap Diagnostics。僅供實機驗證，尚未視為正式穩定版本。",
+      "iconURL": "https://raw.githubusercontent.com/peijungwu0302-Wu/StikDebug/main/assets/StikDebug.png",
+      "tintColor": "#007AFF",
+      "versions": [
+        {
+          "version": "1.2.8",
+          "date": "2026-09-22",
+          "size": 6300000,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-test-v1.2.8/RouteLocation-v1.2.8-test-unsigned.ipa",
+          "localizedDescription": "RouteLocation 1.2.8 測試版：UX v2 + Cellular Bootstrap Diagnostics。僅供實機驗證，尚未視為正式穩定版本。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -156,6 +156,10 @@ def main() -> None:
         ipa_info = inspect_ipa(args.ipa_path)
         if ipa_info["bundleIdentifier"] != "com.routelocation.app":
             raise ValueError(f"Unexpected bundle identifier: {ipa_info['bundleIdentifier']}")
+        if version and ipa_info["version"] != version:
+            raise ValueError(
+                f"Version mismatch: IPA version ({ipa_info['version']}) does not match expected version ({version})"
+            )
         if not version:
             version = ipa_info["version"]
         if not size:
@@ -164,15 +168,25 @@ def main() -> None:
             min_os = ipa_info["minOSVersion"]
 
     if not version:
-        if args.tag and args.tag.startswith("routelocation-v"):
-            version = args.tag[len("routelocation-v"):]
+        if args.tag:
+            if args.tag.startswith("routelocation-test-v"):
+                version = args.tag[len("routelocation-test-v"):]
+            elif args.tag.startswith("routelocation-v"):
+                version = args.tag[len("routelocation-v"):]
+            else:
+                raise ValueError(f"Unrecognized tag format: {args.tag}")
         else:
             raise ValueError("Version must be specified via --version, --ipa-path, or --tag")
 
     tag = args.tag or f"routelocation-v{version}"
     download_url = args.download_url
     if not download_url:
-        asset_name = args.ipa_path.name if args.ipa_path else f"RouteLocation-v{version}-unsigned.ipa"
+        if args.ipa_path:
+            asset_name = args.ipa_path.name
+        elif tag.startswith("routelocation-test-v"):
+            asset_name = f"RouteLocation-v{version}-test-unsigned.ipa"
+        else:
+            asset_name = f"RouteLocation-v{version}-unsigned.ipa"
         download_url = f"https://github.com/{args.repo}/releases/download/{tag}/{asset_name}"
 
     if size is None:
