@@ -185,8 +185,9 @@ struct MapHomeView: View {
                     mode: .preview(previewing),
                     onStartRoute: { model.requestStartRoute(previewing) },
                     onEdit: {
-                        model.loadRoute(previewing)
-                        NotificationCenter.default.post(name: .switchToRoutesTab, object: nil)
+                        if model.requestEditRoute(previewing) {
+                            NotificationCenter.default.post(name: .switchToRoutesTab, object: nil)
+                        }
                     },
                     onCancelPreview: { model.cancelRoutePreview() },
                     onEndRoute: {},
@@ -397,13 +398,7 @@ struct MapHomeView: View {
     }
 
     private var activeSimulatedCoordinate: RouteCoordinate? {
-        if let current = playback.currentCoordinate {
-            return current
-        }
-        if case .singlePoint(let active) = model.simulationMode {
-            return active
-        }
-        return nil
+        model.activeSimulatedCoordinate
     }
 
     private var displayWaypoints: [RouteCoordinate] {

@@ -86,17 +86,27 @@ struct RouteFloatingCard: View {
 
     @ViewBuilder
     private var activeContent: some View {
-        let isRunning = playback.state == .running || playback.state == .reconnecting
+        let isRunning = playback.state == .running
         let isPaused = playback.state == .paused
+        let isReconnecting = playback.state == .reconnecting
 
         HStack {
-            Image(systemName: isRunning ? "play.fill" : "pause.fill")
-                .foregroundStyle(isRunning ? .green : .orange)
+            if isReconnecting {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .foregroundStyle(.orange)
+            } else {
+                Image(systemName: isRunning ? "play.fill" : "pause.fill")
+                    .foregroundStyle(isRunning ? .green : .orange)
+            }
             Text(playback.routeName)
                 .font(.headline)
                 .lineLimit(1)
             Spacer(minLength: 8)
-            if playback.lapNumber > 1 {
+            if isReconnecting {
+                Text(L10n.text("重新連線中…"))
+                    .font(.caption.bold())
+                    .foregroundStyle(.orange)
+            } else if playback.lapNumber > 1 {
                 Text(L10n.format("第 %d 圈", playback.lapNumber))
                     .font(.caption.bold())
             }
@@ -117,6 +127,10 @@ struct RouteFloatingCard: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .accessibilityLabel(L10n.text("繼續"))
+            } else if isReconnecting {
+                Text(L10n.text("重新連線中…"))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()

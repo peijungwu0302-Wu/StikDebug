@@ -269,6 +269,41 @@ final class RouteLocationModel: ObservableObject {
         } catch { presentedError = L10n.format("無法更新喜愛路線：%@", error.localizedDescription) }
     }
 
+    var isAnyRouteActive: Bool {
+        simulationMode.isRouteSimulation ||
+        playback.state == .running ||
+        playback.state == .paused ||
+        playback.state == .reconnecting
+    }
+
+    func canEditRoute(_ route: SavedRoute? = nil) -> Bool {
+        guard isAnyRouteActive else { return true }
+        if let route, let loadedRouteID, route.id == loadedRouteID {
+            return true
+        }
+        return false
+    }
+
+    func requestEditRoute(_ route: SavedRoute) -> Bool {
+        if !canEditRoute(route) {
+            presentedError = L10n.text("目前正在執行路線，請先結束目前路線後再編輯其他路線。")
+            return false
+        }
+        loadRoute(route)
+        return true
+    }
+
+    var activeSimulatedCoordinate: RouteCoordinate? {
+        switch simulationMode {
+        case .singlePoint(let coordinate):
+            return coordinate
+        case .routePlaying, .routePaused:
+            return playback.currentCoordinate
+        case .idle:
+            return nil
+        }
+    }
+
     func loadRoute(_ route: SavedRoute) {
         navigationResolver.cancel()
         loadedRouteID = route.id

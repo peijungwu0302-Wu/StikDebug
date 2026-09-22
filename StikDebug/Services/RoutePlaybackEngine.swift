@@ -159,10 +159,15 @@ final class RoutePlaybackEngine: ObservableObject {
         try await sink.clearSimulatedLocation()
     }
 
+    /// Whether the playback engine is in a state that can be paused (only .running)
+    var canPause: Bool {
+        state == .running
+    }
+
     /// Pause route progression. Keeps the last simulated coordinate active and keep-alive acquired.
     /// Does NOT trigger DVT/tunnel reconnect or restore real location.
     func pause() {
-        guard state == .running || state == .reconnecting else { return }
+        guard canPause else { return }
         task?.cancel()
         task = nil
         transportHealthTask?.cancel()

@@ -18,15 +18,25 @@ struct ActiveSimulationMiniPlayer: View {
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                     } else if model.simulationMode.isRouteSimulation {
+                        let isReconnecting = playback.state == .reconnecting
                         let isPlaying = model.simulationMode == .routePlaying
-                        Image(systemName: isPlaying ? "play.fill" : "pause.fill")
-                            .foregroundStyle(isPlaying ? .green : .orange)
-                            .font(.caption)
-
-                        Text(L10n.format("%@ · %.1f km/h", playback.routeName, playback.speedKmh))
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
+                        if isReconnecting {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                            Text(L10n.format("%@ · %@", playback.routeName, L10n.text("重新連線中…")))
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                        } else {
+                            Image(systemName: isPlaying ? "play.fill" : "pause.fill")
+                                .foregroundStyle(isPlaying ? .green : .orange)
+                                .font(.caption)
+                            Text(L10n.format("%@ · %.1f km/h", playback.routeName, playback.speedKmh))
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                        }
                     }
                     Spacer(minLength: 4)
                 }
@@ -35,7 +45,7 @@ struct ActiveSimulationMiniPlayer: View {
             .buttonStyle(.plain)
             .accessibilityLabel(L10n.text("返回地圖並查看模擬狀態"))
 
-            if model.simulationMode.isRouteSimulation {
+            if model.simulationMode.isRouteSimulation && playback.state != .reconnecting {
                 let isPlaying = model.simulationMode == .routePlaying
                 Button {
                     if isPlaying {
@@ -55,7 +65,7 @@ struct ActiveSimulationMiniPlayer: View {
             }
         }
         .padding(.leading, 16)
-        .padding(.trailing, model.simulationMode.isRouteSimulation ? 8 : 16)
+        .padding(.trailing, (model.simulationMode.isRouteSimulation && playback.state != .reconnecting) ? 8 : 16)
         .padding(.vertical, 6)
         .background(.ultraThinMaterial, in: Capsule())
         .shadow(color: .black.opacity(0.12), radius: 6, x: 0, y: 3)

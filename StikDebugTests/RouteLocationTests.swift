@@ -479,6 +479,70 @@ struct PlaybackEngineTests {
         #expect(reconnects == 0)
         engine.stop()
     }
+
+    @Test func pauseEligibilityOnlyAllowsRunningState() async throws {
+        let sink = FakeLocationSink()
+        let clock = UptimeBox()
+        let geometry = RouteGeometry(coordinates: [
+            RouteCoordinate(latitude: 0, longitude: 0),
+            RouteCoordinate(latitude: 0, longitude: 0.01)
+        ])
+        let engine = RoutePlaybackEngine(
+            sink: sink, updateInterval: 60, uptime: { clock.get() },
+            acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: {},
+            reconnectDelays: [0.001], transportDebounce: 0
+        )
+
+        // Stopped: cannot pause
+        #expect(engine.state == .stopped)
+        #expect(engine.canPause == false)
+        engine.pause()
+        #expect(engine.state == .stopped)
+
+        // Start: running: can pause
+        try await engine.start(routeName: "EligibilityTest", geometry: geometry, speedKmh: 18.6, mode: .once)
+        #expect(engine.state == .running)
+        #expect(engine.canPause == true)
+
+        // Pause: paused: cannot pause again
+        engine.pause()
+        #expect(engine.state == .paused)
+        #expect(engine.canPause == false)
+
+        // Resume: running: can pause again
+        await engine.resume()
+        #expect(engine.state == .running)
+        #expect(engine.canPause == true)
+
+        engine.stop()
+    }
+}
+
+fileprivate extension SavedRoute {
+    static func testRoute(
+        id: UUID = UUID(),
+        name: String = "Test Route",
+        waypoints: [RouteCoordinate],
+        routeMode: RouteMode = .straight,
+        navigationTransportMode: NavigationTransportMode = .automobile,
+        isClosedLoop: Bool = true,
+        preferredSpeedKmh: Double = 18.6,
+        playbackMode: RoutePlaybackMode = .infiniteLoop,
+        isFavorite: Bool = false
+    ) -> SavedRoute {
+        SavedRoute(
+            id: id,
+            name: name,
+            waypoints: waypoints,
+            resolvedGeometry: RouteGeometry(coordinates: waypoints),
+            routeMode: routeMode,
+            navigationTransportMode: navigationTransportMode,
+            isClosedLoop: isClosedLoop,
+            preferredSpeedKmh: preferredSpeedKmh,
+            playbackMode: playbackMode,
+            isFavorite: isFavorite
+        )
+    }
 }
 
 @MainActor
@@ -583,13 +647,13 @@ struct SimulationStateMachineTests {
         let store = RoutePersistenceStore(rootURL: directory)
         let model = RouteLocationModel(persistence: store, simulationService: sink)
 
-        let routeA = SavedRoute(
+        let routeA = SavedRoute.testRoute(
             name: "Route A",
             waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
             routeMode: .straight,
             preferredSpeedKmh: 20.0
         )
-        let routeB = SavedRoute(
+        let routeB = SavedRoute.testRoute(
             name: "Route B",
             waypoints: [RouteCoordinate(latitude: 35.0, longitude: 139.0), RouteCoordinate(latitude: 35.1, longitude: 139.1)],
             routeMode: .straight,
@@ -623,18 +687,114 @@ struct SimulationStateMachineTests {
         model.playback.stop()
     }
 
+    @Test func activeRoutePreviewEditRequestDoesNotMutateActiveRouteDomainState() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let routeA = SavedRoute.testRoute(
+            name: "Route A",
+            waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
+            routeMode: .straight,
+            preferredSpeedKmh: 20.0
+        )
+        let routeB = SavedRoute.testRoute(
+            name: "Route B",
+            waypoints: [RouteCoordinate(latitude: 35.0, longitude: 139.0), RouteCoordinate(latitude: 35.1, longitude: 139.1)],
+            routeMode: .straight,
+            preferredSpeedKmh: 45.0
+        )
+
+        await model.startRoute(routeA)
+        #expect(model.isAnyRouteActive == true)
+
+        // Attempting to edit a different route while Route A is running MUST fail and show alert
+        let canEditB = model.requestEditRoute(routeB)
+        #expect(canEditB == false)
+        #expect(model.presentedError == "目前正在執行路線，請先結束目前路線後再編輯其他路線。")
+
+        // Active Route A domain state must remain completely UNCHANGED
+        #expect(model.routeName == "Route A")
+        #expect(model.waypoints == routeA.waypoints)
+        #expect(model.speedKmh == 20.0)
+        #expect(model.playback.routeName == "Route A")
+        #expect(model.simulationMode == .routePlaying)
+        #expect(model.playback.state == .running)
+
+        // Pause Route A
+        model.playback.pause()
+        #expect(model.simulationMode == .routePaused)
+        #expect(model.isAnyRouteActive == true)
+
+        // Still cannot edit Route B while paused
+        let canEditBWhilePaused = model.requestEditRoute(routeB)
+        #expect(canEditBWhilePaused == false)
+        #expect(model.routeName == "Route A")
+        #expect(model.waypoints == routeA.waypoints)
+        #expect(model.simulationMode == .routePaused)
+
+        // Stop Route A -> Now Route B can be loaded/edited safely
+        model.playback.stop()
+        #expect(model.isAnyRouteActive == false)
+        let canEditBWhenStopped = model.requestEditRoute(routeB)
+        #expect(canEditBWhenStopped == true)
+        #expect(model.routeName == "Route B")
+        #expect(model.waypoints == routeB.waypoints)
+        #expect(model.speedKmh == 45.0)
+    }
+
+    @Test func activeSimulatedCoordinateUsesAuthoritativeSimulationModePrecedence() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        // Idle state: no active marker
+        #expect(model.simulationMode == .idle)
+        #expect(model.activeSimulatedCoordinate == nil)
+
+        // Single point simulation
+        let singleTarget = RouteCoordinate(latitude: 25.033, longitude: 121.565)
+        await model.executeTeleport(to: singleTarget)
+        #expect(model.simulationMode == .singlePoint(singleTarget))
+        #expect(model.activeSimulatedCoordinate == singleTarget)
+
+        // Start Route: route playing takes precedence
+        let route = SavedRoute.testRoute(
+            name: "Prec Route",
+            waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
+            routeMode: .straight,
+            preferredSpeedKmh: 30.0
+        )
+        await model.startRoute(route)
+        #expect(model.simulationMode == .routePlaying)
+        #expect(model.activeSimulatedCoordinate == model.playback.currentCoordinate)
+        #expect(model.activeSimulatedCoordinate != singleTarget)
+
+        // Pause route: still uses playback current coordinate
+        model.playback.pause()
+        #expect(model.simulationMode == .routePaused)
+        #expect(model.activeSimulatedCoordinate == model.playback.currentCoordinate)
+
+        // Return to real location: clears to idle -> nil
+        await model.returnToRealLocation()
+        #expect(model.simulationMode == .idle)
+        #expect(model.activeSimulatedCoordinate == nil)
+    }
+
     @Test func pausedRouteRequestNewRouteRequiresSwitchConfirmation() async throws {
         let sink = FakeLocationSink()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = RoutePersistenceStore(rootURL: directory)
         let model = RouteLocationModel(persistence: store, simulationService: sink)
 
-        let routeA = SavedRoute(
+        let routeA = SavedRoute.testRoute(
             name: "Route A",
             waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
             routeMode: .straight
         )
-        let routeB = SavedRoute(
+        let routeB = SavedRoute.testRoute(
             name: "Route B",
             waypoints: [RouteCoordinate(latitude: 35.0, longitude: 139.0), RouteCoordinate(latitude: 35.1, longitude: 139.1)],
             routeMode: .straight
@@ -671,7 +831,7 @@ struct SimulationStateMachineTests {
         let model = RouteLocationModel(persistence: store, simulationService: sink)
         model.modeSwitchConfirmation = .askFirst
 
-        let routeA = SavedRoute(
+        let routeA = SavedRoute.testRoute(
             name: "Route A",
             waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
             routeMode: .straight
@@ -700,7 +860,7 @@ struct SimulationStateMachineTests {
         let store = RoutePersistenceStore(rootURL: directory)
         let model = RouteLocationModel(persistence: store, simulationService: sink)
 
-        let route = SavedRoute(
+        let route = SavedRoute.testRoute(
             name: "Test Route",
             waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
             routeMode: .straight

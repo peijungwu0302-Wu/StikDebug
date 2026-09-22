@@ -79,8 +79,9 @@ struct MyRoutesView: View {
                             Label(L10n.text("重新命名"), systemImage: "pencil")
                         }
                         Button {
-                            model.loadRoute(route)
-                            showAdvancedEditor = true
+                            if model.requestEditRoute(route) {
+                                showAdvancedEditor = true
+                            }
                         } label: {
                             Label(L10n.text("編輯詳細航點"), systemImage: "pencil.and.list.clipboard")
                         }
@@ -97,7 +98,11 @@ struct MyRoutesView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
-                    showAdvancedEditor = true
+                    if model.isAnyRouteActive {
+                        model.presentedError = L10n.text("目前正在執行路線，請先結束目前路線後再編輯其他路線。")
+                    } else {
+                        showAdvancedEditor = true
+                    }
                 } label: {
                     Image(systemName: "pencil.and.list.clipboard")
                 }
