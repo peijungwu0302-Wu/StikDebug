@@ -86,6 +86,7 @@ public struct CellularBootstrapDiagnosisEngine {
         probeA: CellularPathProbeResult?,
         probeB: CellularPathProbeResult?,
         probeC: CellularPathProbeResult?,
+        candidatePeerProbe: CellularPathProbeResult? = nil,
         simulationModeLabel: String = "未模擬"
     ) -> DiagnosisReport {
         var raw: [String: String] = [:]
@@ -103,29 +104,44 @@ public struct CellularBootstrapDiagnosisEngine {
         raw["vpnInterface"] = snapshot.vpnCandidate.interface?.name ?? "none"
         raw["configuredTarget"] = "\(snapshot.configuredTargetIP):\(snapshot.configuredTargetPort)"
         raw["detectedPeer"] = snapshot.detectedCandidatePeer ?? "none"
+        raw["peerSource"] = snapshot.peerSource.rawValue
 
         if let pA = probeA {
             raw["probeA_status"] = pA.status.rawValue
+            raw["probeA_policy"] = pA.interfacePolicy.rawValue
+            raw["probeA_requestedInterface"] = pA.requestedInterfaceName ?? "none"
+            raw["probeA_requiredInterfaceApplied"] = String(pA.requiredInterfaceApplied)
             raw["probeA_errno"] = pA.posixErrno.map(String.init) ?? "none"
-            raw["probeA_interface"] = pA.selectedInterfaceName ?? "none"
+            raw["probeA_target"] = "\(pA.targetIP):\(pA.targetPort)"
         } else {
             raw["probeA_status"] = "NOT_RUN"
         }
 
         if let pB = probeB {
             raw["probeB_status"] = pB.status.rawValue
+            raw["probeB_policy"] = pB.interfacePolicy.rawValue
+            raw["probeB_requestedInterface"] = pB.requestedInterfaceName ?? "none"
+            raw["probeB_requiredInterfaceApplied"] = String(pB.requiredInterfaceApplied)
             raw["probeB_errno"] = pB.posixErrno.map(String.init) ?? "none"
-            raw["probeB_interface"] = pB.selectedInterfaceName ?? "none"
+            raw["probeB_target"] = "\(pB.targetIP):\(pB.targetPort)"
         } else {
             raw["probeB_status"] = "NOT_RUN"
         }
 
         if let pC = probeC {
             raw["probeC_status"] = pC.status.rawValue
+            raw["probeC_policy"] = pC.interfacePolicy.rawValue
+            raw["probeC_requestedInterface"] = pC.requestedInterfaceName ?? "none"
+            raw["probeC_requiredInterfaceApplied"] = String(pC.requiredInterfaceApplied)
             raw["probeC_errno"] = pC.posixErrno.map(String.init) ?? "none"
-            raw["probeC_interface"] = pC.selectedInterfaceName ?? "none"
+            raw["probeC_target"] = "\(pC.targetIP):\(pC.targetPort)"
         } else {
             raw["probeC_status"] = "NOT_RUN"
+        }
+
+        if let pPeer = candidatePeerProbe {
+            raw["candidatePeerProbe_status"] = pPeer.status.rawValue
+            raw["candidatePeerProbe_target"] = "\(pPeer.targetIP):\(pPeer.targetPort)"
         }
 
         // ==========================================
@@ -228,11 +244,109 @@ public struct CellularBootstrapDiagnosisEngine {
         // RULE C: Target or Peer Mismatch
         if let peer = snapshot.detectedCandidatePeer, !peer.isEmpty, peer != snapshot.configuredTargetIP {
             if probeA?.status == .failure {
-                let verdict = DiagnosisVerdict.TARGET_OR_PEER_MISMATCH
+                if snapshot.peerSource == .P2P_DSTADDR && candidatePeerProbe?.status == .success {
+                    let verdict = DiagnosisVerdict.TARGET_OR_PEER_MISMATCH
+                    let confidence = DiagnosisConfidence.high
+                    let interpretation = "設定之目標 IP (\(snapshot.configuredTargetIP)) 與從 VPN 介面點對點位址 (P2P_DSTADDR) 取得之 Candidate Peer (\(peer)) 不相符，且預設目標連線失敗，經受控探測已證實 Candidate Peer 可正常連通。"
+                    let nextStep = "於設定中將目標裝置 IP 變更為推導出之 Candidate Peer (\(peer)) 後再行嘗試。"
+                    evidence.append("Configured target: \(snapshot.configuredTargetIP) vs Derived peer: \(peer)")
+                    evidence.append("Peer source: P2P_DSTADDR (kernel verified)")
+                    evidence.append("Candidate peer probe: SUCCESS")
+
+                    return buildReport(
+                        verdict: verdict,
+                        confidence: confidence,
+                        interpretation: interpretation,
+                        recommendedNextStep: nextStep,
+                        evidenceSummary: evidence,
+                        raw: raw,
+                        snapshot: snapshot,
+                        probeA: probeA,
+                        probeB: probeB,
+                        probeC: probeC,
+                        simulationModeLabel: simulationModeLabel
+                    )
+                } else if snapshot.peerSource == .HEURISTIC_10_7 {
+                    let verdict = DiagnosisVerdict.INSUFFICIENT_EVIDENCE
+                    let confidence = DiagnosisConfidence.low
+                    let interpretation = "設定之目標 IP (\(snapshot.configuredTargetIP)) 與推導之 Candidate Peer (\(peer)) 不相符，且預設目標連線失敗。但 Candidate peer 推導自 heuristic (10.7.0.x)，尚未經直接證據證實，不可直接變更生產目標。"
+                    let nextStep = "不可直接變更目標 IP。請保持現有設定並執行進一步路徑分析。"
+                    evidence.append("Configured target: \(snapshot.configuredTargetIP) vs Heuristic peer: \(peer)")
+                    evidence.append("Peer source: HEURISTIC_10_7 (unverified)")
+
+                    return buildReport(
+                        verdict: verdict,
+                        confidence: confidence,
+                        interpretation: interpretation,
+                        recommendedNextStep: nextStep,
+                        evidenceSummary: evidence,
+                        raw: raw,
+                        snapshot: snapshot,
+                        probeA: probeA,
+                        probeB: probeB,
+                        probeC: probeC,
+                        simulationModeLabel: simulationModeLabel
+                    )
+                } else if snapshot.peerSource == .P2P_DSTADDR {
+                    let verdict = DiagnosisVerdict.INSUFFICIENT_EVIDENCE
+                    let confidence = DiagnosisConfidence.low
+                    let interpretation = "設定之目標 IP (\(snapshot.configuredTargetIP)) 與 P2P Candidate Peer (\(peer)) 不相符，且預設目標連線失敗。但 Candidate Peer 尚未經受控探測證實可通，不可直接認定為目標不符。"
+                    let nextStep = "需執行候選 Peer 受控探測以確認連通性。"
+                    evidence.append("Configured target: \(snapshot.configuredTargetIP) vs Candidate peer: \(peer)")
+                    evidence.append("Candidate peer probe status: \(candidatePeerProbe?.status.rawValue ?? "NOT_RUN")")
+
+                    return buildReport(
+                        verdict: verdict,
+                        confidence: confidence,
+                        interpretation: interpretation,
+                        recommendedNextStep: nextStep,
+                        evidenceSummary: evidence,
+                        raw: raw,
+                        snapshot: snapshot,
+                        probeA: probeA,
+                        probeB: probeB,
+                        probeC: probeC,
+                        simulationModeLabel: simulationModeLabel
+                    )
+                }
+            }
+        }
+
+        // RULE B & F: Probe A fails AND Probe C (Required VPN Interface) succeeds
+        if let pA = probeA, let pC = probeC,
+           pA.status == .failure && pC.status == .success {
+            if pC.requiredInterfaceApplied && pA.targetIP == pC.targetIP && pA.targetPort == pC.targetPort {
+                // Rule F: Production DVT bootstrap is inside prebuilt libidevice_ffi.a without interface binding
+                let verdict = DiagnosisVerdict.DIAGNOSTIC_PROBE_ONLY_SUCCESS
                 let confidence = DiagnosisConfidence.high
-                let interpretation = "設定之目標 IP (\(snapshot.configuredTargetIP)) 與從 VPN 介面推導之 Candidate Peer (\(peer)) 不相符，且預設目標連線失敗。"
-                let nextStep = "於設定中將目標裝置 IP 變更為推導出之 Candidate Peer (\(peer)) 後再行嘗試。"
-                evidence.append("Configured target: \(snapshot.configuredTargetIP) vs Derived peer: \(peer)")
+                let interpretation = "VPN-bound TCP connectivity is proven, but this does not prove that tunnel_create_rppairing uses the same interface. (真正連線由預編譯之 libidevice_ffi.a 內部直接建立，Swift Network.framework 之策略無法介入原生 C/Rust socket)"
+                let nextStep = "TRUE_FFI_INTERFACE_BINDING (需自編或擴充 libidevice_ffi 介面以支援指定綁定介面或傳入已綁定之 socket)"
+                evidence.append("Probe A (default) failed; Probe C (required VPN) succeeded with requiredInterface applied")
+                evidence.append("Probe C target matches Probe A target: \(pC.targetIP):\(pC.targetPort)")
+                evidence.append("Production bootstrap owner: PREBUILT_FFI (libidevice_ffi.a)")
+
+                return buildReport(
+                    verdict: verdict,
+                    confidence: confidence,
+                    interpretation: interpretation,
+                    recommendedNextStep: nextStep,
+                    evidenceSummary: evidence,
+                    raw: raw,
+                    snapshot: snapshot,
+                    probeA: probeA,
+                    probeB: probeB,
+                    probeC: probeC,
+                    simulationModeLabel: simulationModeLabel
+                )
+            } else {
+                // Probe C succeeded but requiredInterface was NOT applied (unbound fallback) OR target mismatch
+                // Cannot claim HIGH confidence VPN-bound success!
+                let verdict = DiagnosisVerdict.INSUFFICIENT_EVIDENCE
+                let confidence = DiagnosisConfidence.low
+                let interpretation = "Probe C 連通但未成功綁定指定 VPN 介面 (requiredInterfaceApplied == false) 或目標不相符，無法證明 VPN-bound 路徑有效。"
+                let nextStep = "檢查 VPN 介面是否在 NWPath.availableInterfaces 中可用，避免未綁定之偽成功。"
+                evidence.append("Probe C requiredInterfaceApplied: \(pC.requiredInterfaceApplied)")
+                evidence.append("Probe C target: \(pC.targetIP):\(pC.targetPort) vs Probe A target: \(pA.targetIP):\(pA.targetPort)")
 
                 return buildReport(
                     verdict: verdict,
@@ -250,41 +364,25 @@ public struct CellularBootstrapDiagnosisEngine {
             }
         }
 
-        // RULE B & F: Probe A fails AND Probe C (Required VPN Interface) succeeds
-        if probeA?.status == .failure && probeC?.status == .success {
-            // Rule F: Production DVT bootstrap is inside prebuilt libidevice_ffi.a without interface binding
-            let verdict = DiagnosisVerdict.DIAGNOSTIC_PROBE_ONLY_SUCCESS
-            let confidence = DiagnosisConfidence.high
-            let interpretation = "VPN-bound TCP connectivity is proven, but this does not prove that tunnel_create_rppairing uses the same interface. (真正連線由預編譯之 libidevice_ffi.a 內部直接建立，Swift Network.framework 之策略無法介入原生 C/Rust socket)"
-            let nextStep = "TRUE_FFI_INTERFACE_BINDING (需自編或擴充 libidevice_ffi 介面以支援指定綁定介面或傳入已綁定之 socket)"
-            evidence.append("Probe A (default) failed; Probe C (required VPN) succeeded")
-            evidence.append("Production bootstrap owner: PREBUILT_FFI (libidevice_ffi.a)")
-
-            return buildReport(
-                verdict: verdict,
-                confidence: confidence,
-                interpretation: interpretation,
-                recommendedNextStep: nextStep,
-                evidenceSummary: evidence,
-                raw: raw,
-                snapshot: snapshot,
-                probeA: probeA,
-                probeB: probeB,
-                probeC: probeC,
-                simulationModeLabel: simulationModeLabel
-            )
-        }
-
         // RULE D: All probes fail with ECONNREFUSED (errno 61)
+        // Strictly requires:
+        // 1. Probe C is present, ran (status != .notRun), has requiredInterfaceApplied == true, and returned errno 61.
+        // 2. Probe B and Probe C MUST NOT be nil or NOT_RUN.
+        // 3. All executed probes (Probe A, Probe B, Probe C) returned ECONNREFUSED (errno 61).
         let isErrno61 = { (p: CellularPathProbeResult?) -> Bool in
-            p?.posixErrno == 61 || p?.errorDescription?.contains("Connection refused") == true
+            guard let p = p, p.status == .failure else { return false }
+            return p.posixErrno == 61 || p.errorDescription?.contains("Connection refused") == true
         }
-        if isErrno61(probeA) && (probeB == nil || isErrno61(probeB)) && (probeC == nil || isErrno61(probeC)) {
+
+        if let pA = probeA, let pB = probeB, let pC = probeC,
+           pA.status == .failure, pB.status == .failure, pC.status == .failure,
+           pC.requiredInterfaceApplied == true,
+           isErrno61(pA), isErrno61(pB), isErrno61(pC) {
             let verdict = DiagnosisVerdict.REMOTE_LISTENER_NOT_ACCEPTING
             let confidence = DiagnosisConfidence.medium
-            let interpretation = "所有探測均回傳 Connection refused (errno 61)。封包已能藉由 VPN 路徑抵達目標，但目標主機之 49152 埠未開啟監聽或遠端配對服務未就緒。"
+            let interpretation = "所有探測（包含已綁定 VPN 介面之 Probe C）均回傳 Connection refused (errno 61)。封包已能藉由 VPN 路徑抵達目標，但目標主機之 49152 埠未開啟監聽或遠端配對服務未就緒。"
             let nextStep = "確認遠端 Mac / 輔助主機上的 RemotePairing / Developer Mode 守護行程是否運作，並檢查防火牆。"
-            evidence.append("All probes returned ECONNREFUSED 61")
+            evidence.append("All probes (Probe A, B, C with requiredInterface applied) returned ECONNREFUSED 61")
 
             return buildReport(
                 verdict: verdict,
@@ -369,8 +467,14 @@ public struct CellularBootstrapDiagnosisEngine {
                 Result:
                 NOT RUN
 
-                Interface:
+                Interface Policy:
                 -
+
+                Requested Interface:
+                -
+
+                Required Interface Applied:
+                NO
 
                 Local Endpoint:
                 -
@@ -392,8 +496,14 @@ public struct CellularBootstrapDiagnosisEngine {
             Result:
             \(p.status.rawValue)
 
-            Interface:
-            \(p.selectedInterfaceName ?? "-")
+            Interface Policy:
+            \(p.interfacePolicy.rawValue)
+
+            Requested Interface:
+            \(p.requestedInterfaceName ?? "-")
+
+            Required Interface Applied:
+            \(p.requiredInterfaceApplied ? "YES" : "NO")
 
             Local Endpoint:
             \(p.localEndpoint ?? "-")
@@ -489,6 +599,9 @@ public struct CellularBootstrapDiagnosisEngine {
 
         Detected Candidate Peer:
         \(snapshot.detectedCandidatePeer ?? "unavailable")
+
+        Peer Source:
+        \(snapshot.peerSource.rawValue)
 
         Target Matches Candidate:
         \(targetMatchesCandidate)

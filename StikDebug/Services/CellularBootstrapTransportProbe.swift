@@ -59,21 +59,30 @@ public enum VPNInterfaceConfidence: String, Equatable {
     case none = "None"
 }
 
+public enum PeerSource: String, CaseIterable, Equatable {
+    case P2P_DSTADDR
+    case HEURISTIC_10_7
+    case UNKNOWN
+}
+
 public struct VPNInterfaceCandidate: Equatable {
     public let interface: NetworkInterfaceInfo?
     public let confidence: VPNInterfaceConfidence
     public let detectedPeer: String?
+    public let peerSource: PeerSource
     public let reason: String
 
     public init(
         interface: NetworkInterfaceInfo?,
         confidence: VPNInterfaceConfidence,
         detectedPeer: String?,
+        peerSource: PeerSource = .UNKNOWN,
         reason: String
     ) {
         self.interface = interface
         self.confidence = confidence
         self.detectedPeer = detectedPeer
+        self.peerSource = peerSource
         self.reason = reason
     }
 }
@@ -82,6 +91,12 @@ public enum CellularProbeType: String, CaseIterable, Equatable {
     case baseline = "PROBE A — Baseline"
     case cellularProhibited = "PROBE B — Cellular-Prohibited TCP"
     case requiredInterface = "PROBE C — Required VPN Interface"
+}
+
+public enum InterfacePolicy: String, CaseIterable, Equatable {
+    case DEFAULT
+    case CELLULAR_PROHIBITED
+    case REQUIRED_INTERFACE
 }
 
 public enum ProbeStatus: String, Equatable {
@@ -94,8 +109,11 @@ public struct CellularPathProbeResult: Identifiable, Equatable {
     public let id: UUID
     public let probeType: CellularProbeType
     public let status: ProbeStatus
-    public let selectedInterfaceName: String?
-    public let selectedInterfaceIndex: Int?
+    public let interfacePolicy: InterfacePolicy
+    public let requestedInterfaceName: String?
+    public let requiredInterfaceApplied: Bool
+    public let targetIP: String
+    public let targetPort: Int
     public let localEndpoint: String?
     public let remoteEndpoint: String?
     public let elapsedMs: Int
@@ -109,8 +127,11 @@ public struct CellularPathProbeResult: Identifiable, Equatable {
         id: UUID = UUID(),
         probeType: CellularProbeType,
         status: ProbeStatus,
-        selectedInterfaceName: String? = nil,
-        selectedInterfaceIndex: Int? = nil,
+        interfacePolicy: InterfacePolicy = .DEFAULT,
+        requestedInterfaceName: String? = nil,
+        requiredInterfaceApplied: Bool = false,
+        targetIP: String = "",
+        targetPort: Int = 49152,
         localEndpoint: String? = nil,
         remoteEndpoint: String? = nil,
         elapsedMs: Int = 0,
@@ -123,8 +144,11 @@ public struct CellularPathProbeResult: Identifiable, Equatable {
         self.id = id
         self.probeType = probeType
         self.status = status
-        self.selectedInterfaceName = selectedInterfaceName
-        self.selectedInterfaceIndex = selectedInterfaceIndex
+        self.interfacePolicy = interfacePolicy
+        self.requestedInterfaceName = requestedInterfaceName
+        self.requiredInterfaceApplied = requiredInterfaceApplied
+        self.targetIP = targetIP
+        self.targetPort = targetPort
         self.localEndpoint = localEndpoint
         self.remoteEndpoint = remoteEndpoint
         self.elapsedMs = elapsedMs
@@ -149,6 +173,7 @@ public struct NetworkEnvironmentSnapshot: Equatable {
     public let configuredTargetIP: String
     public let configuredTargetPort: Int
     public let detectedCandidatePeer: String?
+    public let peerSource: PeerSource
     public let activeDVTSession: Bool
     public let recentLocationSuccess: Bool
     public let tunnelConnected: Bool
@@ -166,6 +191,7 @@ public struct NetworkEnvironmentSnapshot: Equatable {
         configuredTargetIP: String,
         configuredTargetPort: Int = 49152,
         detectedCandidatePeer: String?,
+        peerSource: PeerSource = .UNKNOWN,
         activeDVTSession: Bool,
         recentLocationSuccess: Bool,
         tunnelConnected: Bool
@@ -182,6 +208,7 @@ public struct NetworkEnvironmentSnapshot: Equatable {
         self.configuredTargetIP = configuredTargetIP
         self.configuredTargetPort = configuredTargetPort
         self.detectedCandidatePeer = detectedCandidatePeer
+        self.peerSource = peerSource
         self.activeDVTSession = activeDVTSession
         self.recentLocationSuccess = recentLocationSuccess
         self.tunnelConnected = tunnelConnected
@@ -196,6 +223,7 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
     @Published public private(set) var probeAResult: CellularPathProbeResult?
     @Published public private(set) var probeBResult: CellularPathProbeResult?
     @Published public private(set) var probeCResult: CellularPathProbeResult?
+    @Published public private(set) var candidatePeerProbeResult: CellularPathProbeResult?
     @Published public private(set) var isProbing = false
 
     private let pathMonitor = NWPathMonitor()
@@ -228,6 +256,7 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
             configuredTargetIP: targetIP,
             configuredTargetPort: 49152,
             detectedCandidatePeer: vpnCandidate.detectedPeer,
+            peerSource: vpnCandidate.peerSource,
             activeDVTSession: monitor.activeDVTSessionAvailable,
             recentLocationSuccess: LocationDataPathHealth.shared.hasRecentSuccess,
             tunnelConnected: TunnelManager.shared.isConnected
@@ -271,8 +300,27 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
             probeCResult = CellularPathProbeResult(
                 probeType: .requiredInterface,
                 status: .notRun,
+                interfacePolicy: .REQUIRED_INTERFACE,
+                requestedInterfaceName: nil,
+                requiredInterfaceApplied: false,
+                targetIP: snapshot.configuredTargetIP,
+                targetPort: snapshot.configuredTargetPort,
                 errorDescription: "未偵測到可用之 VPN 候選介面"
             )
+        }
+
+        // 4. Candidate Peer Controlled Confirmation Probe (only if distinct and P2P_DSTADDR)
+        if let peer = snapshot.detectedCandidatePeer,
+           peer != snapshot.configuredTargetIP,
+           snapshot.vpnCandidate.peerSource == .P2P_DSTADDR {
+            candidatePeerProbeResult = await executeSingleProbe(
+                type: .baseline,
+                targetIP: peer,
+                targetPort: snapshot.configuredTargetPort,
+                candidateInterface: snapshot.vpnCandidate.interface
+            )
+        } else {
+            candidatePeerProbeResult = nil
         }
     }
 
@@ -282,14 +330,22 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
         targetPort: Int,
         candidateInterface: NetworkInterfaceInfo?
     ) async -> CellularPathProbeResult {
+        let policy: InterfacePolicy
+        switch type {
+        case .baseline: policy = .DEFAULT
+        case .cellularProhibited: policy = .CELLULAR_PROHIBITED
+        case .requiredInterface: policy = .REQUIRED_INTERFACE
+        }
+
         DeveloperDiagnosticsStore.shared.record(
             category: .transport,
             action: "CELLULAR_PATH_PROBE_START",
             details: [
                 "probeType": type.rawValue,
+                "policy": policy.rawValue,
                 "targetIP": targetIP,
                 "targetPort": String(targetPort),
-                "candidateInterface": candidateInterface?.name ?? "none"
+                "requestedInterface": candidateInterface?.name ?? "none"
             ]
         )
 
@@ -306,8 +362,11 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
             id: result.id,
             probeType: result.probeType,
             status: result.status,
-            selectedInterfaceName: result.selectedInterfaceName,
-            selectedInterfaceIndex: result.selectedInterfaceIndex,
+            interfacePolicy: result.interfacePolicy,
+            requestedInterfaceName: result.requestedInterfaceName,
+            requiredInterfaceApplied: result.requiredInterfaceApplied,
+            targetIP: result.targetIP,
+            targetPort: result.targetPort,
             localEndpoint: result.localEndpoint,
             remoteEndpoint: result.remoteEndpoint,
             elapsedMs: elapsedMs,
@@ -320,13 +379,15 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
 
         var logDetails: [String: String] = [
             "probeType": type.rawValue,
+            "policy": finalizedResult.interfacePolicy.rawValue,
             "result": finalizedResult.status.rawValue,
+            "requiredInterfaceApplied": String(finalizedResult.requiredInterfaceApplied),
             "elapsedMs": String(elapsedMs),
             "targetIP": targetIP,
             "targetPort": String(targetPort)
         ]
-        if let ifName = finalizedResult.selectedInterfaceName {
-            logDetails["selectedInterface"] = ifName
+        if let reqIf = finalizedResult.requestedInterfaceName {
+            logDetails["requestedInterface"] = reqIf
         }
         if let errCode = finalizedResult.nwErrorCode {
             logDetails["nwErrorCode"] = String(errCode)
@@ -350,13 +411,26 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
         targetPort: Int,
         candidateInterface: NetworkInterfaceInfo?
     ) async -> CellularPathProbeResult {
+        let policy: InterfacePolicy
+        switch type {
+        case .baseline: policy = .DEFAULT
+        case .cellularProhibited: policy = .CELLULAR_PROHIBITED
+        case .requiredInterface: policy = .REQUIRED_INTERFACE
+        }
+
         guard let port = NWEndpoint.Port(rawValue: UInt16(targetPort)) else {
             return CellularPathProbeResult(
                 probeType: type,
                 status: .failure,
+                interfacePolicy: policy,
+                requestedInterfaceName: candidateInterface?.name,
+                requiredInterfaceApplied: false,
+                targetIP: targetIP,
+                targetPort: targetPort,
                 errorDescription: "Invalid destination port"
             )
         }
+
         let host = NWEndpoint.Host(targetIP)
         let endpoint = NWEndpoint.hostPort(host: host, port: port)
 
@@ -364,6 +438,8 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
         tcpOptions.connectionTimeout = 3
 
         let params: NWParameters
+        var requiredInterfaceApplied = false
+
         switch type {
         case .baseline:
             params = NWParameters(tls: nil, tcp: tcpOptions)
@@ -371,11 +447,40 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
             params = NWParameters(tls: nil, tcp: tcpOptions)
             params.prohibitedInterfaceTypes = [.cellular]
         case .requiredInterface:
-            params = NWParameters(tls: nil, tcp: tcpOptions)
-            if let ifName = candidateInterface?.name,
-               let nwInterface = currentNWPath?.availableInterfaces.first(where: { $0.name == ifName }) {
-                params.requiredInterface = nwInterface
+            guard let candidate = candidateInterface else {
+                return CellularPathProbeResult(
+                    probeType: .requiredInterface,
+                    status: .notRun,
+                    interfacePolicy: .REQUIRED_INTERFACE,
+                    requestedInterfaceName: nil,
+                    requiredInterfaceApplied: false,
+                    targetIP: targetIP,
+                    targetPort: targetPort,
+                    errorDescription: "未指定或未偵測到 VPN 候選介面"
+                )
             }
+
+            let matchingNWInterface = currentNWPath?.availableInterfaces.first(where: {
+                $0.name == candidate.name || (candidate.index > 0 && $0.index == candidate.index)
+            })
+
+            guard let nwInterface = matchingNWInterface else {
+                // MUST NEVER SILENTLY FALL BACK!
+                return CellularPathProbeResult(
+                    probeType: .requiredInterface,
+                    status: .notRun,
+                    interfacePolicy: .REQUIRED_INTERFACE,
+                    requestedInterfaceName: candidate.name,
+                    requiredInterfaceApplied: false,
+                    targetIP: targetIP,
+                    targetPort: targetPort,
+                    errorDescription: "CANDIDATE_INTERFACE_NOT_RESOLVABLE_TO_NWINTERFACE"
+                )
+            }
+
+            params = NWParameters(tls: nil, tcp: tcpOptions)
+            params.requiredInterface = nwInterface
+            requiredInterfaceApplied = true
         }
 
         let connection = NWConnection(to: endpoint, using: params)
@@ -398,16 +503,17 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
                 switch state {
                 case .ready:
                     let path = connection.currentPath
-                    let selectedName = path?.availableInterfaces.first?.name
-                    let selectedIndex = path?.availableInterfaces.first?.index
                     let localEP = path?.localEndpoint?.debugDescription
                     let remoteEP = path?.remoteEndpoint?.debugDescription
 
                     replyOnce(CellularPathProbeResult(
                         probeType: type,
                         status: .success,
-                        selectedInterfaceName: selectedName,
-                        selectedInterfaceIndex: selectedIndex,
+                        interfacePolicy: policy,
+                        requestedInterfaceName: candidateInterface?.name,
+                        requiredInterfaceApplied: requiredInterfaceApplied,
+                        targetIP: targetIP,
+                        targetPort: targetPort,
                         localEndpoint: localEP,
                         remoteEndpoint: remoteEP
                     ))
@@ -430,6 +536,11 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
                     replyOnce(CellularPathProbeResult(
                         probeType: type,
                         status: .failure,
+                        interfacePolicy: policy,
+                        requestedInterfaceName: candidateInterface?.name,
+                        requiredInterfaceApplied: requiredInterfaceApplied,
+                        targetIP: targetIP,
+                        targetPort: targetPort,
                         nwErrorDomain: nwDomain,
                         nwErrorCode: nwCode,
                         posixErrno: posixCode,
@@ -440,6 +551,11 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
                     replyOnce(CellularPathProbeResult(
                         probeType: type,
                         status: .failure,
+                        interfacePolicy: policy,
+                        requestedInterfaceName: candidateInterface?.name,
+                        requiredInterfaceApplied: requiredInterfaceApplied,
+                        targetIP: targetIP,
+                        targetPort: targetPort,
                         posixErrno: 89, // ECANCELED
                         errorDescription: "連線探測已取消"
                     ))
@@ -456,6 +572,11 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
                 replyOnce(CellularPathProbeResult(
                     probeType: type,
                     status: .failure,
+                    interfacePolicy: policy,
+                    requestedInterfaceName: candidateInterface?.name,
+                    requiredInterfaceApplied: requiredInterfaceApplied,
+                    targetIP: targetIP,
+                    targetPort: targetPort,
                     posixErrno: 60, // ETIMEDOUT
                     errorDescription: "探測超時 (3.5s)"
                 ))
@@ -564,6 +685,7 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
                 interface: nil,
                 confidence: .none,
                 detectedPeer: nil,
+                peerSource: .UNKNOWN,
                 reason: "未偵測到任何作用中之 utun / point-to-point 介面"
             )
         }
@@ -575,22 +697,24 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
         }
 
         if tunnelsWith10_7.count == 1, let target = tunnelsWith10_7.first {
-            let peer = derivePeer(from: target)
+            let (peer, source) = derivePeer(from: target)
             return VPNInterfaceCandidate(
                 interface: target,
                 confidence: .confident,
                 detectedPeer: peer,
+                peerSource: source,
                 reason: "唯一比對到 10.7.x.x 子網域之介面 (\(target.name))"
             )
         }
 
         if activeTunnels.count == 1, let single = activeTunnels.first {
-            let peer = derivePeer(from: single)
+            let (peer, source) = derivePeer(from: single)
             let isP2PWithIP = single.isPointToPoint && !single.addresses.isEmpty
             return VPNInterfaceCandidate(
                 interface: single,
                 confidence: isP2PWithIP ? .confident : .ambiguous,
                 detectedPeer: peer,
+                peerSource: source,
                 reason: isP2PWithIP
                     ? "單一作用中之 point-to-point 介面 (\(single.name))"
                     : "單一 utun 介面 (\(single.name))，但無明確 P2P IP 特徵"
@@ -603,22 +727,22 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
             interface: nil,
             confidence: .ambiguous,
             detectedPeer: nil,
+            peerSource: .UNKNOWN,
             reason: "偵測到多個作用中介面 (\(names))，無法唯一辨識 LocalDevVPN"
         )
     }
 
-    private static func derivePeer(from interface: NetworkInterfaceInfo) -> String? {
+    private static func derivePeer(from interface: NetworkInterfaceInfo) -> (String?, PeerSource) {
         if let dst = interface.destinationAddresses.first(where: { !$0.isEmpty }) {
-            return dst
+            return (dst, .P2P_DSTADDR)
         }
         for addr in interface.addresses {
             if addr.hasPrefix("10.7.") {
-                // If local is 10.7.0.2, peer is typically 10.7.0.1
                 if addr != "10.7.0.1" {
-                    return "10.7.0.1"
+                    return ("10.7.0.1", .HEURISTIC_10_7)
                 }
             }
         }
-        return nil
+        return (nil, .UNKNOWN)
     }
 }

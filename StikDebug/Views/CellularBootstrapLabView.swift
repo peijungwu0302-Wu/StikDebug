@@ -211,6 +211,22 @@ struct CellularBootstrapLabView: View {
                 }
                 .padding(.vertical, 2)
 
+                // Candidate Peer Probe (if executed)
+                if let peerResult = probeService.candidatePeerProbeResult {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("PEER PROBE — Candidate Peer 驗證探測")
+                                .font(.caption.bold())
+                            Spacer()
+                            Text("受控驗證")
+                                .font(.caption2.bold())
+                                .foregroundStyle(.blue)
+                        }
+                        probeResultView(result: peerResult)
+                    }
+                    .padding(.vertical, 2)
+                }
+
                 // Diagnosis Report
                 if let report = currentReport {
                     VStack(alignment: .leading, spacing: 6) {
@@ -336,6 +352,7 @@ struct CellularBootstrapLabView: View {
                 probeA: probeService.probeAResult,
                 probeB: probeService.probeBResult,
                 probeC: probeService.probeCResult,
+                candidatePeerProbe: probeService.candidatePeerProbeResult,
                 simulationModeLabel: model.simulationMode.label
             )
         }
@@ -361,10 +378,13 @@ struct CellularBootstrapLabView: View {
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                 }
-                if let ifName = result.selectedInterfaceName {
-                    Text("使用介面：\(ifName)\(result.selectedInterfaceIndex.map { " (idx: \($0))" } ?? "")")
+                Text("策略：\(result.interfacePolicy.rawValue)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                if let reqIf = result.requestedInterfaceName {
+                    Text("指定介面：\(reqIf) (生效: \(result.requiredInterfaceApplied ? "是" : "否"))")
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(result.requiredInterfaceApplied ? .green : .orange)
                 }
                 if let local = result.localEndpoint {
                     Text("本機端點：\(local)")
@@ -422,7 +442,11 @@ struct CellularBootstrapLabView: View {
     }
 
     private var candidatePeerText: String {
-        probeService.latestSnapshot?.detectedCandidatePeer ?? "unavailable"
+        guard let detected = probeService.latestSnapshot?.detectedCandidatePeer else {
+            return "unavailable"
+        }
+        let source = probeService.latestSnapshot?.peerSource.rawValue ?? "UNKNOWN"
+        return "\(detected) (\(source))"
     }
 
     private func verdictColor(_ verdict: DiagnosisVerdict) -> Color {
@@ -447,6 +471,7 @@ struct CellularBootstrapLabView: View {
                     probeA: probeService.probeAResult,
                     probeB: probeService.probeBResult,
                     probeC: probeService.probeCResult,
+                    candidatePeerProbe: probeService.candidatePeerProbeResult,
                     simulationModeLabel: model.simulationMode.label
                 )
                 await MainActor.run {
