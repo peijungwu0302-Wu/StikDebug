@@ -218,7 +218,7 @@ struct MapHomeView: View {
     }
 
     private func isPlaybackActiveForRoute(_ route: SavedRoute) -> Bool {
-        isPlaybackActive && playback.routeName == route.name
+        model.isActiveRoute(route)
     }
 
     // MARK: - Single Point Content

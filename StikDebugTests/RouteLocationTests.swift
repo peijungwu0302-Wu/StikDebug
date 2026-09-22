@@ -709,10 +709,14 @@ struct SimulationStateMachineTests {
         await model.startRoute(routeA)
         #expect(model.isAnyRouteActive == true)
 
-        // Attempting to edit a different route while Route A is running MUST fail and show alert
-        let canEditB = model.requestEditRoute(routeB)
-        #expect(canEditB == false)
-        #expect(model.presentedError == "目前正在執行路線，請先結束目前路線後再編輯其他路線。")
+        // 1. Attempting to edit active route A or another route B while Route A is running MUST fail and show alert
+        let canEditAWhileRunning = model.requestEditRoute(routeA)
+        #expect(canEditAWhileRunning == false)
+        #expect(model.presentedError == "目前正在執行路線，請先結束目前路線後再編輯。")
+
+        let canEditBWhileRunning = model.requestEditRoute(routeB)
+        #expect(canEditBWhileRunning == false)
+        #expect(model.presentedError == "目前正在執行路線，請先結束目前路線後再編輯。")
 
         // Active Route A domain state must remain completely UNCHANGED
         #expect(model.routeName == "Route A")
@@ -722,19 +726,23 @@ struct SimulationStateMachineTests {
         #expect(model.simulationMode == .routePlaying)
         #expect(model.playback.state == .running)
 
-        // Pause Route A
+        // 2. Pause Route A
         model.playback.pause()
         #expect(model.simulationMode == .routePaused)
         #expect(model.isAnyRouteActive == true)
 
-        // Still cannot edit Route B while paused
+        // Still cannot edit Route A or Route B while paused
+        let canEditAWhilePaused = model.requestEditRoute(routeA)
+        #expect(canEditAWhilePaused == false)
+        #expect(model.presentedError == "目前正在執行路線，請先結束目前路線後再編輯。")
+
         let canEditBWhilePaused = model.requestEditRoute(routeB)
         #expect(canEditBWhilePaused == false)
         #expect(model.routeName == "Route A")
         #expect(model.waypoints == routeA.waypoints)
         #expect(model.simulationMode == .routePaused)
 
-        // Stop Route A -> Now Route B can be loaded/edited safely
+        // 3. Stop Route A -> Now Route A and Route B can both be loaded/edited safely
         model.playback.stop()
         #expect(model.isAnyRouteActive == false)
         let canEditBWhenStopped = model.requestEditRoute(routeB)
@@ -742,6 +750,94 @@ struct SimulationStateMachineTests {
         #expect(model.routeName == "Route B")
         #expect(model.waypoints == routeB.waypoints)
         #expect(model.speedKmh == 45.0)
+
+        let canEditAWhenStopped = model.requestEditRoute(routeA)
+        #expect(canEditAWhenStopped == true)
+        #expect(model.routeName == "Route A")
+    }
+
+    @Test func stoppedPlaybackClearsRoutePausedSimulationMode() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let route = SavedRoute.testRoute(
+            name: "PauseStopRoute",
+            waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
+            routeMode: .straight
+        )
+
+        // Start Route -> Pause -> Stop
+        await model.startRoute(route)
+        #expect(model.simulationMode == .routePlaying)
+        #expect(model.isAnyRouteActive == true)
+
+        model.playback.pause()
+        #expect(model.playback.state == .paused)
+        #expect(model.simulationMode == .routePaused)
+        #expect(model.isAnyRouteActive == true)
+
+        model.playback.stop()
+        #expect(model.playback.state == .stopped)
+        #expect(model.simulationMode == .idle)
+        #expect(model.isAnyRouteActive == false)
+
+        // Confirm endRoute() -> final simulationMode == .singlePoint still holds
+        await model.startRoute(route)
+        #expect(model.simulationMode == .routePlaying)
+        model.endRoute()
+        #expect(model.playback.state == .stopped)
+        if case .singlePoint(let heldCoord) = model.simulationMode {
+            #expect(heldCoord.isValid)
+            #expect(model.selectedCoordinate == heldCoord)
+        } else {
+            Issue.record("Expected simulationMode to be .singlePoint after endRoute()")
+        }
+        await model.returnToRealLocation()
+        #expect(model.simulationMode == .idle)
+    }
+
+    @Test func activeRouteIdentityUsesUUIDNotRouteName() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let sameName = "回家"
+        let routeA = SavedRoute.testRoute(
+            id: UUID(),
+            name: sameName,
+            waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
+            routeMode: .straight
+        )
+        let routeB = SavedRoute.testRoute(
+            id: UUID(),
+            name: sameName,
+            waypoints: [RouteCoordinate(latitude: 35.0, longitude: 139.0), RouteCoordinate(latitude: 35.1, longitude: 139.1)],
+            routeMode: .straight
+        )
+
+        #expect(model.isActiveRoute(routeA) == false)
+        #expect(model.isActiveRoute(routeB) == false)
+
+        // Start Route A
+        await model.startRoute(routeA)
+        #expect(model.isAnyRouteActive == true)
+
+        // Route A active: isActiveRoute(A) is true, isActiveRoute(B) is false
+        #expect(model.isActiveRoute(routeA) == true)
+        #expect(model.isActiveRoute(routeB) == false)
+
+        // Paused Route A: still UUID-identified
+        model.playback.pause()
+        #expect(model.isActiveRoute(routeA) == true)
+        #expect(model.isActiveRoute(routeB) == false)
+
+        // Stop Route A: neither is active
+        model.playback.stop()
+        #expect(model.isActiveRoute(routeA) == false)
+        #expect(model.isActiveRoute(routeB) == false)
     }
 
     @Test func activeSimulatedCoordinateUsesAuthoritativeSimulationModePrecedence() async throws {

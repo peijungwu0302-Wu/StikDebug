@@ -85,26 +85,9 @@ final class RouteLocationModel: ObservableObject {
         HealthStepSyncService.shared.attach(to: playback)
 
         playback.$state
-            .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 guard let self else { return }
-                if case .completed = state {
-                    if case .routePlaying = self.simulationMode {
-                        self.simulationMode = .idle
-                    }
-                } else if case .stopped = state {
-                    if case .routePlaying = self.simulationMode {
-                        self.simulationMode = .idle
-                    }
-                } else if case .paused = state {
-                    if case .routePlaying = self.simulationMode {
-                        self.simulationMode = .routePaused
-                    }
-                } else if case .running = state {
-                    if case .routePaused = self.simulationMode {
-                        self.simulationMode = .routePlaying
-                    }
-                }
+                self.syncPlaybackState(state)
             }
             .store(in: &cancellables)
 
@@ -187,7 +170,7 @@ final class RouteLocationModel: ObservableObject {
     func clearCurrentRoute() {
         navigationResolver.cancel()
         playback.stop(clearMarker: true)
-        if case .routePlaying = simulationMode {
+        if simulationMode.isRouteSimulation {
             simulationMode = .idle
         }
         loadedRouteID = nil
@@ -276,17 +259,40 @@ final class RouteLocationModel: ObservableObject {
         playback.state == .reconnecting
     }
 
-    func canEditRoute(_ route: SavedRoute? = nil) -> Bool {
-        guard isAnyRouteActive else { return true }
-        if let route, let loadedRouteID, route.id == loadedRouteID {
-            return true
+    func syncPlaybackState(_ state: PlaybackRunState) {
+        switch state {
+        case .completed, .stopped:
+            if simulationMode.isRouteSimulation {
+                simulationMode = .idle
+            }
+        case .paused:
+            if case .routePlaying = simulationMode {
+                simulationMode = .routePaused
+            }
+        case .running:
+            if case .routePaused = simulationMode {
+                simulationMode = .routePlaying
+            }
+        default:
+            break
         }
-        return false
+    }
+
+    func isActiveRoute(_ route: SavedRoute) -> Bool {
+        isAnyRouteActive && loadedRouteID == route.id
+    }
+
+    func isActiveRoute(id: UUID) -> Bool {
+        isAnyRouteActive && loadedRouteID == id
+    }
+
+    func canEditRoute(_ route: SavedRoute? = nil) -> Bool {
+        !isAnyRouteActive
     }
 
     func requestEditRoute(_ route: SavedRoute) -> Bool {
-        if !canEditRoute(route) {
-            presentedError = L10n.text("目前正在執行路線，請先結束目前路線後再編輯其他路線。")
+        guard canEditRoute(route) else {
+            presentedError = L10n.text("目前正在執行路線，請先結束目前路線後再編輯。")
             return false
         }
         loadRoute(route)
@@ -330,8 +336,8 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func requestStartRoute(_ route: SavedRoute) {
-        if playback.state == .running || playback.state == .paused || playback.state == .reconnecting {
-            if playback.routeName == route.name && loadedRouteID == route.id {
+        if isAnyRouteActive {
+            if isActiveRoute(route) {
                 statusMessage = L10n.format("目前正在模擬「%@」。", route.name)
                 return
             }

@@ -99,7 +99,7 @@ struct MyRoutesView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
                     if model.isAnyRouteActive {
-                        model.presentedError = L10n.text("目前正在執行路線，請先結束目前路線後再編輯其他路線。")
+                        model.presentedError = L10n.text("目前正在執行路線，請先結束目前路線後再編輯。")
                     } else {
                         showAdvancedEditor = true
                     }
