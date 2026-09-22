@@ -167,14 +167,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#routelocation-test-v}"
           IPA_TEST_FILE="RouteLocation-v${VERSION}-test-unsigned.ipa"
-          gh release create "$GITHUB_REF_NAME" \
-            "$IPA_TEST_FILE#$IPA_TEST_FILE" \
-            RouteLocation-unsigned.ipa#RouteLocation-unsigned.ipa \
-            --prerelease \
-            --title "RouteLocation ${VERSION} Test" \
-            --notes "RouteLocation ${VERSION} 測試版：UX v2 + Cellular Bootstrap Diagnostics。僅供實機驗證，尚未視為正式穩定版本。Re-sign with SideStore, AltStore, TrollStore, or a compatible tool."
+          
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists, re-uploading assets..."
+            gh release upload "$GITHUB_REF_NAME" \
+              "$IPA_TEST_FILE#$IPA_TEST_FILE" \
+              RouteLocation-unsigned.ipa#RouteLocation-unsigned.ipa \
+              --clobber
+          else
+            echo "Creating release $GITHUB_REF_NAME..."
+            gh release create "$GITHUB_REF_NAME" \
+              "$IPA_TEST_FILE#$IPA_TEST_FILE" \
+              RouteLocation-unsigned.ipa#RouteLocation-unsigned.ipa \
+              --prerelease \
+              --title "RouteLocation ${VERSION} Test" \
+              --notes "RouteLocation ${VERSION} 測試版：UX v2 + Cellular Bootstrap Diagnostics。僅供實機驗證，尚未視為正式穩定版本。Re-sign with SideStore, AltStore, TrollStore, or a compatible tool."
+          fi
 
       - name: Update and sync SideStore Test Source
         if: startsWith(github.ref, 'refs/tags/routelocation-test-v')
@@ -184,33 +195,56 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#routelocation-test-v}"
           IPA_TEST_FILE="RouteLocation-v${VERSION}-test-unsigned.ipa"
-          
+          TEST_SOURCE_TEMP="$RUNNER_TEMP/source-test.json"
+
+          # 1. Fetch remote sidestore-test state if it exists
+          if git ls-remote --exit-code --heads origin sidestore-test >/dev/null 2>&1; then
+            echo "Remote sidestore-test branch found. Fetching latest state..."
+            git fetch origin sidestore-test
+            if git show origin/sidestore-test:source-test.json > "$TEST_SOURCE_TEMP" 2>/dev/null; then
+              echo "Loaded existing source-test.json from origin/sidestore-test"
+            else
+              echo "origin/sidestore-test does not contain source-test.json, copying repo template..."
+              cp source-test.json "$TEST_SOURCE_TEMP"
+            fi
+            REMOTE_EXISTS=true
+          else
+            echo "Remote sidestore-test branch does not exist yet. Initializing from repo template..."
+            cp source-test.json "$TEST_SOURCE_TEMP"
+            REMOTE_EXISTS=false
+          fi
+
+          # 2. Update metadata in TEST_SOURCE_TEMP without touching working tree source-test.json
           python3 tools/update_source_json.py \
-            --source-path source-test.json \
+            --source-path "$TEST_SOURCE_TEMP" \
             --ipa-path "$IPA_TEST_FILE" \
             --version "$VERSION" \
             --tag "$GITHUB_REF_NAME" \
             --description "RouteLocation ${VERSION} 測試版：UX v2 + Cellular Bootstrap Diagnostics。僅供實機驗證，尚未視為正式穩定版本。" \
             --repo "${{ github.repository }}"
 
-          cp source-test.json "$RUNNER_TEMP/source-test.json"
-
+          # 3. Switch to sidestore-test branch and commit updated source-test.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if git ls-remote --exit-code --heads origin sidestore-test; then
-            git fetch origin sidestore-test:sidestore-test
-            git checkout sidestore-test
+          if [[ "$REMOTE_EXISTS" == "true" ]]; then
+            echo "Checking out existing sidestore-test branch..."
+            git checkout -B sidestore-test origin/sidestore-test
+            git reset --hard origin/sidestore-test
+            git clean -fd
+            cp "$TEST_SOURCE_TEMP" source-test.json
           else
+            echo "Creating orphan sidestore-test branch..."
             git checkout --orphan sidestore-test
-            git rm -rf .
+            git rm -rf . 2>/dev/null || true
+            cp "$TEST_SOURCE_TEMP" source-test.json
           fi
 
-          cp "$RUNNER_TEMP/source-test.json" source-test.json
           git add source-test.json
           if ! git diff --staged --quiet; then
             git commit -m "chore(test-release): update RouteLocation test source ${VERSION}"
             git push origin sidestore-test
+            echo "Successfully pushed updated source-test.json to origin/sidestore-test"
           else
-            echo "No changes to source-test.json"
+            echo "No changes detected in source-test.json"
           fi
