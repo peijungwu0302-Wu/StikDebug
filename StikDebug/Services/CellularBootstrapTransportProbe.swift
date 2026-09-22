@@ -488,7 +488,7 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
         switch type {
         case .baseline: policy = .DEFAULT
         case .cellularProhibited: policy = .CELLULAR_PROHIBITED
-        case .requiredInterface: policy = .REQUIRED_INTERFACE
+        case .requiredInterface, .candidatePeerRequiredInterface: policy = .REQUIRED_INTERFACE
         }
 
         guard let port = NWEndpoint.Port(rawValue: UInt16(targetPort)) else {
