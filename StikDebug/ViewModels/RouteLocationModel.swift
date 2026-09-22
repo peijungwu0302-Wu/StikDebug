@@ -286,21 +286,16 @@ final class RouteLocationModel: ObservableObject {
 
     func previewRoute(_ route: SavedRoute) {
         previewingRoute = route
-        loadRoute(route)
         mapFocusRevision = UUID()
     }
 
     func cancelRoutePreview() {
         previewingRoute = nil
-        if case .routePlaying = simulationMode {
-            // Keep active route simulation running
-        } else {
-            clearCurrentRoute()
-        }
+        mapFocusRevision = UUID()
     }
 
     func requestStartRoute(_ route: SavedRoute) {
-        if playback.state == .running || playback.state == .reconnecting {
+        if playback.state == .running || playback.state == .paused || playback.state == .reconnecting {
             if playback.routeName == route.name && loadedRouteID == route.id {
                 statusMessage = L10n.format("目前正在模擬「%@」。", route.name)
                 return
@@ -419,7 +414,7 @@ final class RouteLocationModel: ObservableObject {
             presentedError = L10n.text("請先選擇座標。")
             return
         }
-        if case .routePlaying = simulationMode {
+        if simulationMode.isRouteSimulation {
             if modeSwitchConfirmation == .askFirst {
                 pendingSinglePointCoordinate = target
                 showModeSwitchAlert = true
@@ -444,42 +439,47 @@ final class RouteLocationModel: ObservableObject {
         showModeSwitchAlert = false
     }
 
-    func executeTeleport(to target: RouteCoordinate) async {
-        playback.stop(clearMarker: false)
+    private func startSinglePointHold(at target: RouteCoordinate) {
         teleportTask?.cancel()
-        do {
-            try await setCoordinateWithBoundedRecovery(target)
-            selectedCoordinate = target
-            simulationMode = .singlePoint(target)
-            connectionMonitor.reportSession(.connected)
-            LocationSessionCoordinator.shared.markSessionHealthy()
-            BackgroundKeepAliveService.shared.acquire()
-            teleportTask = Task { [weak self] in
-                var consecutiveFailures = 0
-                while !Task.isCancelled {
-                    do { try await Task.sleep(for: .seconds(4)) } catch { return }
-                    guard let self else { return }
-                    do {
-                        try await self.simulationService.setCoordinate(target)
-                        consecutiveFailures = 0
-                        self.connectionMonitor.reportSession(.connected)
-                        LocationSessionCoordinator.shared.markSessionHealthy()
-                    } catch {
-                        consecutiveFailures += 1
-                        LocationSessionCoordinator.shared.markSessionDegraded(error: error)
-                        guard PlaybackReconnectPolicy.shouldRetry(error), consecutiveFailures < 4 else {
-                            self.presentedError = error.localizedDescription
-                            self.connectionMonitor.reportSession(.error(error.localizedDescription))
-                            BackgroundKeepAliveService.shared.release()
-                            return
-                        }
-                        guard LocationRecoveryPolicy.shouldRecover(consecutiveFailures: consecutiveFailures) else { continue }
-                        self.connectionMonitor.reportSession(.reconnecting(attempt: consecutiveFailures))
-                        markTunnelDisconnected()
-                        startTunnelInBackground(showErrorUI: false)
+        selectedCoordinate = target
+        simulationMode = .singlePoint(target)
+        connectionMonitor.reportSession(.connected)
+        LocationSessionCoordinator.shared.markSessionHealthy()
+        BackgroundKeepAliveService.shared.acquire()
+        teleportTask = Task { [weak self] in
+            var consecutiveFailures = 0
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(4)) } catch { return }
+                guard let self else { return }
+                do {
+                    try await self.simulationService.setCoordinate(target)
+                    consecutiveFailures = 0
+                    self.connectionMonitor.reportSession(.connected)
+                    LocationSessionCoordinator.shared.markSessionHealthy()
+                } catch {
+                    consecutiveFailures += 1
+                    LocationSessionCoordinator.shared.markSessionDegraded(error: error)
+                    guard PlaybackReconnectPolicy.shouldRetry(error), consecutiveFailures < 4 else {
+                        self.presentedError = error.localizedDescription
+                        self.connectionMonitor.reportSession(.error(error.localizedDescription))
+                        BackgroundKeepAliveService.shared.release()
+                        return
                     }
+                    guard LocationRecoveryPolicy.shouldRecover(consecutiveFailures: consecutiveFailures) else { continue }
+                    self.connectionMonitor.reportSession(.reconnecting(attempt: consecutiveFailures))
+                    markTunnelDisconnected()
+                    startTunnelInBackground(showErrorUI: false)
                 }
             }
+        }
+    }
+
+    func executeTeleport(to target: RouteCoordinate) async {
+        playback.stop(clearMarker: false)
+        do {
+            try await setCoordinateWithBoundedRecovery(target)
+            startSinglePointHold(at: target)
+            statusMessage = L10n.text("已成功模擬所選位置。")
         } catch {
             LocationSessionCoordinator.shared.markSessionDegraded(error: error)
             presentedError = error.localizedDescription
@@ -487,7 +487,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func teleport(to coordinate: RouteCoordinate? = nil) async {
-        if case .routePlaying = simulationMode, modeSwitchConfirmation == .askFirst {
+        if simulationMode.isRouteSimulation, modeSwitchConfirmation == .askFirst {
             requestSinglePointSimulation(at: coordinate)
         } else {
             guard let target = coordinate ?? selectedCoordinate, target.isValid else {
@@ -523,12 +523,13 @@ final class RouteLocationModel: ObservableObject {
     /// End route playback but keep the last simulated coordinate active.
     /// Does NOT restore real location. Shows options to keep position or restore.
     func endRoute() {
-        playback.stop(clearMarker: false)
-        if let lastCoord = playback.currentCoordinate {
-            simulationMode = .singlePoint(lastCoord)
-        } else {
+        guard let lastCoord = playback.currentCoordinate else {
+            playback.stop(clearMarker: false)
             simulationMode = .idle
+            return
         }
+        playback.stop(clearMarker: false)
+        startSinglePointHold(at: lastCoord)
         showEndRouteOptions = true
         statusMessage = L10n.text("路線已結束，目前位置仍為模擬位置。")
     }

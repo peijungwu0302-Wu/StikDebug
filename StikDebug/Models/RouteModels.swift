@@ -124,6 +124,13 @@ enum SimulationMode: Equatable {
         }
     }
 
+    var isRouteSimulation: Bool {
+        switch self {
+        case .routePlaying, .routePaused: return true
+        case .idle, .singlePoint: return false
+        }
+    }
+
     var label: String {
         switch self {
         case .idle: return L10n.text("未模擬")

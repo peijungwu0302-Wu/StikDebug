@@ -22,12 +22,12 @@ struct MapHomeView: View {
             MapReader { proxy in
                 Map(position: $camera) {
                     UserAnnotation()
-                    if model.quickRouteMode == .singlePoint {
-                        if let selected = model.selectedCoordinate {
+                    if model.quickRouteMode == .singlePoint && model.previewingRoute == nil {
+                        if let selected = candidateCoordinate {
                             Marker(L10n.text("已選位置"), coordinate: selected.clCoordinate).tint(.blue)
                         }
                     } else {
-                        ForEach(Array(model.waypoints.enumerated()), id: \.offset) { index, waypoint in
+                        ForEach(Array(displayWaypoints.enumerated()), id: \.offset) { index, waypoint in
                             Annotation(L10n.format("航點 %d", index + 1), coordinate: waypoint.clCoordinate) {
                                 ZStack {
                                     Circle().fill(.orange).frame(width: 28, height: 28)
@@ -35,12 +35,12 @@ struct MapHomeView: View {
                                 }
                             }
                         }
-                        if model.geometry.coordinates.count > 1 {
-                            MapPolyline(coordinates: model.geometry.coordinates.map(\.clCoordinate))
+                        if displayCoordinates.count > 1 {
+                            MapPolyline(coordinates: displayCoordinates.map(\.clCoordinate))
                                 .stroke(.blue, lineWidth: 5)
                         }
                     }
-                    if let current = playback.currentCoordinate {
+                    if let current = activeSimulatedCoordinate {
                         Annotation(L10n.text("目前模擬位置"), coordinate: current.clCoordinate) {
                             Image(systemName: "location.circle.fill")
                                 .font(.title).foregroundStyle(.green).background(.white, in: Circle())
@@ -88,7 +88,7 @@ struct MapHomeView: View {
                         .accessibilityLabel(L10n.text("搜尋地點"))
                     Button { showCoordinateEntry = true } label: { Image(systemName: "number") }
                         .accessibilityLabel(L10n.text("輸入座標"))
-                    if !model.geometry.coordinates.isEmpty {
+                    if !displayCoordinates.isEmpty {
                         Button { fitRoute() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                             .accessibilityLabel(L10n.text("顯示完整路線"))
                     }
@@ -166,8 +166,11 @@ struct MapHomeView: View {
             camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
         }
         .onChange(of: model.mapFocusRevision) { _, _ in
-            guard let coordinate = model.selectedCoordinate else { return }
-            camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
+            if model.previewingRoute != nil {
+                fitRoute()
+            } else if let coordinate = model.selectedCoordinate {
+                camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
+            }
         }
     }
 
@@ -221,19 +224,37 @@ struct MapHomeView: View {
 
     @ViewBuilder
     private var singlePointFloatingContent: some View {
-        if let selected = model.selectedCoordinate {
+        if let candidate = candidateCoordinate {
             PlaceFloatingCard(
-                coordinate: selected,
+                coordinate: candidate,
                 onSaveFavorite: { showFavoriteName = true }
             )
-        } else if model.simulationMode.isSimulating {
+        } else if case .singlePoint(let activeCoord) = model.simulationMode {
             // Active single point simulation
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Image(systemName: "location.fill").foregroundStyle(.green)
                     Text(L10n.text("模擬位置中")).font(.subheadline.bold())
                     Spacer()
-                    Text(model.simulationMode.label).font(.caption2).foregroundStyle(.secondary)
+                    Text(String(format: "%.6f, %.6f", activeCoord.latitude, activeCoord.longitude))
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                Button(L10n.text("恢復真實位置"), role: .destructive) {
+                    Task { await model.returnToRealLocation() }
+                }
+                .font(.footnote)
+                .accessibilityLabel(L10n.text("恢復真實定位"))
+            }
+            .padding(12)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        } else if model.simulationMode.isSimulating {
+            // Active route simulation while in single point view
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "location.fill").foregroundStyle(.green)
+                    Text(model.simulationMode.label).font(.subheadline.bold())
+                    Spacer()
                 }
                 Button(L10n.text("恢復真實位置"), role: .destructive) {
                     Task { await model.returnToRealLocation() }
@@ -367,8 +388,34 @@ struct MapHomeView: View {
 
     // MARK: - Helpers
 
+    private var candidateCoordinate: RouteCoordinate? {
+        guard let selected = model.selectedCoordinate else { return nil }
+        if case .singlePoint(let active) = model.simulationMode, selected == active {
+            return nil
+        }
+        return selected
+    }
+
+    private var activeSimulatedCoordinate: RouteCoordinate? {
+        if let current = playback.currentCoordinate {
+            return current
+        }
+        if case .singlePoint(let active) = model.simulationMode {
+            return active
+        }
+        return nil
+    }
+
+    private var displayWaypoints: [RouteCoordinate] {
+        model.previewingRoute?.waypoints ?? model.waypoints
+    }
+
+    private var displayCoordinates: [RouteCoordinate] {
+        model.previewingRoute?.resolvedGeometry.coordinates ?? model.geometry.coordinates
+    }
+
     private func fitRoute() {
-        let coordinates = model.geometry.coordinates
+        let coordinates = displayCoordinates
         guard let first = coordinates.first else { return }
         var rect = MKMapRect(origin: MKMapPoint(first.clCoordinate), size: MKMapSize(width: 0, height: 0))
         for coordinate in coordinates.dropFirst() {

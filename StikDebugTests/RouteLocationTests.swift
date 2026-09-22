@@ -436,7 +436,7 @@ struct PlaybackEngineTests {
         #expect(PlaybackReconnectPolicy.shouldRetry(LocationSimulationError.dvtSessionFailure(code: 10)))
     }
 
-    @Test func pauseAndResumeMaintainsProgressWithoutReconnection() async throws {
+    @Test func pauseRemainsPausedDuringTransportChangeWithoutElapsedJump() async throws {
         let sink = FakeLocationSink()
         let clock = UptimeBox()
         var reconnects = 0
@@ -460,14 +460,20 @@ struct PlaybackEngineTests {
         #expect(engine.traveledDistance == distanceBeforePause)
         #expect(reconnects == 0)
 
-        // Advancing clock while paused should not advance distance
-        clock.set(15)
+        // Advancing clock significantly while paused must NOT advance distance
+        clock.set(1000)
         #expect(engine.traveledDistance == distanceBeforePause)
 
-        // Resuming should continue from paused distance
+        // Transport change verification while paused MUST keep state paused and distance unchanged
+        await engine.verifyConnectionAfterTransportChange()
+        #expect(engine.state == .paused)
+        #expect(engine.traveledDistance == distanceBeforePause)
+        #expect(reconnects == 0)
+
+        // Resuming must continue from paused distance
         await engine.resume()
         #expect(engine.state == .running)
-        clock.set(20)
+        clock.set(1005)
         await engine.verifyConnectionAfterTransportChange()
         #expect(engine.traveledDistance > distanceBeforePause)
         #expect(reconnects == 0)
@@ -569,6 +575,159 @@ struct SimulationStateMachineTests {
         #expect(model.simulationMode == .idle)
         let clearCalls = await sink.clearCallCount()
         #expect(clearCalls == 1)
+    }
+
+    @Test func activeRoutePreviewDoesNotMutateActiveRouteDomainState() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let routeA = SavedRoute(
+            name: "Route A",
+            waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
+            routeMode: .straight,
+            preferredSpeedKmh: 20.0
+        )
+        let routeB = SavedRoute(
+            name: "Route B",
+            waypoints: [RouteCoordinate(latitude: 35.0, longitude: 139.0), RouteCoordinate(latitude: 35.1, longitude: 139.1)],
+            routeMode: .straight,
+            preferredSpeedKmh: 45.0
+        )
+
+        await model.startRoute(routeA)
+        #expect(model.simulationMode == .routePlaying)
+        #expect(model.playback.routeName == "Route A")
+        #expect(model.routeName == "Route A")
+        #expect(model.waypoints == routeA.waypoints)
+        #expect(model.speedKmh == 20.0)
+
+        // Preview Route B while Route A is active
+        model.previewRoute(routeB)
+        #expect(model.previewingRoute?.id == routeB.id)
+
+        // Route A domain state must remain completely UNCHANGED
+        #expect(model.routeName == "Route A")
+        #expect(model.waypoints == routeA.waypoints)
+        #expect(model.speedKmh == 20.0)
+        #expect(model.playback.routeName == "Route A")
+        #expect(model.simulationMode == .routePlaying)
+
+        // Cancel preview must only clear previewingRoute without touching active route
+        model.cancelRoutePreview()
+        #expect(model.previewingRoute == nil)
+        #expect(model.routeName == "Route A")
+        #expect(model.waypoints == routeA.waypoints)
+        #expect(model.playback.state == .running)
+        model.playback.stop()
+    }
+
+    @Test func pausedRouteRequestNewRouteRequiresSwitchConfirmation() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let routeA = SavedRoute(
+            name: "Route A",
+            waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
+            routeMode: .straight
+        )
+        let routeB = SavedRoute(
+            name: "Route B",
+            waypoints: [RouteCoordinate(latitude: 35.0, longitude: 139.0), RouteCoordinate(latitude: 35.1, longitude: 139.1)],
+            routeMode: .straight
+        )
+
+        await model.startRoute(routeA)
+        #expect(model.simulationMode == .routePlaying)
+
+        // Pause Route A
+        model.playback.pause()
+        #expect(model.playback.state == .paused)
+        #expect(model.simulationMode == .routePaused)
+
+        // Request Route B while Route A is paused
+        model.requestStartRoute(routeB)
+
+        // MUST prompt confirmation
+        #expect(model.showActiveRouteSwitchAlert == true)
+        #expect(model.pendingSwitchRoute?.id == routeB.id)
+        #expect(model.playback.state == .paused)
+
+        // Confirm switch
+        await model.confirmSwitchToRoute(routeB)
+        #expect(model.showActiveRouteSwitchAlert == false)
+        #expect(model.routeName == "Route B")
+        #expect(model.simulationMode == .routePlaying)
+        model.playback.stop()
+    }
+
+    @Test func pausedRouteRequestSinglePointRespectsModeSwitchConfirmation() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+        model.modeSwitchConfirmation = .askFirst
+
+        let routeA = SavedRoute(
+            name: "Route A",
+            waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
+            routeMode: .straight
+        )
+        await model.startRoute(routeA)
+        model.playback.pause()
+        #expect(model.simulationMode == .routePaused)
+
+        let target = RouteCoordinate(latitude: 25.05, longitude: 121.55)
+        model.requestSinglePointSimulation(at: target)
+
+        // MUST prompt confirmation because route is active (paused)
+        #expect(model.showModeSwitchAlert == true)
+        #expect(model.pendingSinglePointCoordinate == target)
+        #expect(model.simulationMode == .routePaused)
+
+        await model.confirmModeSwitchToSinglePoint()
+        #expect(model.showModeSwitchAlert == false)
+        #expect(model.simulationMode == .singlePoint(target))
+        #expect(model.playback.state == .stopped)
+    }
+
+    @Test func endRouteTransitionsToHeldSinglePointSimulation() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let route = SavedRoute(
+            name: "Test Route",
+            waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
+            routeMode: .straight
+        )
+        await model.startRoute(route)
+        #expect(model.simulationMode == .routePlaying)
+
+        model.endRoute()
+
+        // Playback progression is stopped
+        #expect(model.playback.state == .stopped)
+        // Shows options to keep position or restore
+        #expect(model.showEndRouteOptions == true)
+        // Transitioned into singlePoint mode holding the coordinate
+        if case .singlePoint(let heldCoord) = model.simulationMode {
+            #expect(heldCoord.isValid)
+            #expect(model.selectedCoordinate == heldCoord)
+        } else {
+            Issue.record("Expected simulationMode to be .singlePoint after endRoute()")
+        }
+        // No real location was restored
+        let clearCalls = await sink.clearCallCount()
+        #expect(clearCalls == 0)
+
+        // Cleanup
+        await model.returnToRealLocation()
+        #expect(model.simulationMode == .idle)
     }
 }
 

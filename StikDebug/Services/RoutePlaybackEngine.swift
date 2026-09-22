@@ -220,7 +220,7 @@ final class RoutePlaybackEngine: ObservableObject {
         }
     }
 
-    private func reconnect() async -> Bool {
+    private func reconnect(returnState: PlaybackRunState = .running) async -> Bool {
         guard !reconnectInProgress else { return false }
         reconnectInProgress = true
         lastReconnectError = nil
@@ -232,12 +232,14 @@ final class RoutePlaybackEngine: ObservableObject {
             reportConnection(.reconnecting(attempt: index + 1))
             reconnectAction()
             do { try await Task.sleep(for: .seconds(delay)) } catch { return false }
-            updateDerivedState(now: uptime())
+            if returnState != .paused {
+                updateDerivedState(now: uptime())
+            }
             guard let currentCoordinate else { return false }
             do {
                 try await sink.setCoordinate(currentCoordinate)
                 consecutiveCommandFailures = 0
-                state = .running
+                state = returnState
                 reportConnection(.connected)
                 return true
             } catch {
@@ -290,14 +292,17 @@ final class RoutePlaybackEngine: ObservableObject {
 
     func verifyConnectionAfterTransportChange() async {
         guard geometry != nil, !reconnectInProgress else { return }
-        updateDerivedState(now: uptime())
+        let isPaused = (state == .paused)
+        if !isPaused {
+            updateDerivedState(now: uptime())
+        }
         guard let currentCoordinate else { return }
         do {
             try await sink.setCoordinate(currentCoordinate)
             consecutiveCommandFailures = 0
             reportConnection(.connected)
-            state = .running
-            if task == nil { task = Task { [weak self] in await self?.runLoop() } }
+            state = isPaused ? .paused : .running
+            if !isPaused && task == nil { task = Task { [weak self] in await self?.runLoop() } }
         } catch {
             consecutiveCommandFailures += 1
             TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
@@ -307,11 +312,11 @@ final class RoutePlaybackEngine: ObservableObject {
                 return
             }
             guard LocationRecoveryPolicy.shouldRecover(consecutiveFailures: consecutiveCommandFailures), !reconnectInProgress else {
-                state = .running
+                state = isPaused ? .paused : .running
                 return
             }
-            if await reconnect() {
-                if task == nil { task = Task { [weak self] in await self?.runLoop() } }
+            if await reconnect(returnState: isPaused ? .paused : .running) {
+                if !isPaused && task == nil { task = Task { [weak self] in await self?.runLoop() } }
             } else {
                 handleReconnectFailure()
             }
