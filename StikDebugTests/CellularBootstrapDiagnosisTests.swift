@@ -211,8 +211,11 @@ struct CellularBootstrapDiagnosisTests {
         )
 
         let candidatePeerProbe = CellularPathProbeResult(
-            probeType: .baseline,
+            probeType: .candidatePeerRequiredInterface,
             status: .success,
+            interfacePolicy: .REQUIRED_INTERFACE,
+            requestedInterfaceName: "utun0",
+            requiredInterfaceApplied: true,
             targetIP: "192.168.64.1",
             targetPort: 49152
         )
@@ -230,6 +233,162 @@ struct CellularBootstrapDiagnosisTests {
         #expect(report.interpretation.contains("10.7.0.1"))
         #expect(report.interpretation.contains("192.168.64.1"))
         #expect(report.recommendedNextStep.contains("192.168.64.1"))
+    }
+
+    @Test func ruleC_candidatePeerSuccess_unboundFallback_cannotProduceHighMismatch() {
+        let vpnCandidate = VPNInterfaceCandidate(
+            interface: NetworkInterfaceInfo(
+                id: "utun0-5",
+                name: "utun0",
+                index: 5,
+                nwInterfaceType: "tunnel/vpn",
+                addresses: ["192.168.64.2"],
+                destinationAddresses: ["192.168.64.1"],
+                isPointToPoint: true,
+                isUp: true
+            ),
+            confidence: .confident,
+            detectedPeer: "192.168.64.1",
+            peerSource: .P2P_DSTADDR,
+            reason: "P2P utun destination IP"
+        )
+        let snapshot = makeBaseSnapshot(
+            vpnCandidate: vpnCandidate,
+            configuredTargetIP: "10.7.0.1"
+        )
+        let probeA = CellularPathProbeResult(
+            probeType: .baseline,
+            status: .failure,
+            targetIP: "10.7.0.1",
+            posixErrno: 60,
+            errorDescription: "Operation timed out"
+        )
+        // Candidate peer succeeded but requiredInterfaceApplied == false!
+        let candidatePeerProbe = CellularPathProbeResult(
+            probeType: .candidatePeerRequiredInterface,
+            status: .success,
+            interfacePolicy: .REQUIRED_INTERFACE,
+            requestedInterfaceName: "utun0",
+            requiredInterfaceApplied: false,
+            targetIP: "192.168.64.1",
+            targetPort: 49152
+        )
+
+        let report = CellularBootstrapDiagnosisEngine.evaluate(
+            snapshot: snapshot,
+            probeA: probeA,
+            probeB: nil,
+            probeC: nil,
+            candidatePeerProbe: candidatePeerProbe
+        )
+
+        #expect(report.verdict != .TARGET_OR_PEER_MISMATCH || report.confidence != .high)
+        #expect(report.confidence == .low)
+        #expect(report.verdict == .INSUFFICIENT_EVIDENCE)
+    }
+
+    @Test func ruleC_candidatePeerSuccess_targetDiffersFromDetectedCandidatePeer_cannotProduceHigh() {
+        let vpnCandidate = VPNInterfaceCandidate(
+            interface: NetworkInterfaceInfo(
+                id: "utun0-5",
+                name: "utun0",
+                index: 5,
+                nwInterfaceType: "tunnel/vpn",
+                addresses: ["192.168.64.2"],
+                destinationAddresses: ["192.168.64.1"],
+                isPointToPoint: true,
+                isUp: true
+            ),
+            confidence: .confident,
+            detectedPeer: "192.168.64.1",
+            peerSource: .P2P_DSTADDR,
+            reason: "P2P utun destination IP"
+        )
+        let snapshot = makeBaseSnapshot(
+            vpnCandidate: vpnCandidate,
+            configuredTargetIP: "10.7.0.1"
+        )
+        let probeA = CellularPathProbeResult(
+            probeType: .baseline,
+            status: .failure,
+            targetIP: "10.7.0.1",
+            posixErrno: 60,
+            errorDescription: "Operation timed out"
+        )
+        // Target is 192.168.64.99, but detected peer is 192.168.64.1!
+        let candidatePeerProbe = CellularPathProbeResult(
+            probeType: .candidatePeerRequiredInterface,
+            status: .success,
+            interfacePolicy: .REQUIRED_INTERFACE,
+            requestedInterfaceName: "utun0",
+            requiredInterfaceApplied: true,
+            targetIP: "192.168.64.99",
+            targetPort: 49152
+        )
+
+        let report = CellularBootstrapDiagnosisEngine.evaluate(
+            snapshot: snapshot,
+            probeA: probeA,
+            probeB: nil,
+            probeC: nil,
+            candidatePeerProbe: candidatePeerProbe
+        )
+
+        #expect(report.verdict != .TARGET_OR_PEER_MISMATCH || report.confidence != .high)
+        #expect(report.confidence == .low)
+        #expect(report.verdict == .INSUFFICIENT_EVIDENCE)
+    }
+
+    @Test func ruleC_candidatePeerSuccess_requestedInterfaceDiffersFromVPNCandidate_cannotProduceHigh() {
+        let vpnCandidate = VPNInterfaceCandidate(
+            interface: NetworkInterfaceInfo(
+                id: "utun3-8",
+                name: "utun3",
+                index: 8,
+                nwInterfaceType: "tunnel/vpn",
+                addresses: ["192.168.64.2"],
+                destinationAddresses: ["192.168.64.1"],
+                isPointToPoint: true,
+                isUp: true
+            ),
+            confidence: .confident,
+            detectedPeer: "192.168.64.1",
+            peerSource: .P2P_DSTADDR,
+            reason: "P2P utun destination IP"
+        )
+        let snapshot = makeBaseSnapshot(
+            vpnCandidate: vpnCandidate,
+            configuredTargetIP: "10.7.0.1"
+        )
+        let probeA = CellularPathProbeResult(
+            probeType: .baseline,
+            status: .failure,
+            targetIP: "10.7.0.1",
+            posixErrno: 60,
+            errorDescription: "Operation timed out"
+        )
+        // Candidate peer succeeded on "utun0", but candidate interface is "utun3"!
+        let candidatePeerProbe = CellularPathProbeResult(
+            probeType: .candidatePeerRequiredInterface,
+            status: .success,
+            interfacePolicy: .REQUIRED_INTERFACE,
+            requestedInterfaceName: "utun0",
+            requiredInterfaceApplied: true,
+            targetIP: "192.168.64.1",
+            targetPort: 49152
+        )
+
+        let report = CellularBootstrapDiagnosisEngine.evaluate(
+            snapshot: snapshot,
+            probeA: probeA,
+            probeB: nil,
+            probeC: nil,
+            candidatePeerProbe: candidatePeerProbe
+        )
+
+        #expect(report.verdict != .TARGET_OR_PEER_MISMATCH || report.confidence != .high)
+        #expect(report.confidence == .low)
+        #expect(report.verdict == .INSUFFICIENT_EVIDENCE)
     }
 
     @Test func ruleC_heuristicPeerMismatch_aloneCannotProduceHighMismatch() {
@@ -316,6 +475,8 @@ struct CellularBootstrapDiagnosisTests {
         #expect(report.verdict == .REMOTE_LISTENER_NOT_ACCEPTING)
         #expect(report.confidence == .medium)
         #expect(report.interpretation.contains("49152 埠未開啟監聽"))
+        #expect(report.recommendedNextStep.contains("49152 port 是否正在接受連線"))
+        #expect(!report.recommendedNextStep.contains("Mac"))
     }
 
     @Test func ruleD_nilBandC_cannotBeTreatedAsAllProbesRefused() {
@@ -420,6 +581,64 @@ struct CellularBootstrapDiagnosisTests {
         #expect(report.recommendedNextStep.contains("TRUE_FFI_INTERFACE_BINDING"))
     }
 
+    // MARK: - Run Provenance & State Isolation
+
+    @Test func runProvenance_oneCompletedRunCannotCombineSnapshotFromRun2WithProbesFromRun1() {
+        let snapshot1 = makeBaseSnapshot(activeDVT: false, recentLocationSuccess: false, configuredTargetIP: "10.7.0.1")
+        let probeA1 = CellularPathProbeResult(probeType: .baseline, status: .failure, targetIP: "10.7.0.1")
+        let probeC1 = CellularPathProbeResult(
+            probeType: .requiredInterface,
+            status: .success,
+            interfacePolicy: .REQUIRED_INTERFACE,
+            requestedInterfaceName: "utun0",
+            requiredInterfaceApplied: true,
+            targetIP: "10.7.0.1"
+        )
+
+        let run1 = CellularBootstrapProbeRun(
+            startedAt: Date().addingTimeInterval(-10),
+            completedAt: Date().addingTimeInterval(-5),
+            snapshot: snapshot1,
+            probeA: probeA1,
+            probeB: nil,
+            probeC: probeC1,
+            candidatePeerProbe: nil
+        )
+
+        let snapshot2 = makeBaseSnapshot(activeDVT: true, recentLocationSuccess: true) // Healthy!
+        let run2 = CellularBootstrapProbeRun(
+            startedAt: Date().addingTimeInterval(-2),
+            completedAt: Date(),
+            snapshot: snapshot2,
+            probeA: nil,
+            probeB: nil,
+            probeC: nil,
+            candidatePeerProbe: nil
+        )
+
+        let report1 = CellularBootstrapDiagnosisEngine.evaluate(run: run1)
+        let report2 = CellularBootstrapDiagnosisEngine.evaluate(run: run2)
+
+        #expect(report1.verdict == .DIAGNOSTIC_PROBE_ONLY_SUCCESS)
+        #expect(report1.rawEvidence["runID"] == run1.id.uuidString)
+        #expect(report1.formattedText.contains("Run ID:\n\(run1.id.uuidString)"))
+
+        #expect(report2.verdict == .EXISTING_SESSION_HEALTHY)
+        #expect(report2.rawEvidence["runID"] == run2.id.uuidString)
+        #expect(report2.formattedText.contains("Run ID:\n\(run2.id.uuidString)"))
+    }
+
+    @MainActor
+    @Test func probeService_newRunClearsPartialStaleProbeState() {
+        let service = CellularBootstrapTransportProbe.shared
+        service.clearPartialStaleProbeState()
+
+        #expect(service.probeAResult == nil)
+        #expect(service.probeBResult == nil)
+        #expect(service.probeCResult == nil)
+        #expect(service.candidatePeerProbeResult == nil)
+    }
+
     // MARK: - Interface Derivation Logic
 
     @Test func vpnCandidateDerivation_identifiesSingleSubnet10_7() {
@@ -498,42 +717,101 @@ struct CellularBootstrapDiagnosisTests {
 
     // MARK: - Formatted Text Validation
 
-    @Test func reportFormatting_containsAllRequiredHeadersAndNoProductionChange() {
-        let snapshot = makeBaseSnapshot(activeDVT: true, recentLocationSuccess: true)
-        let report = CellularBootstrapDiagnosisEngine.evaluate(
-            snapshot: snapshot,
-            probeA: nil,
-            probeB: nil,
-            probeC: nil,
-            simulationModeLabel: "單點模擬中"
+    @Test func reportFormatting_containsRunProvenanceAndCandidatePeerProbeEvidence() {
+        let vpnCandidate = VPNInterfaceCandidate(
+            interface: NetworkInterfaceInfo(
+                id: "utun0-5",
+                name: "utun0",
+                index: 5,
+                nwInterfaceType: "tunnel/vpn",
+                addresses: ["192.168.64.2"],
+                destinationAddresses: ["192.168.64.1"],
+                isPointToPoint: true,
+                isUp: true
+            ),
+            confidence: .confident,
+            detectedPeer: "192.168.64.1",
+            peerSource: .P2P_DSTADDR,
+            reason: "P2P utun destination IP"
+        )
+        let snapshot = makeBaseSnapshot(
+            vpnCandidate: vpnCandidate,
+            configuredTargetIP: "10.7.0.1"
         )
 
+        let probeA = CellularPathProbeResult(
+            probeType: .baseline,
+            status: .failure,
+            interfacePolicy: .DEFAULT,
+            targetIP: "10.7.0.1",
+            posixErrno: 60,
+            errorDescription: "Operation timed out"
+        )
+
+        let candidatePeerProbe = CellularPathProbeResult(
+            probeType: .candidatePeerRequiredInterface,
+            status: .success,
+            interfacePolicy: .REQUIRED_INTERFACE,
+            requestedInterfaceName: "utun0",
+            requiredInterfaceApplied: true,
+            targetIP: "192.168.64.1",
+            targetPort: 49152,
+            localEndpoint: "192.168.64.2:50000",
+            remoteEndpoint: "192.168.64.1:49152",
+            elapsedMs: 25
+        )
+
+        let run = CellularBootstrapProbeRun(
+            startedAt: Date().addingTimeInterval(-3),
+            completedAt: Date(),
+            snapshot: snapshot,
+            probeA: probeA,
+            probeB: nil,
+            probeC: nil,
+            candidatePeerProbe: candidatePeerProbe
+        )
+
+        let report = CellularBootstrapDiagnosisEngine.evaluate(run: run)
         let text = report.formattedText
+
         #expect(text.contains("RouteLocation Cellular Bootstrap Diagnosis"))
+        #expect(text.contains("=== DIAGNOSTIC RUN ==="))
+        #expect(text.contains("Run ID:\n\(run.id.uuidString)"))
+        #expect(text.contains("Snapshot Timestamp:"))
         #expect(text.contains("=== SUMMARY ==="))
-        #expect(text.contains("Verdict:\nEXISTING_SESSION_HEALTHY"))
+        #expect(text.contains("Verdict:\nTARGET_OR_PEER_MISMATCH"))
         #expect(text.contains("Confidence:\nHIGH"))
         #expect(text.contains("Production Behavior Changed:\nNO"))
         #expect(text.contains("=== SESSION HEALTH ==="))
-        #expect(text.contains("Simulation Mode:\n單點模擬中"))
-        #expect(text.contains("Active DVT:\nYES"))
-        #expect(text.contains("Recent Location Success:\nYES"))
         #expect(text.contains("=== NETWORK ==="))
         #expect(text.contains("Primary Transport:\ncellular"))
         #expect(text.contains("=== TARGET ==="))
         #expect(text.contains("Configured Target:\n10.7.0.1:49152"))
+        #expect(text.contains("Detected Candidate Peer:\n192.168.64.1"))
         #expect(text.contains("Peer Source:\nP2P_DSTADDR"))
+        #expect(text.contains("Target Matches Candidate:\nNO"))
         #expect(text.contains("=== PROBE A — DEFAULT ==="))
-        #expect(text.contains("Interface Policy:\n-"))
-        #expect(text.contains("Requested Interface:\n-"))
-        #expect(text.contains("Required Interface Applied:\nNO"))
         #expect(text.contains("=== PROBE B — CELLULAR PROHIBITED ==="))
         #expect(text.contains("=== PROBE C — REQUIRED VPN INTERFACE ==="))
+        #expect(text.contains("=== CANDIDATE PEER PROBE ==="))
+        #expect(text.contains("Result:\nSUCCESS"))
+        #expect(text.contains("Interface Policy:\nREQUIRED_INTERFACE"))
+        #expect(text.contains("Requested Interface:\nutun0"))
+        #expect(text.contains("Required Interface Applied:\nYES"))
+        #expect(text.contains("Target:\n192.168.64.1:49152"))
+        #expect(text.contains("Local Endpoint:\n192.168.64.2:50000"))
+        #expect(text.contains("Remote Endpoint:\n192.168.64.1:49152"))
+        #expect(text.contains("Elapsed:\n25 ms"))
         #expect(text.contains("=== PRODUCTION BOOTSTRAP ==="))
         #expect(text.contains("Owner:\nPREBUILT_FFI"))
         #expect(text.contains("Function:\ntunnel_create_rppairing"))
         #expect(text.contains("True Interface Binding Available:\nNO"))
         #expect(text.contains("=== RAW DECISION EVIDENCE ==="))
-        #expect(text.contains("peerSource=P2P_DSTADDR"))
+        #expect(text.contains("runID=\(run.id.uuidString)"))
+        #expect(text.contains("candidatePeerProbe_policy=REQUIRED_INTERFACE"))
+        #expect(text.contains("candidatePeerProbe_target=192.168.64.1:49152"))
+        #expect(text.contains("candidatePeerProbe_requestedInterface=utun0"))
+        #expect(text.contains("candidatePeerProbe_requiredInterfaceApplied=true"))
+        #expect(text.contains("candidatePeerProbe_status=SUCCESS"))
     }
 }

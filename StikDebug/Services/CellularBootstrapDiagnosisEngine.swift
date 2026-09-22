@@ -82,16 +82,41 @@ public struct DiagnosisReport: Equatable {
 public struct CellularBootstrapDiagnosisEngine {
 
     public static func evaluate(
+        run: CellularBootstrapProbeRun,
+        simulationModeLabel: String = "未模擬"
+    ) -> DiagnosisReport {
+        evaluate(
+            snapshot: run.snapshot,
+            probeA: run.probeA,
+            probeB: run.probeB,
+            probeC: run.probeC,
+            candidatePeerProbe: run.candidatePeerProbe,
+            runId: run.id,
+            runStartedAt: run.startedAt,
+            runCompletedAt: run.completedAt,
+            simulationModeLabel: simulationModeLabel
+        )
+    }
+
+    public static func evaluate(
         snapshot: NetworkEnvironmentSnapshot,
         probeA: CellularPathProbeResult?,
         probeB: CellularPathProbeResult?,
         probeC: CellularPathProbeResult?,
         candidatePeerProbe: CellularPathProbeResult? = nil,
+        runId: UUID? = nil,
+        runStartedAt: Date? = nil,
+        runCompletedAt: Date? = nil,
         simulationModeLabel: String = "未模擬"
     ) -> DiagnosisReport {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
         var raw: [String: String] = [:]
         var evidence: [String] = []
 
+        raw["runID"] = runId?.uuidString ?? "none"
+        raw["snapshotTimestamp"] = isoFormatter.string(from: snapshot.timestamp)
         raw["activeDVT"] = String(snapshot.activeDVTSession)
         raw["recentLocationSuccess"] = String(snapshot.recentLocationSuccess)
         raw["tunnelConnected"] = String(snapshot.tunnelConnected)
@@ -141,7 +166,18 @@ public struct CellularBootstrapDiagnosisEngine {
 
         if let pPeer = candidatePeerProbe {
             raw["candidatePeerProbe_status"] = pPeer.status.rawValue
+            raw["candidatePeerProbe_policy"] = pPeer.interfacePolicy.rawValue
+            raw["candidatePeerProbe_requestedInterface"] = pPeer.requestedInterfaceName ?? "none"
+            raw["candidatePeerProbe_requiredInterfaceApplied"] = String(pPeer.requiredInterfaceApplied)
+            raw["candidatePeerProbe_errno"] = pPeer.posixErrno.map(String.init) ?? "none"
             raw["candidatePeerProbe_target"] = "\(pPeer.targetIP):\(pPeer.targetPort)"
+        } else {
+            raw["candidatePeerProbe_status"] = "NOT_RUN"
+            raw["candidatePeerProbe_policy"] = "none"
+            raw["candidatePeerProbe_requestedInterface"] = "none"
+            raw["candidatePeerProbe_requiredInterfaceApplied"] = "false"
+            raw["candidatePeerProbe_errno"] = "none"
+            raw["candidatePeerProbe_target"] = "none"
         }
 
         // ==========================================
@@ -168,6 +204,10 @@ public struct CellularBootstrapDiagnosisEngine {
                 probeA: probeA,
                 probeB: probeB,
                 probeC: probeC,
+                candidatePeerProbe: candidatePeerProbe,
+                runId: runId,
+                runStartedAt: runStartedAt,
+                runCompletedAt: runCompletedAt,
                 simulationModeLabel: simulationModeLabel
             )
         }
@@ -191,6 +231,10 @@ public struct CellularBootstrapDiagnosisEngine {
                 probeA: probeA,
                 probeB: probeB,
                 probeC: probeC,
+                candidatePeerProbe: candidatePeerProbe,
+                runId: runId,
+                runStartedAt: runStartedAt,
+                runCompletedAt: runCompletedAt,
                 simulationModeLabel: simulationModeLabel
             )
         }
@@ -214,6 +258,10 @@ public struct CellularBootstrapDiagnosisEngine {
                 probeA: probeA,
                 probeB: probeB,
                 probeC: probeC,
+                candidatePeerProbe: candidatePeerProbe,
+                runId: runId,
+                runStartedAt: runStartedAt,
+                runCompletedAt: runCompletedAt,
                 simulationModeLabel: simulationModeLabel
             )
         }
@@ -237,6 +285,10 @@ public struct CellularBootstrapDiagnosisEngine {
                 probeA: probeA,
                 probeB: probeB,
                 probeC: probeC,
+                candidatePeerProbe: candidatePeerProbe,
+                runId: runId,
+                runStartedAt: runStartedAt,
+                runCompletedAt: runCompletedAt,
                 simulationModeLabel: simulationModeLabel
             )
         }
@@ -244,14 +296,29 @@ public struct CellularBootstrapDiagnosisEngine {
         // RULE C: Target or Peer Mismatch
         if let peer = snapshot.detectedCandidatePeer, !peer.isEmpty, peer != snapshot.configuredTargetIP {
             if probeA?.status == .failure {
-                if snapshot.peerSource == .P2P_DSTADDR && candidatePeerProbe?.status == .success {
+                let isP2PDstAddr = (snapshot.peerSource == .P2P_DSTADDR)
+                let isCandidatePeerSuccess = (candidatePeerProbe?.status == .success)
+                let isPeerTargetMatching = (candidatePeerProbe?.targetIP == peer)
+                let isPortMatching = (candidatePeerProbe?.targetPort == snapshot.configuredTargetPort)
+                let isRequiredPolicy = (candidatePeerProbe?.interfacePolicy == .REQUIRED_INTERFACE)
+                let isInterfaceApplied = (candidatePeerProbe?.requiredInterfaceApplied == true)
+                let isRequestedInterfaceMatching = (candidatePeerProbe?.requestedInterfaceName != nil &&
+                    candidatePeerProbe?.requestedInterfaceName == snapshot.vpnCandidate.interface?.name)
+
+                if isP2PDstAddr &&
+                   isCandidatePeerSuccess &&
+                   isPeerTargetMatching &&
+                   isPortMatching &&
+                   isRequiredPolicy &&
+                   isInterfaceApplied &&
+                   isRequestedInterfaceMatching {
                     let verdict = DiagnosisVerdict.TARGET_OR_PEER_MISMATCH
                     let confidence = DiagnosisConfidence.high
-                    let interpretation = "設定之目標 IP (\(snapshot.configuredTargetIP)) 與從 VPN 介面點對點位址 (P2P_DSTADDR) 取得之 Candidate Peer (\(peer)) 不相符，且預設目標連線失敗，經受控探測已證實 Candidate Peer 可正常連通。"
+                    let interpretation = "設定之目標 IP (\(snapshot.configuredTargetIP)) 與從 VPN 介面點對點位址 (P2P_DSTADDR) 取得之 Candidate Peer (\(peer)) 不相符，且預設目標連線失敗，經由 VPN 介面綁定之受控探測已證實 Candidate Peer 可正常連通。"
                     let nextStep = "於設定中將目標裝置 IP 變更為推導出之 Candidate Peer (\(peer)) 後再行嘗試。"
                     evidence.append("Configured target: \(snapshot.configuredTargetIP) vs Derived peer: \(peer)")
                     evidence.append("Peer source: P2P_DSTADDR (kernel verified)")
-                    evidence.append("Candidate peer probe: SUCCESS")
+                    evidence.append("Candidate peer probe: SUCCESS (VPN-bound on \(snapshot.vpnCandidate.interface?.name ?? "utun"))")
 
                     return buildReport(
                         verdict: verdict,
@@ -264,6 +331,10 @@ public struct CellularBootstrapDiagnosisEngine {
                         probeA: probeA,
                         probeB: probeB,
                         probeC: probeC,
+                        candidatePeerProbe: candidatePeerProbe,
+                        runId: runId,
+                        runStartedAt: runStartedAt,
+                        runCompletedAt: runCompletedAt,
                         simulationModeLabel: simulationModeLabel
                     )
                 } else if snapshot.peerSource == .HEURISTIC_10_7 {
@@ -285,15 +356,22 @@ public struct CellularBootstrapDiagnosisEngine {
                         probeA: probeA,
                         probeB: probeB,
                         probeC: probeC,
+                        candidatePeerProbe: candidatePeerProbe,
+                        runId: runId,
+                        runStartedAt: runStartedAt,
+                        runCompletedAt: runCompletedAt,
                         simulationModeLabel: simulationModeLabel
                     )
                 } else if snapshot.peerSource == .P2P_DSTADDR {
                     let verdict = DiagnosisVerdict.INSUFFICIENT_EVIDENCE
                     let confidence = DiagnosisConfidence.low
-                    let interpretation = "設定之目標 IP (\(snapshot.configuredTargetIP)) 與 P2P Candidate Peer (\(peer)) 不相符，且預設目標連線失敗。但 Candidate Peer 尚未經受控探測證實可通，不可直接認定為目標不符。"
-                    let nextStep = "需執行候選 Peer 受控探測以確認連通性。"
+                    let interpretation = "設定之目標 IP (\(snapshot.configuredTargetIP)) 與 P2P Candidate Peer (\(peer)) 不相符，且預設目標連線失敗。但 Candidate Peer 尚未經 VPN 綁定之受控探測證實可通，不可直接認定為目標不符。"
+                    let nextStep = "需執行 VPN 介面綁定之候選 Peer 受控探測以確認連通性。"
                     evidence.append("Configured target: \(snapshot.configuredTargetIP) vs Candidate peer: \(peer)")
                     evidence.append("Candidate peer probe status: \(candidatePeerProbe?.status.rawValue ?? "NOT_RUN")")
+                    if let pPeer = candidatePeerProbe {
+                        evidence.append("Candidate peer probe policy: \(pPeer.interfacePolicy.rawValue), applied: \(pPeer.requiredInterfaceApplied)")
+                    }
 
                     return buildReport(
                         verdict: verdict,
@@ -306,6 +384,10 @@ public struct CellularBootstrapDiagnosisEngine {
                         probeA: probeA,
                         probeB: probeB,
                         probeC: probeC,
+                        candidatePeerProbe: candidatePeerProbe,
+                        runId: runId,
+                        runStartedAt: runStartedAt,
+                        runCompletedAt: runCompletedAt,
                         simulationModeLabel: simulationModeLabel
                     )
                 }
@@ -336,6 +418,10 @@ public struct CellularBootstrapDiagnosisEngine {
                     probeA: probeA,
                     probeB: probeB,
                     probeC: probeC,
+                    candidatePeerProbe: candidatePeerProbe,
+                    runId: runId,
+                    runStartedAt: runStartedAt,
+                    runCompletedAt: runCompletedAt,
                     simulationModeLabel: simulationModeLabel
                 )
             } else {
@@ -359,6 +445,10 @@ public struct CellularBootstrapDiagnosisEngine {
                     probeA: probeA,
                     probeB: probeB,
                     probeC: probeC,
+                    candidatePeerProbe: candidatePeerProbe,
+                    runId: runId,
+                    runStartedAt: runStartedAt,
+                    runCompletedAt: runCompletedAt,
                     simulationModeLabel: simulationModeLabel
                 )
             }
@@ -380,8 +470,8 @@ public struct CellularBootstrapDiagnosisEngine {
            isErrno61(pA), isErrno61(pB), isErrno61(pC) {
             let verdict = DiagnosisVerdict.REMOTE_LISTENER_NOT_ACCEPTING
             let confidence = DiagnosisConfidence.medium
-            let interpretation = "所有探測（包含已綁定 VPN 介面之 Probe C）均回傳 Connection refused (errno 61)。封包已能藉由 VPN 路徑抵達目標，但目標主機之 49152 埠未開啟監聽或遠端配對服務未就緒。"
-            let nextStep = "確認遠端 Mac / 輔助主機上的 RemotePairing / Developer Mode 守護行程是否運作，並檢查防火牆。"
+            let interpretation = "所有探測（包含已綁定 VPN 介面之 Probe C）均回傳 Connection refused (errno 61)。封包已能藉由 VPN 路徑抵達目標，但目標主機之 49152 埠未開啟監聽或配對服務未接受連線。"
+            let nextStep = "確認 LocalDevVPN / RemotePairing 在目前 target / candidate peer 的 49152 port 是否正在接受連線，並重新確認 target / peer。"
             evidence.append("All probes (Probe A, B, C with requiredInterface applied) returned ECONNREFUSED 61")
 
             return buildReport(
@@ -395,6 +485,10 @@ public struct CellularBootstrapDiagnosisEngine {
                 probeA: probeA,
                 probeB: probeB,
                 probeC: probeC,
+                candidatePeerProbe: candidatePeerProbe,
+                runId: runId,
+                runStartedAt: runStartedAt,
+                runCompletedAt: runCompletedAt,
                 simulationModeLabel: simulationModeLabel
             )
         }
@@ -418,6 +512,10 @@ public struct CellularBootstrapDiagnosisEngine {
                 probeA: probeA,
                 probeB: probeB,
                 probeC: probeC,
+                candidatePeerProbe: candidatePeerProbe,
+                runId: runId,
+                runStartedAt: runStartedAt,
+                runCompletedAt: runCompletedAt,
                 simulationModeLabel: simulationModeLabel
             )
         }
@@ -440,6 +538,10 @@ public struct CellularBootstrapDiagnosisEngine {
             probeA: probeA,
             probeB: probeB,
             probeC: probeC,
+            candidatePeerProbe: candidatePeerProbe,
+            runId: runId,
+            runStartedAt: runStartedAt,
+            runCompletedAt: runCompletedAt,
             simulationModeLabel: simulationModeLabel
         )
     }
@@ -455,11 +557,19 @@ public struct CellularBootstrapDiagnosisEngine {
         probeA: CellularPathProbeResult?,
         probeB: CellularPathProbeResult?,
         probeC: CellularPathProbeResult?,
+        candidatePeerProbe: CellularPathProbeResult?,
+        runId: UUID?,
+        runStartedAt: Date?,
+        runCompletedAt: Date?,
         simulationModeLabel: String
     ) -> DiagnosisReport {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let timestampStr = formatter.string(from: Date())
+
+        let runStartedStr = runStartedAt.map { formatter.string(from: $0) } ?? "-"
+        let runCompletedStr = runCompletedAt.map { formatter.string(from: $0) } ?? "-"
+        let snapshotTimestampStr = formatter.string(from: snapshot.timestamp)
 
         func formatProbe(_ p: CellularPathProbeResult?) -> String {
             guard let p = p else {
@@ -522,6 +632,67 @@ public struct CellularBootstrapDiagnosisEngine {
             """
         }
 
+        func formatCandidatePeerProbe(_ p: CellularPathProbeResult?) -> String {
+            guard let p = p else {
+                return """
+                Result:
+                NOT RUN
+
+                Interface Policy:
+                -
+
+                Requested Interface:
+                -
+
+                Required Interface Applied:
+                NO
+
+                Target:
+                -
+
+                Local Endpoint:
+                -
+
+                Remote Endpoint:
+                -
+
+                Elapsed:
+                0 ms
+
+                POSIX errno:
+                -
+                """
+            }
+            return """
+            Result:
+            \(p.status.rawValue)
+
+            Interface Policy:
+            \(p.interfacePolicy.rawValue)
+
+            Requested Interface:
+            \(p.requestedInterfaceName ?? "-")
+
+            Required Interface Applied:
+            \(p.requiredInterfaceApplied ? "YES" : "NO")
+
+            Target:
+            \(p.targetIP):\(p.targetPort)
+
+            Local Endpoint:
+            \(p.localEndpoint ?? "-")
+
+            Remote Endpoint:
+            \(p.remoteEndpoint ?? "-")
+
+            Elapsed:
+            \(p.elapsedMs) ms
+
+            POSIX errno:
+            \(p.posixErrno.map(String.init) ?? "-")
+            """
+        }
+
         let targetMatchesCandidate: String
         if let detected = snapshot.detectedCandidatePeer {
             targetMatchesCandidate = (detected == snapshot.configuredTargetIP) ? "YES" : "NO"
@@ -534,6 +705,21 @@ public struct CellularBootstrapDiagnosisEngine {
         let text = """
         RouteLocation Cellular Bootstrap Diagnosis
         Timestamp: \(timestampStr)
+
+        === DIAGNOSTIC RUN ===
+
+        Run ID:
+        \(runId?.uuidString ?? "none")
+
+        Started:
+        \(runStartedStr)
+
+        Completed:
+        \(runCompletedStr)
+
+        Snapshot Timestamp:
+        \(snapshotTimestampStr)
+
 
         === SUMMARY ===
 
@@ -620,6 +806,11 @@ public struct CellularBootstrapDiagnosisEngine {
         === PROBE C — REQUIRED VPN INTERFACE ===
 
         \(formatProbe(probeC))
+
+
+        === CANDIDATE PEER PROBE ===
+
+        \(formatCandidatePeerProbe(candidatePeerProbe))
 
 
         === PRODUCTION BOOTSTRAP ===

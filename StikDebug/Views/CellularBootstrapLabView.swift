@@ -171,11 +171,28 @@ struct CellularBootstrapLabView: View {
                 }
                 .disabled(probeService.isProbing)
 
+                if let run = probeService.latestCompletedRun {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text("上次完成之診斷探測 (Last Completed Run)")
+                                .font(.caption2.bold())
+                            Spacer()
+                            Text(run.completedAt, format: .dateTime.hour().minute().second())
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("Run ID: \(run.id.uuidString)")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+
                 // Probe A
                 VStack(alignment: .leading, spacing: 4) {
                     Text("PROBE A — Baseline (目前預設路徑)")
                         .font(.caption.bold())
-                    probeResultView(result: probeService.probeAResult)
+                    probeResultView(result: probeService.latestCompletedRun?.probeA)
                 }
                 .padding(.vertical, 2)
 
@@ -191,7 +208,7 @@ struct CellularBootstrapLabView: View {
                     }
                     Text("測試 prohibitedInterfaceTypes = [.cellular]")
                         .font(.caption2).foregroundStyle(.secondary)
-                    probeResultView(result: probeService.probeBResult)
+                    probeResultView(result: probeService.latestCompletedRun?.probeB)
                 }
                 .padding(.vertical, 2)
 
@@ -207,12 +224,12 @@ struct CellularBootstrapLabView: View {
                     }
                     Text("強制指定 NWParameters.requiredInterface = candidate")
                         .font(.caption2).foregroundStyle(.secondary)
-                    probeResultView(result: probeService.probeCResult)
+                    probeResultView(result: probeService.latestCompletedRun?.probeC)
                 }
                 .padding(.vertical, 2)
 
                 // Candidate Peer Probe (if executed)
-                if let peerResult = probeService.candidatePeerProbeResult {
+                if let peerResult = probeService.latestCompletedRun?.candidatePeerProbe {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text("PEER PROBE — Candidate Peer 驗證探測")
@@ -346,15 +363,22 @@ struct CellularBootstrapLabView: View {
         }
         .navigationTitle(L10n.text("行動網路實驗室"))
         .onAppear {
-            let snap = probeService.captureSnapshot()
-            currentReport = CellularBootstrapDiagnosisEngine.evaluate(
-                snapshot: snap,
-                probeA: probeService.probeAResult,
-                probeB: probeService.probeBResult,
-                probeC: probeService.probeCResult,
-                candidatePeerProbe: probeService.candidatePeerProbeResult,
-                simulationModeLabel: model.simulationMode.label
-            )
+            if let run = probeService.latestCompletedRun {
+                currentReport = CellularBootstrapDiagnosisEngine.evaluate(
+                    run: run,
+                    simulationModeLabel: model.simulationMode.label
+                )
+            } else {
+                let snap = probeService.captureSnapshot()
+                currentReport = CellularBootstrapDiagnosisEngine.evaluate(
+                    snapshot: snap,
+                    probeA: nil,
+                    probeB: nil,
+                    probeC: nil,
+                    candidatePeerProbe: nil,
+                    simulationModeLabel: model.simulationMode.label
+                )
+            }
         }
         .alert(L10n.text("診斷報告已複製"), isPresented: $showCopiedAlert) {
             Button(L10n.text("確定"), role: .cancel) {}
@@ -465,13 +489,9 @@ struct CellularBootstrapLabView: View {
     private func runPathProbes() {
         Task {
             await probeService.runAllProbes()
-            if let snapshot = probeService.latestSnapshot {
+            if let run = probeService.latestCompletedRun {
                 let report = CellularBootstrapDiagnosisEngine.evaluate(
-                    snapshot: snapshot,
-                    probeA: probeService.probeAResult,
-                    probeB: probeService.probeBResult,
-                    probeC: probeService.probeCResult,
-                    candidatePeerProbe: probeService.candidatePeerProbeResult,
+                    run: run,
                     simulationModeLabel: model.simulationMode.label
                 )
                 await MainActor.run {

@@ -91,6 +91,7 @@ public enum CellularProbeType: String, CaseIterable, Equatable {
     case baseline = "PROBE A — Baseline"
     case cellularProhibited = "PROBE B — Cellular-Prohibited TCP"
     case requiredInterface = "PROBE C — Required VPN Interface"
+    case candidatePeerRequiredInterface = "PROBE PEER — Candidate Peer Required VPN Interface"
 }
 
 public enum InterfacePolicy: String, CaseIterable, Equatable {
@@ -215,11 +216,43 @@ public struct NetworkEnvironmentSnapshot: Equatable {
     }
 }
 
+public struct CellularBootstrapProbeRun: Identifiable, Equatable {
+    public let id: UUID
+    public let startedAt: Date
+    public let completedAt: Date
+    public let snapshot: NetworkEnvironmentSnapshot
+    public let probeA: CellularPathProbeResult?
+    public let probeB: CellularPathProbeResult?
+    public let probeC: CellularPathProbeResult?
+    public let candidatePeerProbe: CellularPathProbeResult?
+
+    public init(
+        id: UUID = UUID(),
+        startedAt: Date,
+        completedAt: Date,
+        snapshot: NetworkEnvironmentSnapshot,
+        probeA: CellularPathProbeResult?,
+        probeB: CellularPathProbeResult?,
+        probeC: CellularPathProbeResult?,
+        candidatePeerProbe: CellularPathProbeResult?
+    ) {
+        self.id = id
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+        self.snapshot = snapshot
+        self.probeA = probeA
+        self.probeB = probeB
+        self.probeC = probeC
+        self.candidatePeerProbe = candidatePeerProbe
+    }
+}
+
 @MainActor
 public final class CellularBootstrapTransportProbe: ObservableObject {
     public static let shared = CellularBootstrapTransportProbe()
 
     @Published public private(set) var latestSnapshot: NetworkEnvironmentSnapshot?
+    @Published public private(set) var latestCompletedRun: CellularBootstrapProbeRun?
     @Published public private(set) var probeAResult: CellularPathProbeResult?
     @Published public private(set) var probeBResult: CellularPathProbeResult?
     @Published public private(set) var probeCResult: CellularPathProbeResult?
@@ -265,39 +298,51 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
         return snapshot
     }
 
+    public func clearPartialStaleProbeState() {
+        probeAResult = nil
+        probeBResult = nil
+        probeCResult = nil
+        candidatePeerProbeResult = nil
+    }
+
     public func runAllProbes() async {
         guard !isProbing else { return }
         isProbing = true
         defer { isProbing = false }
 
+        clearPartialStaleProbeState()
+        let startTime = Date()
         let snapshot = captureSnapshot()
 
         // 1. Probe A (Baseline)
-        probeAResult = await executeSingleProbe(
+        let resA = await executeSingleProbe(
             type: .baseline,
             targetIP: snapshot.configuredTargetIP,
             targetPort: snapshot.configuredTargetPort,
             candidateInterface: snapshot.vpnCandidate.interface
         )
+        probeAResult = resA
 
         // 2. Probe B (Cellular-prohibited)
-        probeBResult = await executeSingleProbe(
+        let resB = await executeSingleProbe(
             type: .cellularProhibited,
             targetIP: snapshot.configuredTargetIP,
             targetPort: snapshot.configuredTargetPort,
             candidateInterface: snapshot.vpnCandidate.interface
         )
+        probeBResult = resB
 
         // 3. Probe C (Required VPN interface)
+        let resC: CellularPathProbeResult
         if snapshot.vpnCandidate.interface != nil {
-            probeCResult = await executeSingleProbe(
+            resC = await executeSingleProbe(
                 type: .requiredInterface,
                 targetIP: snapshot.configuredTargetIP,
                 targetPort: snapshot.configuredTargetPort,
                 candidateInterface: snapshot.vpnCandidate.interface
             )
         } else {
-            probeCResult = CellularPathProbeResult(
+            resC = CellularPathProbeResult(
                 probeType: .requiredInterface,
                 status: .notRun,
                 interfacePolicy: .REQUIRED_INTERFACE,
@@ -308,20 +353,48 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
                 errorDescription: "未偵測到可用之 VPN 候選介面"
             )
         }
+        probeCResult = resC
 
-        // 4. Candidate Peer Controlled Confirmation Probe (only if distinct and P2P_DSTADDR)
+        // 4. Candidate Peer Controlled Confirmation Probe (MUST be REQUIRED_INTERFACE!)
+        let resPeer: CellularPathProbeResult?
         if let peer = snapshot.detectedCandidatePeer,
            peer != snapshot.configuredTargetIP,
            snapshot.vpnCandidate.peerSource == .P2P_DSTADDR {
-            candidatePeerProbeResult = await executeSingleProbe(
-                type: .baseline,
-                targetIP: peer,
-                targetPort: snapshot.configuredTargetPort,
-                candidateInterface: snapshot.vpnCandidate.interface
-            )
+            if snapshot.vpnCandidate.interface != nil {
+                resPeer = await executeSingleProbe(
+                    type: .candidatePeerRequiredInterface,
+                    targetIP: peer,
+                    targetPort: snapshot.configuredTargetPort,
+                    candidateInterface: snapshot.vpnCandidate.interface
+                )
+            } else {
+                resPeer = CellularPathProbeResult(
+                    probeType: .candidatePeerRequiredInterface,
+                    status: .notRun,
+                    interfacePolicy: .REQUIRED_INTERFACE,
+                    requestedInterfaceName: nil,
+                    requiredInterfaceApplied: false,
+                    targetIP: peer,
+                    targetPort: snapshot.configuredTargetPort,
+                    errorDescription: "未偵測到可用之 VPN 候選介面"
+                )
+            }
         } else {
-            candidatePeerProbeResult = nil
+            resPeer = nil
         }
+        candidatePeerProbeResult = resPeer
+
+        // 5. Create immutable completedRun
+        let completedRun = CellularBootstrapProbeRun(
+            startedAt: startTime,
+            completedAt: Date(),
+            snapshot: snapshot,
+            probeA: resA,
+            probeB: resB,
+            probeC: resC,
+            candidatePeerProbe: resPeer
+        )
+        self.latestCompletedRun = completedRun
     }
 
     private func executeSingleProbe(
@@ -334,7 +407,7 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
         switch type {
         case .baseline: policy = .DEFAULT
         case .cellularProhibited: policy = .CELLULAR_PROHIBITED
-        case .requiredInterface: policy = .REQUIRED_INTERFACE
+        case .requiredInterface, .candidatePeerRequiredInterface: policy = .REQUIRED_INTERFACE
         }
 
         DeveloperDiagnosticsStore.shared.record(
@@ -446,10 +519,10 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
         case .cellularProhibited:
             params = NWParameters(tls: nil, tcp: tcpOptions)
             params.prohibitedInterfaceTypes = [.cellular]
-        case .requiredInterface:
+        case .requiredInterface, .candidatePeerRequiredInterface:
             guard let candidate = candidateInterface else {
                 return CellularPathProbeResult(
-                    probeType: .requiredInterface,
+                    probeType: type,
                     status: .notRun,
                     interfacePolicy: .REQUIRED_INTERFACE,
                     requestedInterfaceName: nil,
@@ -467,7 +540,7 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
             guard let nwInterface = matchingNWInterface else {
                 // MUST NEVER SILENTLY FALL BACK!
                 return CellularPathProbeResult(
-                    probeType: .requiredInterface,
+                    probeType: type,
                     status: .notRun,
                     interfacePolicy: .REQUIRED_INTERFACE,
                     requestedInterfaceName: candidate.name,
