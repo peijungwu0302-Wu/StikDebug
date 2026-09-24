@@ -1661,7 +1661,7 @@ struct PairingMaintenanceTests {
 struct InstallationIdentityTests {
     @Test func i1_installationIdentityHasCorrectVersionAndBuild() {
         let identity = DeveloperDiagnosticsStore.shared.installationIdentity
-        #expect(identity.version == "1.2.7")
+        #expect(identity.version == "1.2.8")
         #expect(identity.build == "4")
         #expect(identity.bundleIdentifier == "com.routelocation.app")
     }
@@ -1684,7 +1684,7 @@ struct InstallationIdentityTests {
             return
         }
         #expect(!text.contains("/var/mobile/Containers/Data/Application/"))
-        #expect(text.contains("1.2.7"))
+        #expect(text.contains("1.2.8"))
     }
 }
 
@@ -1821,14 +1821,24 @@ struct QuickSavedRoutesTests {
     @MainActor
     @Test func m3_previewRouteUpdatesModelWithoutStartingSimulation() {
         let model = RouteLocationModel()
+        let draftName = "DraftRoute"
+        let draftWaypoints = [
+            RouteCoordinate(latitude: 25.040, longitude: 121.510),
+            RouteCoordinate(latitude: 25.045, longitude: 121.515)
+        ]
+        model.routeName = draftName
+        model.waypoints = draftWaypoints
+
         let route = makeRoute(name: "PreviewTest", isFavorite: false, lastUsedAt: nil)
 
         model.previewRoute(route)
 
         #expect(model.previewingRoute?.id == route.id)
-        #expect(model.routeName == "PreviewTest")
-        #expect(model.waypoints.count == 2)
+        #expect(model.previewingRoute?.name == "PreviewTest")
+        #expect(model.previewingRoute?.waypoints.count == 2)
         #expect(model.simulationMode == .idle)
+        #expect(model.routeName == draftName)
+        #expect(model.waypoints == draftWaypoints)
     }
 
     @MainActor
