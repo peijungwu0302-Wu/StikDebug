@@ -641,6 +641,7 @@ struct CellularBootstrapDiagnosisTests {
 
     // MARK: - Interface Derivation Logic
 
+    @MainActor
     @Test func vpnCandidateDerivation_identifiesSingleSubnet10_7() {
         let if1 = NetworkInterfaceInfo(
             id: "en0-1",
@@ -668,6 +669,7 @@ struct CellularBootstrapDiagnosisTests {
         #expect(candidate.peerSource == .P2P_DSTADDR)
     }
 
+    @MainActor
     @Test func vpnCandidateDerivation_identifiesHeuristicSubnet10_7WhenNoDstAddr() {
         let if1 = NetworkInterfaceInfo(
             id: "utun2-7",
@@ -688,6 +690,7 @@ struct CellularBootstrapDiagnosisTests {
         #expect(candidate.peerSource == .HEURISTIC_10_7)
     }
 
+    @MainActor
     @Test func vpnCandidateDerivation_multipleAmbiguousTunnels_yieldsAmbiguous() {
         let if1 = NetworkInterfaceInfo(
             id: "utun0-2",
