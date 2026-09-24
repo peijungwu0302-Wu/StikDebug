@@ -716,7 +716,7 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
         }
 
         return interfaceMap.map { name, entry in
-            let isPointToPoint = (entry.flags & UInt32(IFF_POINTTOPOINT)) != 0
+            let isPointToPoint = (entry.flags & UInt32(IFF_POINTOPOINT)) != 0
             let isUp = (entry.flags & UInt32(IFF_UP)) != 0
             let isLoopback = (entry.flags & UInt32(IFF_LOOPBACK)) != 0
             let isTunnelLike = isPointToPoint || name.hasPrefix("utun") || name.hasPrefix("ipsec") || name.hasPrefix("ppp")
