@@ -716,7 +716,7 @@ struct QuickRouteMapView: View {
     }
 }
 
-private struct CoordinateTeleportView: View {
+struct CoordinateTeleportView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var coordinateText = ""
     @State private var errorMessage: String?
