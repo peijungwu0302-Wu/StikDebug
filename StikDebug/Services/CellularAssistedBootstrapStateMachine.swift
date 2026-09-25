@@ -157,6 +157,24 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         }
     }
 
+    #if DEBUG
+    var testSettlementTimeoutSeconds: Double?
+    #endif
+
+    private var offSettlementTimeout: Double {
+        #if DEBUG
+        if let custom = testSettlementTimeoutSeconds { return custom }
+        #endif
+        return 4.0
+    }
+
+    private var onSettlementTimeout: Double {
+        #if DEBUG
+        if let custom = testSettlementTimeoutSeconds { return custom }
+        #endif
+        return 5.0
+    }
+
     // MARK: - Cellular OFF Settlement (Blocker A)
 
     func handleDataOffCallbackSuccess() {
@@ -168,7 +186,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         scheduleTimeout(seconds: 8, stage: "CellularSettle")
 
         Task {
-            let settled = await waitForCellularOffSettlement(timeoutSeconds: 4.0)
+            let settled = await waitForCellularOffSettlement(timeoutSeconds: self.offSettlementTimeout)
             if settled {
                 self.cellularOffWasObserved = true
                 BootstrapTraceStore.shared.recordEvent(.cellularOffConfirmed)
@@ -190,7 +208,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             if !ConnectionMonitor.shared.isCellularAvailable {
                 return true
             }
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(50))
         }
         return !ConnectionMonitor.shared.isCellularAvailable
     }
@@ -302,7 +320,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         scheduleTimeout(seconds: 10, stage: "CellularOnSettle")
 
         Task {
-            let confirmed = await waitForCellularOnSettlement(timeoutSeconds: 5.0)
+            let confirmed = await waitForCellularOnSettlement(timeoutSeconds: self.onSettlementTimeout)
             if confirmed {
                 self.dataRestoreRequired = false
                 BootstrapTraceStore.shared.recordEvent(.cellularOnConfirmed)
@@ -324,7 +342,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             if ConnectionMonitor.shared.isCellularAvailable {
                 return true
             }
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(50))
         }
         return ConnectionMonitor.shared.isCellularAvailable
     }
@@ -473,6 +491,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         dataRestoreRequired = false
         verificationCoordinate = nil
         activeCompletion = nil
+        testSettlementTimeoutSeconds = nil
         stateTimeoutTask?.cancel()
         stateTimeoutTask = nil
     }

@@ -2,8 +2,16 @@ import Testing
 import Foundation
 @testable import RouteLocation
 
+@Suite(.serialized)
 @MainActor
 struct CellularAssistedBootstrapTests {
+
+    init() {
+        LocationDataPathHealth.shared.resetForTesting()
+        CellularAssistedBootstrapStateMachine.shared.resetForTesting()
+        ShortcutBootstrapService.shared.cancelActiveTransaction()
+        BootstrapTraceStore.shared.resetForTesting()
+    }
 
     // MARK: - 1. Eligibility Permutations
 
@@ -267,6 +275,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_cellularOffTimeout_triggersFailureAndRollback() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        sm.testSettlementTimeoutSeconds = 0.2
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true)
 
@@ -275,8 +284,8 @@ struct CellularAssistedBootstrapTests {
 
         sm.handleDataOffCallbackSuccess()
 
-        // Wait for settlement timeout (4.0s)
-        try? await Task.sleep(for: .seconds(4.5))
+        // Wait for settlement timeout (0.2s)
+        try? await Task.sleep(for: .milliseconds(350))
 
         #expect(sm.state != .bootstrapping)
         #expect(sm.state == .idle || sm.state == .failedRecoveringData)
@@ -287,14 +296,15 @@ struct CellularAssistedBootstrapTests {
     @Test func test_cellularOnTimeout_requiresManualAlert_outcomeUnconfirmed() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        sm.testSettlementTimeoutSeconds = 0.2
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .offline, isWifiAvailable: false, isCellularAvailable: false)
 
         sm.forceStateForTesting(.requestingDataOn)
         sm.handleDataOnCallbackSuccess()
 
-        // Wait for settlement timeout (5.0s)
-        try? await Task.sleep(for: .seconds(5.5))
+        // Wait for settlement timeout (0.2s)
+        try? await Task.sleep(for: .milliseconds(350))
 
         #expect(sm.requiresManualDataOnAlert == true)
         #expect(BootstrapTraceStore.shared.latestTrace?.outcome == "COMPLETED_DATA_RESTORE_UNCONFIRMED")
@@ -305,13 +315,14 @@ struct CellularAssistedBootstrapTests {
     @Test func test_cellularOnConfirmed_marksSuccess() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        sm.testSettlementTimeoutSeconds = 0.2
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true)
 
         sm.forceStateForTesting(.requestingDataOn)
         sm.handleDataOnCallbackSuccess()
 
-        try? await Task.sleep(for: .seconds(1.0))
+        try? await Task.sleep(for: .milliseconds(350))
 
         #expect(sm.requiresManualDataOnAlert == false)
         #expect(BootstrapTraceStore.shared.latestTrace?.outcome == "SUCCESS")

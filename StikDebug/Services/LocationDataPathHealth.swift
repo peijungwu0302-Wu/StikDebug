@@ -60,4 +60,15 @@ final class LocationDataPathHealth: ObservableObject {
         guard let error else { return L10n.text("不可用") }
         return "\(error.domain) (\(error.code)): \(error.localizedDescription)"
     }
+
+    #if DEBUG
+    func resetForTesting() {
+        lastSuccessfulLocationUpdate = nil
+        lastLocationUpdateFailure = nil
+        consecutiveLocationFailures = 0
+        lastTunnelHealthProbeResult = nil
+        reconnectReason = nil
+        status = .unknown
+    }
+    #endif
 }

@@ -1486,11 +1486,11 @@ struct SideStoreSourceTests {
             Issue.record("Failed to read latest version")
             return
         }
-        #expect(latest["version"] as? String == "1.2.7")
+        #expect(latest["version"] as? String == "1.2.8")
         #expect((latest["size"] as? Int ?? 0) > 0)
         #expect(latest["minOSVersion"] as? String == "17.4")
         let downloadURL = latest["downloadURL"] as? String ?? ""
-        #expect(downloadURL.contains("routelocation-v1.2.7"))
+        #expect(downloadURL.contains("routelocation-v1.2.8"))
         #expect(downloadURL.hasSuffix(".ipa"))
     }
 
