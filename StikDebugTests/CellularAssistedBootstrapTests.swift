@@ -286,6 +286,7 @@ struct CellularAssistedBootstrapTests {
         sm.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-off-timeout", mode: "AssistedBeta")
         sm.testSettlementTimeoutSeconds = 0.1
+        sm.testSimulateCellularSettlementConfirmed = false
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true)
 
@@ -307,6 +308,7 @@ struct CellularAssistedBootstrapTests {
         sm.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-on-timeout", mode: "AssistedBeta")
         sm.testSettlementTimeoutSeconds = 0.1
+        sm.testSimulateCellularSettlementConfirmed = false
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .offline, isWifiAvailable: false, isCellularAvailable: false)
 
@@ -324,6 +326,7 @@ struct CellularAssistedBootstrapTests {
         sm.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-on-confirmed", mode: "AssistedBeta")
         sm.testSettlementTimeoutSeconds = 0.1
+        sm.testSimulateCellularSettlementConfirmed = true
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true)
 

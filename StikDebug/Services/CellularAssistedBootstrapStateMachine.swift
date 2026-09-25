@@ -160,6 +160,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
 
     #if DEBUG
     var testSettlementTimeoutSeconds: Double?
+    var testSimulateCellularSettlementConfirmed: Bool?
     #endif
 
     private var offSettlementTimeout: Double {
@@ -202,6 +203,9 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     }
 
     private func waitForCellularOffSettlement(timeoutSeconds: Double) async -> Bool {
+        #if DEBUG
+        if let sim = testSimulateCellularSettlementConfirmed { return sim }
+        #endif
         let deadline = Date().addingTimeInterval(timeoutSeconds)
         while Date() < deadline {
             if !ConnectionMonitor.shared.isCellularAvailable {
@@ -334,6 +338,9 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     }
 
     private func waitForCellularOnSettlement(timeoutSeconds: Double) async -> Bool {
+        #if DEBUG
+        if let sim = testSimulateCellularSettlementConfirmed { return sim }
+        #endif
         let deadline = Date().addingTimeInterval(timeoutSeconds)
         while Date() < deadline {
             if ConnectionMonitor.shared.isCellularAvailable {
@@ -489,6 +496,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         verificationCoordinate = nil
         activeCompletion = nil
         testSettlementTimeoutSeconds = nil
+        testSimulateCellularSettlementConfirmed = nil
         simulationSink = DeviceLocationSimulationService.shared
         stateTimeoutTask?.cancel()
         stateTimeoutTask = nil
