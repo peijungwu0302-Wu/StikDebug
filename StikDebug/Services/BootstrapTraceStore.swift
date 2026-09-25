@@ -410,7 +410,7 @@ final class BootstrapTraceStore: ObservableObject {
 
     // MARK: - Privacy & Redaction
 
-    func sanitizeDetails(_ details: [String: String]) -> [String: String] {
+    nonisolated func sanitizeDetails(_ details: [String: String]) -> [String: String] {
         var clean: [String: String] = [:]
         for (k, v) in details {
             clean[k] = sanitizeString(v)
@@ -418,7 +418,7 @@ final class BootstrapTraceStore: ObservableObject {
         return clean
     }
 
-    func sanitizeString(_ input: String) -> String {
+    nonisolated func sanitizeString(_ input: String) -> String {
         var text = input
 
         // Keep 10.7.x.x intact as explicitly required for topology analysis.

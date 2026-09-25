@@ -47,6 +47,8 @@ protocol LocationSimulationSink: Sendable {
 }
 
 final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked Sendable {
+    static let shared = DeviceLocationSimulationService()
+
     func setCoordinate(_ coordinate: RouteCoordinate) async throws {
         guard coordinate.isValid else { throw LocationSimulationError.invalidCoordinate }
         let pairingURL = PairingFileStore.prepareURL()
@@ -135,3 +137,5 @@ final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked 
         }
     }
 }
+
+typealias LocationSimulationService = DeviceLocationSimulationService
