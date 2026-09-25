@@ -98,6 +98,12 @@ final class ShortcutBootstrapService: ObservableObject {
     }
 
     private func runShortcut(name: String, phase: ShortcutPhase, txId: String, completion: @escaping (Bool) -> Void) -> Bool {
+        guard isShortcutAssistedEnabled else {
+            lastTransactionStatus = L10n.text("捷徑輔助功能未啟用")
+            completion(false)
+            return false
+        }
+
         let transaction = BootstrapTransaction(
             id: txId,
             createdAt: Date(),

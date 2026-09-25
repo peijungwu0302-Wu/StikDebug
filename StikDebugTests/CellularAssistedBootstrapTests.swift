@@ -270,11 +270,17 @@ struct CellularAssistedBootstrapTests {
         #expect(sanitized == "[REDACTED_PRIVATE_KEY]")
     }
 
+    private final class MockLocationSink: LocationSimulationSink, @unchecked Sendable {
+        func setCoordinate(_ coordinate: RouteCoordinate) async throws {}
+        func clearSimulatedLocation() async throws {}
+    }
+
     // MARK: - 8. Review Blocker Fix Validation (Blocker N)
 
     @Test func test_cellularOffTimeout_triggersFailureAndRollback() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-off-timeout", mode: "AssistedBeta")
         sm.testSettlementTimeoutSeconds = 0.2
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true)
@@ -296,6 +302,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_cellularOnTimeout_requiresManualAlert_outcomeUnconfirmed() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-on-timeout", mode: "AssistedBeta")
         sm.testSettlementTimeoutSeconds = 0.2
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .offline, isWifiAvailable: false, isCellularAvailable: false)
@@ -315,6 +322,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_cellularOnConfirmed_marksSuccess() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-on-confirmed", mode: "AssistedBeta")
         sm.testSettlementTimeoutSeconds = 0.2
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true)
@@ -333,6 +341,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_rollbackFlag_dataOffRequested_triggersDataOn() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-rb-dataoff", mode: "AssistedBeta")
 
         sm.forceStateForTesting(.bootstrapping)
         sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: true, restoreRequired: true)
@@ -346,6 +355,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_rollbackFlag_noDataOffRequested_skipsDataOn() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-rb-nodataoff", mode: "AssistedBeta")
 
         sm.forceStateForTesting(.idle)
         sm.setFlagsForTesting(dataOffRequested: false, cellularOffObserved: false, restoreRequired: false)
@@ -361,6 +371,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_removeHardcodedGPS_noCoordinate_skipsLocationSet() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-no-coord", mode: "AssistedBeta")
 
         await sm.testVerifyLocation(coordinate: nil)
 
@@ -372,6 +383,8 @@ struct CellularAssistedBootstrapTests {
     @Test func test_removeHardcodedGPS_withCoordinate_setsLocation() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-with-coord", mode: "AssistedBeta")
+        sm.simulationSink = MockLocationSink()
 
         let coord = RouteCoordinate(latitude: 22.6273, longitude: 120.3014)
         await sm.testVerifyLocation(coordinate: coord)
@@ -439,7 +452,7 @@ struct CellularAssistedBootstrapTests {
         let service = ShortcutBootstrapService.shared
         service.isShortcutAssistedEnabled = true
 
-        _ = service.runSafeRoundTripTest { success, message in }
+        service.runSafeRoundTripTest { success, message in }
 
         #expect(service.activeTransaction != nil)
         #expect(service.activePhase == .dataOff)

@@ -76,6 +76,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     private var verificationCoordinate: RouteCoordinate?
     private var cancellables: Set<AnyCancellable> = []
     private var stateTimeoutTask: Task<Void, Never>?
+    var simulationSink: any LocationSimulationSink = DeviceLocationSimulationService.shared
 
     private init() {}
 
@@ -260,7 +261,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
 
         if let target = verificationCoordinate {
             do {
-                try await LocationSimulationService.shared.setCoordinate(target)
+                try await simulationSink.setCoordinate(target)
                 LocationDataPathHealth.shared.recordSuccess()
                 BootstrapTraceStore.shared.recordEvent(.firstLocationWriteSuccess, details: ["coord": "\(target.latitude),\(target.longitude)"])
                 LogManager.shared.addInfoLog("First location write verified successfully at \(target.latitude), \(target.longitude)")
@@ -492,6 +493,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         verificationCoordinate = nil
         activeCompletion = nil
         testSettlementTimeoutSeconds = nil
+        simulationSink = DeviceLocationSimulationService.shared
         stateTimeoutTask?.cancel()
         stateTimeoutTask = nil
     }
