@@ -145,7 +145,6 @@ final class ShortcutBootstrapService: ObservableObject {
         guard let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "shortcuts://run-shortcut?name=\(encodedName)&input=text&text=\(txId)") else {
             cancelActiveTransaction()
-            completion(false)
             return false
         }
 
@@ -154,14 +153,12 @@ final class ShortcutBootstrapService: ObservableObject {
                 if !success {
                     Task { @MainActor [weak self] in
                         self?.cancelActiveTransaction()
-                        completion(false)
                     }
                 }
             }
             return true
         } else {
             cancelActiveTransaction()
-            completion(false)
             return false
         }
     }

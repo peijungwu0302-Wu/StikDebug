@@ -1369,6 +1369,64 @@ struct ShortcutBootstrapServiceTests {
         // Reset to false for safety
         service.isShortcutAssistedEnabled = false
     }
+
+    @Test func cannotOpenURL_completionInvocationCountIsExactlyOne() {
+        let service = ShortcutBootstrapService.shared
+        service.resetForTesting()
+        service.isShortcutAssistedEnabled = true
+
+        var invocationCount = 0
+        var returnedSuccess: Bool?
+        let started = service.runDataOffShortcut(txId: "tx-test-idempotency") { success in
+            invocationCount += 1
+            returnedSuccess = success
+        }
+
+        // On simulator, shortcuts:// cannot be opened, so runDataOffShortcut returns false
+        #expect(!started)
+        #expect(invocationCount == 1)
+        #expect(returnedSuccess == false)
+
+        service.isShortcutAssistedEnabled = false
+        service.resetForTesting()
+    }
+
+    @Test func explicitCancel_completionInvocationCountIsExactlyOne() {
+        let service = ShortcutBootstrapService.shared
+        service.resetForTesting()
+        service.isShortcutAssistedEnabled = true
+
+        var invocationCount = 0
+        _ = service.startShortcutBootstrapTransaction { _ in
+            invocationCount += 1
+        }
+
+        // Even with multiple subsequent cancel calls, completion must only be called once
+        service.cancelActiveTransaction()
+        service.cancelActiveTransaction()
+
+        #expect(invocationCount == 1)
+        service.isShortcutAssistedEnabled = false
+        service.resetForTesting()
+    }
+
+    @Test func callbackFailure_completionInvocationCountIsExactlyOne() {
+        let service = ShortcutBootstrapService.shared
+        service.resetForTesting()
+        service.isShortcutAssistedEnabled = true
+
+        var invocationCount = 0
+        _ = service.runDataOffShortcut(txId: "tx-cb-fail") { success in
+            invocationCount += 1
+        }
+
+        let url = URL(string: "routelocation://bootstrap-callback?tx=tx-cb-fail&phase=data-off&status=failed")!
+        _ = service.handleCallback(url: url)
+
+        #expect(invocationCount == 1)
+        service.isShortcutAssistedEnabled = false
+        service.resetForTesting()
+    }
 }
 
 @MainActor
