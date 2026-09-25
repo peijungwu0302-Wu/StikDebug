@@ -148,8 +148,8 @@ final class ShortcutBootstrapService: ObservableObject {
             return false
         }
 
-        if UIApplication.shared.canOpenURL(url) {
-            UIApplication.shared.open(url) { success in
+        if canOpenURL(url) {
+            openURL(url) { success in
                 if !success {
                     Task { @MainActor [weak self] in
                         self?.cancelActiveTransaction()
@@ -236,6 +236,8 @@ final class ShortcutBootstrapService: ObservableObject {
     var testSimulateCellularOffObserved: Bool?
     var testSimulateCellularOnObserved: Bool?
     var testMockShortcutRunner: ((_ phase: ShortcutPhase, _ txId: String, _ completion: @escaping (Bool) -> Void) -> Bool)?
+    var testCanOpenURL: ((URL) -> Bool)?
+    var testOpenURL: ((URL, @escaping (Bool) -> Void) -> Void)?
 
     func resetForTesting() {
         cancelActiveTransaction()
@@ -243,8 +245,29 @@ final class ShortcutBootstrapService: ObservableObject {
         testSimulateCellularOffObserved = nil
         testSimulateCellularOnObserved = nil
         testMockShortcutRunner = nil
+        testCanOpenURL = nil
+        testOpenURL = nil
     }
     #endif
+
+    private func canOpenURL(_ url: URL) -> Bool {
+        #if DEBUG
+        if let mock = testCanOpenURL {
+            return mock(url)
+        }
+        #endif
+        return UIApplication.shared.canOpenURL(url)
+    }
+
+    private func openURL(_ url: URL, completion: @escaping (Bool) -> Void) {
+        #if DEBUG
+        if let mock = testOpenURL {
+            mock(url, completion)
+            return
+        }
+        #endif
+        UIApplication.shared.open(url, completionHandler: completion)
+    }
 
     private var roundTripSettlementTimeout: Double {
         #if DEBUG

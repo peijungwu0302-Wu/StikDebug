@@ -1374,6 +1374,7 @@ struct ShortcutBootstrapServiceTests {
         let service = ShortcutBootstrapService.shared
         service.resetForTesting()
         service.isShortcutAssistedEnabled = true
+        service.testCanOpenURL = { _ in false }
 
         var invocationCount = 0
         var returnedSuccess: Bool?
@@ -1382,8 +1383,33 @@ struct ShortcutBootstrapServiceTests {
             returnedSuccess = success
         }
 
-        // On simulator, shortcuts:// cannot be opened, so runDataOffShortcut returns false
         #expect(!started)
+        #expect(invocationCount == 1)
+        #expect(returnedSuccess == false)
+
+        service.isShortcutAssistedEnabled = false
+        service.resetForTesting()
+    }
+
+    @Test func openURLFailed_completionInvocationCountIsExactlyOne() async {
+        let service = ShortcutBootstrapService.shared
+        service.resetForTesting()
+        service.isShortcutAssistedEnabled = true
+        service.testCanOpenURL = { _ in true }
+        service.testOpenURL = { _, completion in
+            completion(false)
+        }
+
+        var invocationCount = 0
+        var returnedSuccess: Bool?
+        let started = service.runDataOffShortcut(txId: "tx-test-open-fail") { success in
+            invocationCount += 1
+            returnedSuccess = success
+        }
+
+        #expect(started)
+        try? await Task.sleep(for: .milliseconds(50))
+
         #expect(invocationCount == 1)
         #expect(returnedSuccess == false)
 
