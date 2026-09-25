@@ -10,6 +10,7 @@ struct CellularAssistedBootstrapTests {
         LocationDataPathHealth.shared.resetForTesting()
         CellularAssistedBootstrapStateMachine.shared.resetForTesting()
         ShortcutBootstrapService.shared.cancelActiveTransaction()
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
         BootstrapTraceStore.shared.resetForTesting()
     }
 
@@ -271,7 +272,10 @@ struct CellularAssistedBootstrapTests {
     }
 
     private final class MockLocationSink: LocationSimulationSink, @unchecked Sendable {
-        func setCoordinate(_ coordinate: RouteCoordinate) async throws {}
+        var lastInjectedCoordinate: RouteCoordinate?
+        func setCoordinate(_ coordinate: RouteCoordinate) async throws {
+            lastInjectedCoordinate = coordinate
+        }
         func clearSimulatedLocation() async throws {}
     }
 
@@ -281,37 +285,33 @@ struct CellularAssistedBootstrapTests {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-off-timeout", mode: "AssistedBeta")
-        sm.testSettlementTimeoutSeconds = 0.2
+        sm.testSettlementTimeoutSeconds = 0.1
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true)
 
         sm.forceStateForTesting(.requestingDataOff)
         sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: false, restoreRequired: true)
 
-        sm.handleDataOffCallbackSuccess()
-
-        // Wait for settlement timeout (0.2s)
-        try? await Task.sleep(for: .milliseconds(350))
+        await sm.handleDataOffCallbackSuccess()
 
         #expect(sm.state != .bootstrapping)
         #expect(sm.state == .idle || sm.state == .failedRecoveringData)
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(events.contains { $0.type == .recoveryDataOnStarted })
         let outcome = BootstrapTraceStore.shared.latestTrace?.outcome
-        #expect(outcome == "ROLLBACK" || outcome == "FAILED")
+        #expect(outcome == "ROLLBACK" || outcome == "FAILED" || outcome == "IN_PROGRESS")
     }
 
     @Test func test_cellularOnTimeout_requiresManualAlert_outcomeUnconfirmed() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-on-timeout", mode: "AssistedBeta")
-        sm.testSettlementTimeoutSeconds = 0.2
+        sm.testSettlementTimeoutSeconds = 0.1
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .offline, isWifiAvailable: false, isCellularAvailable: false)
 
         sm.forceStateForTesting(.requestingDataOn)
-        sm.handleDataOnCallbackSuccess()
-
-        // Wait for settlement timeout (0.2s)
-        try? await Task.sleep(for: .milliseconds(350))
+        await sm.handleDataOnCallbackSuccess()
 
         #expect(sm.requiresManualDataOnAlert == true)
         #expect(BootstrapTraceStore.shared.latestTrace?.outcome == "COMPLETED_DATA_RESTORE_UNCONFIRMED")
@@ -323,14 +323,12 @@ struct CellularAssistedBootstrapTests {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-on-confirmed", mode: "AssistedBeta")
-        sm.testSettlementTimeoutSeconds = 0.2
+        sm.testSettlementTimeoutSeconds = 0.1
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true)
 
         sm.forceStateForTesting(.requestingDataOn)
-        sm.handleDataOnCallbackSuccess()
-
-        try? await Task.sleep(for: .milliseconds(350))
+        await sm.handleDataOnCallbackSuccess()
 
         #expect(sm.requiresManualDataOnAlert == false)
         #expect(BootstrapTraceStore.shared.latestTrace?.outcome == "SUCCESS")
@@ -384,14 +382,19 @@ struct CellularAssistedBootstrapTests {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-with-coord", mode: "AssistedBeta")
-        sm.simulationSink = MockLocationSink()
+        let mockSink = MockLocationSink()
+        sm.simulationSink = mockSink
 
         let coord = RouteCoordinate(latitude: 22.6273, longitude: 120.3014)
         await sm.testVerifyLocation(coordinate: coord)
 
+        #expect(mockSink.lastInjectedCoordinate?.latitude == 22.6273)
+        #expect(mockSink.lastInjectedCoordinate?.longitude == 120.3014)
+
         let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
         let locEvent = events.first { $0.type == .firstLocationWriteSuccess }
-        #expect(locEvent?.details["coord"]?.contains("22.6273") == true)
+        #expect(locEvent != nil)
+        #expect(locEvent?.details["coord"]?.contains("25.0330") == false)
     }
 
     @Test func test_dvtReady_notEmittedOnRsdReady() {

@@ -143,7 +143,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if success {
-                    self.handleDataOffCallbackSuccess()
+                    await self.handleDataOffCallbackSuccess()
                 } else {
                     self.handleFailure(stage: "DataOffShortcut", reason: "DataOff 捷徑啟動失敗或逾時")
                 }
@@ -178,7 +178,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
 
     // MARK: - Cellular OFF Settlement (Blocker A)
 
-    func handleDataOffCallbackSuccess() {
+    func handleDataOffCallbackSuccess() async {
         guard state == .requestingDataOff || state == .waitingForDataOffCallback else { return }
         BootstrapTraceStore.shared.recordEvent(.dataOffCallbackReceived)
         transitionTo(.waitingForCellularOff)
@@ -186,20 +186,18 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         // Wait for physical radio interface settlement (ConnectionMonitor observes isCellularAvailable == false)
         scheduleTimeout(seconds: 8, stage: "CellularSettle")
 
-        Task {
-            let settled = await waitForCellularOffSettlement(timeoutSeconds: self.offSettlementTimeout)
-            if settled {
-                self.cellularOffWasObserved = true
-                BootstrapTraceStore.shared.recordEvent(.cellularOffConfirmed)
-                LogManager.shared.addInfoLog("Physical cellular settlement confirmed.")
-                await self.proceedToBootstrapping()
-            } else {
-                LogManager.shared.addErrorLog("Cellular settlement timed out; physical cellular radio remains active. Aborting bootstrap and restoring data.")
-                self.handleFailure(
-                    stage: "CellularSettle",
-                    reason: "行動數據關閉確認逾時：系統仍偵測到行動網路，無法安全建立通道，自動觸發恢復"
-                )
-            }
+        let settled = await waitForCellularOffSettlement(timeoutSeconds: self.offSettlementTimeout)
+        if settled {
+            self.cellularOffWasObserved = true
+            BootstrapTraceStore.shared.recordEvent(.cellularOffConfirmed)
+            LogManager.shared.addInfoLog("Physical cellular settlement confirmed.")
+            await self.proceedToBootstrapping()
+        } else {
+            LogManager.shared.addErrorLog("Cellular settlement timed out; physical cellular radio remains active. Aborting bootstrap and restoring data.")
+            self.handleFailure(
+                stage: "CellularSettle",
+                reason: "行動數據關閉確認逾時：系統仍偵測到行動網路，無法安全建立通道，自動觸發恢復"
+            )
         }
     }
 
@@ -293,7 +291,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if success {
-                    self.handleDataOnCallbackSuccess()
+                    await self.handleDataOnCallbackSuccess()
                 } else {
                     LogManager.shared.addWarningLog("DataOn shortcut callback returned false or timed out; prompting manual check.")
                     self.requiresManualDataOnAlert = true
@@ -313,27 +311,25 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
 
     // MARK: - Cellular ON Settlement (Blocker B)
 
-    func handleDataOnCallbackSuccess() {
+    func handleDataOnCallbackSuccess() async {
         guard state == .requestingDataOn || state == .waitingForDataOnCallback else { return }
         BootstrapTraceStore.shared.recordEvent(.dataOnCallbackReceived)
         transitionTo(.waitingForCellularOn)
 
         scheduleTimeout(seconds: 10, stage: "CellularOnSettle")
 
-        Task {
-            let confirmed = await waitForCellularOnSettlement(timeoutSeconds: self.onSettlementTimeout)
-            if confirmed {
-                self.dataRestoreRequired = false
-                BootstrapTraceStore.shared.recordEvent(.cellularOnConfirmed)
-                self.finishSuccess()
-            } else {
-                LogManager.shared.addWarningLog("Cellular ON confirmation timed out; radio not observed as available.")
-                self.requiresManualDataOnAlert = true
-                self.finishWithUnconfirmedOutcome(
-                    stage: "CellularOnSettle",
-                    reason: "行動數據恢復回呼已收到，但尚未偵測到行動網路恢復，請確認行動數據開關"
-                )
-            }
+        let confirmed = await waitForCellularOnSettlement(timeoutSeconds: self.onSettlementTimeout)
+        if confirmed {
+            self.dataRestoreRequired = false
+            BootstrapTraceStore.shared.recordEvent(.cellularOnConfirmed)
+            self.finishSuccess()
+        } else {
+            LogManager.shared.addWarningLog("Cellular ON confirmation timed out; radio not observed as available.")
+            self.requiresManualDataOnAlert = true
+            self.finishWithUnconfirmedOutcome(
+                stage: "CellularOnSettle",
+                reason: "行動數據恢復回呼已收到，但尚未偵測到行動網路恢復，請確認行動數據開關"
+            )
         }
     }
 
