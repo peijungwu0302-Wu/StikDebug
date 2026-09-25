@@ -67,12 +67,22 @@ final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked 
         }
         guard code == 0 else {
             let error = Self.error(for: code)
-            await MainActor.run { LocationDataPathHealth.shared.recordFailure(error) }
+            await MainActor.run {
+                LocationDataPathHealth.shared.recordFailure(error)
+                BootstrapTraceStore.shared.recordEvent(.firstLocationWriteFailed, details: ["error": error.localizedDescription])
+                if BootstrapTraceStore.shared.activeTrace?.outcome == "IN_PROGRESS" && !CellularAssistedBootstrapStateMachine.shared.state.isRunning {
+                    BootstrapTraceStore.shared.finishTrace(outcome: "FAILED", failureStage: "FirstLocationWrite", failureReason: error.localizedDescription)
+                }
+            }
             LogManager.shared.addWarningLog("Location update failed at \(Self.stageName(for: code)) (code=\(code))")
             throw error
         }
         await MainActor.run {
             LocationDataPathHealth.shared.recordSuccess()
+            BootstrapTraceStore.shared.recordEvent(.firstLocationWriteSuccess)
+            if BootstrapTraceStore.shared.activeTrace?.outcome == "IN_PROGRESS" && !CellularAssistedBootstrapStateMachine.shared.state.isRunning {
+                BootstrapTraceStore.shared.finishTrace(outcome: "SUCCESS")
+            }
             TunnelManager.shared.locationDataPathReady()
         }
     }

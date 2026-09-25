@@ -7,9 +7,11 @@ struct RemotePairingDiscoveredService: Identifiable, Codable, Equatable {
     let serviceName: String
     let serviceType: String
     let domain: String
-    let port: UInt16?
-    let resolvedAddresses: [String]
-    let interfaceName: String?
+    var port: UInt16?
+    var resolvedAddresses: [String]
+    var interfaceName: String?
+    var resolveDurationMs: Double?
+    var addressResolutionUnavailable: Bool
     let discoveredAt: Date
 
     init(
@@ -20,6 +22,8 @@ struct RemotePairingDiscoveredService: Identifiable, Codable, Equatable {
         port: UInt16? = nil,
         resolvedAddresses: [String] = [],
         interfaceName: String? = nil,
+        resolveDurationMs: Double? = nil,
+        addressResolutionUnavailable: Bool = false,
         discoveredAt: Date = .now
     ) {
         self.id = id
@@ -29,6 +33,8 @@ struct RemotePairingDiscoveredService: Identifiable, Codable, Equatable {
         self.port = port
         self.resolvedAddresses = resolvedAddresses
         self.interfaceName = interfaceName
+        self.resolveDurationMs = resolveDurationMs
+        self.addressResolutionUnavailable = addressResolutionUnavailable
         self.discoveredAt = discoveredAt
     }
 
@@ -40,9 +46,71 @@ struct RemotePairingDiscoveredService: Identifiable, Codable, Equatable {
 
     var summaryText: String {
         let portStr = port.map { ":\($0)" } ?? ""
-        let addrs = resolvedAddresses.isEmpty ? "未解析位址" : resolvedAddresses.joined(separator: ", ")
+        let addrs = resolvedAddresses.isEmpty
+            ? (addressResolutionUnavailable ? "位址無法解析 (Unavailable)" : "解析中...")
+            : resolvedAddresses.joined(separator: ", ")
         let iface = interfaceName.map { " (\($0))" } ?? ""
-        return "\(redactedServiceName)\(portStr) - \(addrs)\(iface)"
+        let dur = resolveDurationMs.map { String(format: " [%.0fms]", $0) } ?? ""
+        return "\(redactedServiceName)\(portStr) - \(addrs)\(iface)\(dur)"
+    }
+}
+
+private final class NetServiceResolveSession: NSObject, NetServiceDelegate {
+    private let netService: NetService
+    private let completion: @Sendable (UInt16?, [String], Bool) -> Void
+    private var isDone = false
+    private let timer: DispatchSourceTimer
+
+    init(netService: NetService, completion: @escaping @Sendable (UInt16?, [String], Bool) -> Void) {
+        self.netService = netService
+        self.completion = completion
+        self.timer = DispatchSource.makeTimerSource(queue: .main)
+        super.init()
+        self.netService.delegate = self
+    }
+
+    func start() {
+        netService.resolve(withTimeout: 2.5)
+        timer.schedule(deadline: .now() + 2.8)
+        timer.setEventHandler { [weak self] in
+            self?.finish(port: nil, addresses: [], unavailable: true)
+        }
+        timer.resume()
+    }
+
+    func netServiceDidResolveAddress(_ sender: NetService) {
+        var addrs: [String] = []
+        if let addresses = sender.addresses {
+            for addrData in addresses {
+                addrData.withUnsafeBytes { raw in
+                    guard let sa = raw.baseAddress?.assumingMemoryBound(to: sockaddr.self) else { return }
+                    var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    let len: socklen_t = sa.pointee.sa_family == sa_family_t(AF_INET)
+                        ? socklen_t(MemoryLayout<sockaddr_in>.size)
+                        : socklen_t(MemoryLayout<sockaddr_in6>.size)
+                    if getnameinfo(sa, len, &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                        let ip = String(cString: host)
+                        if !ip.isEmpty && !addrs.contains(ip) {
+                            addrs.append(ip)
+                        }
+                    }
+                }
+            }
+        }
+        let port = sender.port > 0 ? UInt16(sender.port) : nil
+        finish(port: port, addresses: addrs, unavailable: addrs.isEmpty && port == nil)
+    }
+
+    func netService(_ sender: NetService, didNotResolve errorDict: [String : NSNumber]) {
+        finish(port: nil, addresses: [], unavailable: true)
+    }
+
+    private func finish(port: UInt16?, addresses: [String], unavailable: Bool) {
+        guard !isDone else { return }
+        isDone = true
+        timer.cancel()
+        netService.stop()
+        completion(port, addresses, unavailable)
     }
 }
 
@@ -57,13 +125,14 @@ final class BonjourRemotePairingDiscovery: ObservableObject {
 
     private var browser: NWBrowser?
     private let queue = DispatchQueue(label: "com.routelocation.bonjour-discovery", qos: .utility)
-    private var resolvingConnections: [NWConnection] = []
+    private var activeResolvers: [NetServiceResolveSession] = []
 
     private init() {}
 
     func startDiscovery() {
         guard !isSearching else { return }
         discoveredServices.removeAll()
+        activeResolvers.removeAll()
         isSearching = true
         lastStatus = "正在搜尋 _remotepairing._tcp 服務..."
         lastDiscoveryTime = Date()
@@ -104,9 +173,9 @@ final class BonjourRemotePairingDiscovery: ObservableObject {
 
         newBrowser.start(queue: queue)
 
-        // Automatically stop after 6 seconds to conserve battery and resources
+        // Automatically stop after 5 seconds to conserve battery and avoid stalling
         Task {
-            try? await Task.sleep(for: .seconds(6))
+            try? await Task.sleep(for: .seconds(5))
             await MainActor.run { [weak self] in
                 if self?.isSearching == true {
                     self?.stopDiscovery()
@@ -121,8 +190,7 @@ final class BonjourRemotePairingDiscovery: ObservableObject {
         browser = nil
         isSearching = false
         lastStatus = discoveredServices.isEmpty ? "探索完成，未發現 RemotePairing 服務" : "探索完成，發現 \(discoveredServices.count) 個服務"
-        for conn in resolvingConnections { conn.cancel() }
-        resolvingConnections.removeAll()
+        activeResolvers.removeAll()
 
         BootstrapTraceStore.shared.recordEvent(
             .peerDiscoveryCompleted,
@@ -134,8 +202,6 @@ final class BonjourRemotePairingDiscovery: ObservableObject {
     }
 
     private func handleBrowseResults(_ results: Set<NWBrowser.Result>) {
-        var updated: [RemotePairingDiscoveredService] = []
-
         for result in results {
             var sName = "Unknown"
             var sType = "_remotepairing._tcp"
@@ -149,19 +215,52 @@ final class BonjourRemotePairingDiscovery: ObservableObject {
                 ifaceName = interface?.name
             }
 
-            let service = RemotePairingDiscoveredService(
+            // Check if already in discovered list
+            if let existingIdx = discoveredServices.firstIndex(where: { $0.serviceName == sName && $0.domain == sDomain }) {
+                if ifaceName != nil && discoveredServices[existingIdx].interfaceName == nil {
+                    discoveredServices[existingIdx].interfaceName = ifaceName
+                }
+                continue
+            }
+
+            var service = RemotePairingDiscoveredService(
                 serviceName: sName,
                 serviceType: sType,
                 domain: sDomain,
                 port: nil,
                 resolvedAddresses: [],
-                interfaceName: ifaceName
+                interfaceName: ifaceName,
+                resolveDurationMs: nil,
+                addressResolutionUnavailable: false
             )
-            updated.append(service)
-        }
+            discoveredServices.append(service)
+            self.lastStatus = "發現 \(discoveredServices.count) 個服務，正在解析 IP/Port..."
 
-        self.discoveredServices = updated
-        self.lastStatus = "發現 \(updated.count) 個 RemotePairing 服務"
+            // Initiate real NetService resolution
+            let serviceIndex = discoveredServices.count - 1
+            let startTime = ProcessInfo.processInfo.systemUptime
+            let ns = NetService(domain: sDomain, type: sType, name: sName)
+            let session = NetServiceResolveSession(netService: ns) { [weak self] port, addresses, unavailable in
+                Task { @MainActor [weak self] in
+                    guard let self, serviceIndex < self.discoveredServices.count else { return }
+                    let duration = (ProcessInfo.processInfo.systemUptime - startTime) * 1000.0
+                    self.discoveredServices[serviceIndex].port = port
+                    self.discoveredServices[serviceIndex].resolvedAddresses = addresses
+                    self.discoveredServices[serviceIndex].resolveDurationMs = duration
+                    self.discoveredServices[serviceIndex].addressResolutionUnavailable = unavailable
+                    self.lastStatus = "已解析 \(self.discoveredServices.count) 個 RemotePairing 服務"
+                }
+            }
+            activeResolvers.append(session)
+            session.start()
+        }
+    }
+
+    func summaryForTrace() -> String {
+        if discoveredServices.isEmpty {
+            return isSearching ? "Bonjour 搜尋中..." : "未發現 _remotepairing._tcp"
+        }
+        return discoveredServices.map(\.summaryText).joined(separator: " ; ")
     }
 
     #if DEBUG

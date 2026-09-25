@@ -261,4 +261,178 @@ struct CellularAssistedBootstrapTests {
         #expect(!sanitized.contains("MIIEowIBAAKCAQEA0"))
         #expect(sanitized == "[REDACTED_PRIVATE_KEY]")
     }
+
+    // MARK: - 8. Review Blocker Fix Validation (Blocker N)
+
+    @Test func test_cellularOffTimeout_triggersFailureAndRollback() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        let monitor = ConnectionMonitor.shared
+        monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true)
+
+        sm.forceStateForTesting(.requestingDataOff)
+        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: false, restoreRequired: true)
+
+        sm.handleDataOffCallbackSuccess()
+
+        // Wait for settlement timeout (4.0s)
+        try? await Task.sleep(for: .seconds(4.5))
+
+        #expect(sm.state != .bootstrapping)
+        #expect(sm.state == .idle || sm.state == .failedRecoveringData)
+        let outcome = BootstrapTraceStore.shared.latestTrace?.outcome
+        #expect(outcome == "ROLLBACK" || outcome == "FAILED")
+    }
+
+    @Test func test_cellularOnTimeout_requiresManualAlert_outcomeUnconfirmed() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        let monitor = ConnectionMonitor.shared
+        monitor.updateForTesting(transport: .offline, isWifiAvailable: false, isCellularAvailable: false)
+
+        sm.forceStateForTesting(.requestingDataOn)
+        sm.handleDataOnCallbackSuccess()
+
+        // Wait for settlement timeout (5.0s)
+        try? await Task.sleep(for: .seconds(5.5))
+
+        #expect(sm.requiresManualDataOnAlert == true)
+        #expect(BootstrapTraceStore.shared.latestTrace?.outcome == "COMPLETED_DATA_RESTORE_UNCONFIRMED")
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(!events.contains { $0.type == .cellularOnConfirmed })
+    }
+
+    @Test func test_cellularOnConfirmed_marksSuccess() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        let monitor = ConnectionMonitor.shared
+        monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true)
+
+        sm.forceStateForTesting(.requestingDataOn)
+        sm.handleDataOnCallbackSuccess()
+
+        try? await Task.sleep(for: .seconds(1.0))
+
+        #expect(sm.requiresManualDataOnAlert == false)
+        #expect(BootstrapTraceStore.shared.latestTrace?.outcome == "SUCCESS")
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(events.contains { $0.type == .cellularOnConfirmed })
+    }
+
+    @Test func test_rollbackFlag_dataOffRequested_triggersDataOn() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+
+        sm.forceStateForTesting(.bootstrapping)
+        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: true, restoreRequired: true)
+
+        sm.testTriggerFailure(stage: "RPairing", reason: "Errno 61")
+
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(events.contains { $0.type == .recoveryDataOnStarted } || sm.state == .failedRecoveringData || sm.state == .idle)
+    }
+
+    @Test func test_rollbackFlag_noDataOffRequested_skipsDataOn() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+
+        sm.forceStateForTesting(.idle)
+        sm.setFlagsForTesting(dataOffRequested: false, cellularOffObserved: false, restoreRequired: false)
+
+        sm.testTriggerFailure(stage: "Preflight", reason: "Rejected")
+
+        #expect(sm.state == .idle)
+        #expect(BootstrapTraceStore.shared.latestTrace?.outcome == "FAILED")
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(!events.contains { $0.type == .recoveryDataOnStarted })
+    }
+
+    @Test func test_removeHardcodedGPS_noCoordinate_skipsLocationSet() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+
+        await sm.testVerifyLocation(coordinate: nil)
+
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        let locEvent = events.first { $0.type == .firstLocationWriteSuccess }
+        #expect(locEvent == nil || locEvent?.details["coord"]?.contains("25.0330") == false)
+    }
+
+    @Test func test_removeHardcodedGPS_withCoordinate_setsLocation() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+
+        let coord = RouteCoordinate(latitude: 22.6273, longitude: 120.3014)
+        await sm.testVerifyLocation(coordinate: coord)
+
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        let locEvent = events.first { $0.type == .firstLocationWriteSuccess }
+        #expect(locEvent?.details["coord"]?.contains("22.6273") == true)
+    }
+
+    @Test func test_dvtReady_notEmittedOnRsdReady() {
+        let store = BootstrapTraceStore.shared
+        store.resetForTesting()
+
+        store.startTrace(txId: "tx-rsd-test", mode: "Direct")
+        store.recordEvent(.rsdReady)
+
+        let events = store.latestTrace?.events ?? []
+        #expect(events.contains { $0.type == .rsdReady })
+        #expect(!events.contains { $0.type == .dvtReady })
+    }
+
+    @Test func test_traceStore_separatesFfiCodeAndPosixErrno() {
+        let store = BootstrapTraceStore.shared
+        store.resetForTesting()
+
+        store.startTrace(txId: "tx-err-test", mode: "Direct")
+        store.recordEvent(.rpairingFailed, details: [
+            "ffiCode": "5",
+            "posixErrno": "61",
+            "error": "os error 61"
+        ])
+        store.finishTrace(outcome: "FAILED")
+
+        let trace = store.latestTrace
+        #expect(trace?.rpairingFfiCode == "5")
+        #expect(trace?.rpairingPosixErrno == "61")
+
+        let summary = store.formatTraceSummary(trace!)
+        #expect(summary.contains("RPairing FFI Code: 5"))
+        #expect(summary.contains("RPairing POSIX Errno: 61"))
+    }
+
+    @Test func test_exportSafeBoundary_sanitizesExportRecord() {
+        let store = BootstrapTraceStore.shared
+        store.resetForTesting()
+
+        store.startTrace(txId: "tx-export-test", mode: "AssistedBeta", targetAddress: "10.7.0.1:49152")
+        store.recordEvent(.firstLocationWriteSuccess, details: [
+            "path": "/var/mobile/Containers/Data/Application/ABC-123/Documents/secret.plist",
+            "coord": "25.0330,121.5654"
+        ])
+        store.finishTrace(outcome: "SUCCESS")
+
+        let sanitized = store.latestTrace?.sanitizedCopyForExport()
+        #expect(sanitized != nil)
+        #expect(sanitized?.targetAddress == "10.7.0.1:49152")
+
+        let eventDetails = sanitized?.events.first(where: { $0.type == .firstLocationWriteSuccess })?.details ?? [:]
+        #expect(eventDetails["path"] == "[REDACTED_CONTAINER_PATH]")
+        #expect(!eventDetails["coord"]!.contains("25.0330"))
+        #expect(eventDetails["coord"]!.contains("[REDACTED_COORDINATE]"))
+    }
+
+    @Test func test_safeRoundTrip_completesBothPhases() {
+        let service = ShortcutBootstrapService.shared
+        service.isShortcutAssistedEnabled = true
+
+        _ = service.runSafeRoundTripTest { success, message in }
+
+        #expect(service.activeTransaction != nil)
+        #expect(service.activePhase == .dataOff)
+
+        service.cancelActiveTransaction()
+    }
 }

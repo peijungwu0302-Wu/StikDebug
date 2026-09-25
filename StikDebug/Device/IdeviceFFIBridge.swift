@@ -828,6 +828,10 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
         return LocationSimulationStatus.locationSimulation
     }
 
+    Task { @MainActor in
+        BootstrapTraceStore.shared.recordEvent(.dvtReady)
+    }
+
     LocationSimulationState.remoteServer = nil
 
     let locationSetError = location_simulation_set(

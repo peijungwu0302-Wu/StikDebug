@@ -230,6 +230,49 @@ final class ShortcutBootstrapService: ObservableObject {
 
     // MARK: - Testing Triggers
 
+    func runSafeRoundTripTest(completion: @escaping (Bool, String) -> Void) {
+        let testTx = "rt-\(UUID().uuidString.prefix(6))"
+        lastTransactionStatus = "正在發起安全雙向測試 (DataOff -> DataOn)..."
+
+        let openedOff = runDataOffShortcut(txId: testTx) { [weak self] offSuccess in
+            guard let self else { return }
+            guard offSuccess else {
+                _ = self.runDataOnShortcut(txId: testTx) { _ in }
+                completion(false, "DataOff 捷徑回呼失敗或逾時，已嘗試自動恢復行動數據")
+                return
+            }
+
+            Task {
+                let deadline = Date().addingTimeInterval(3.0)
+                while Date() < deadline {
+                    if !ConnectionMonitor.shared.isCellularAvailable { break }
+                    try? await Task.sleep(for: .milliseconds(300))
+                }
+
+                await MainActor.run {
+                    self.lastTransactionStatus = "DataOff 成功，正在立即發起 DataOn 恢復..."
+                    let openedOn = self.runDataOnShortcut(txId: testTx) { [weak self] onSuccess in
+                        guard let self else { return }
+                        if onSuccess {
+                            self.lastTransactionStatus = "安全雙向測試完成：已確認關閉並已成功恢復行動數據"
+                            completion(true, "安全測試成功：已確認關閉並已成功恢復行動數據")
+                        } else {
+                            self.lastTransactionStatus = "⚠️ DataOn 回呼未確認，請檢查控制中心"
+                            completion(false, "DataOn 回呼未確認，請手動檢查行動數據")
+                        }
+                    }
+                    if !openedOn {
+                        completion(false, "無法開啟 DataOn 捷徑 URL，請至控制中心手動開啟行動數據")
+                    }
+                }
+            }
+        }
+
+        if !openedOff {
+            completion(false, "無法開啟 DataOff 捷徑 URL")
+        }
+    }
+
     func testDataOffShortcut() {
         let testTx = "test-off-\(UUID().uuidString.prefix(6))"
         lastTransactionStatus = "發起 DataOff 測試..."

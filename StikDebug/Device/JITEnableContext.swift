@@ -183,6 +183,7 @@ final class JITEnableContext {
 
         let rppTarget = "\(deviceIP):49152"
         Task { @MainActor in
+            BootstrapTraceStore.shared.beginProductionTraceIfNeeded(mode: "Direct", targetAddress: rppTarget)
             BootstrapTraceStore.shared.recordEvent(.rpairingStart, details: ["target": rppTarget])
         }
         let rppStartTime = ProcessInfo.processInfo.systemUptime
@@ -208,17 +209,20 @@ final class JITEnableContext {
 
         if let ffiError {
             let err = error(from: ffiError, fallback: "Failed to create tunnel")
+            var details: [String: String] = [
+                "target": rppTarget,
+                "durationMs": String(format: "%.1f", durationMs),
+                "ffiCode": String(err.code),
+                "error": err.localizedDescription
+            ]
+            if let regex = try? NSRegularExpression(pattern: #"(?:os error|errno)\s*[:=]?\s*([0-9]+)"#, options: .caseInsensitive),
+               let match = regex.firstMatch(in: err.localizedDescription, range: NSRange(err.localizedDescription.startIndex..., in: err.localizedDescription)),
+               let range = Range(match.range(at: 1), in: err.localizedDescription) {
+                let errnoStr = String(err.localizedDescription[range])
+                details["posixErrno"] = errnoStr
+            }
             Task { @MainActor in
-                BootstrapTraceStore.shared.recordEvent(
-                    .rpairingFailed,
-                    details: [
-                        "target": rppTarget,
-                        "durationMs": String(format: "%.1f", durationMs),
-                        "code": String(err.code),
-                        "errno": String(err.code),
-                        "error": err.localizedDescription
-                    ]
-                )
+                BootstrapTraceStore.shared.recordEvent(.rpairingFailed, details: details)
             }
             throw err
         }

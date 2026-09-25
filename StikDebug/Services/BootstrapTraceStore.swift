@@ -101,8 +101,16 @@ struct BootstrapTraceRecord: Identifiable, Codable, Equatable {
         return end.elapsedMs - start.elapsedMs
     }
 
+    var rpairingFfiCode: String? {
+        events.first(where: { $0.type == .rpairingFailed })?.details["ffiCode"]
+    }
+
+    var rpairingPosixErrno: String? {
+        events.first(where: { $0.type == .rpairingFailed })?.details["posixErrno"] ?? events.first(where: { $0.type == .rpairingFailed })?.details["errno"]
+    }
+
     var rpairingErrno: String? {
-        events.first(where: { $0.type == .rpairingFailed })?.details["errno"]
+        rpairingPosixErrno ?? rpairingFfiCode
     }
 
     var dataOffDurationMs: Double? {
@@ -128,6 +136,36 @@ struct BootstrapTraceRecord: Identifiable, Codable, Equatable {
         }
         return end.elapsedMs - start.elapsedMs
     }
+
+    func sanitizedCopyForExport() -> BootstrapTraceRecord {
+        let store = BootstrapTraceStore.shared
+        let cleanEvents = events.map { ev in
+            BootstrapTraceEvent(
+                id: ev.id,
+                timestamp: ev.timestamp,
+                elapsedMs: ev.elapsedMs,
+                type: ev.type,
+                details: store.sanitizeDetails(ev.details)
+            )
+        }
+        return BootstrapTraceRecord(
+            id: id,
+            txId: txId,
+            mode: mode,
+            startedAt: startedAt,
+            completedAt: completedAt,
+            overallDurationMs: overallDurationMs,
+            outcome: outcome,
+            failureStage: failureStage,
+            failureReason: failureReason.map { store.sanitizeString($0) },
+            targetAddress: store.sanitizeString(targetAddress),
+            initialTransport: initialTransport,
+            initialWifiAvailable: initialWifiAvailable,
+            initialCellularAvailable: initialCellularAvailable,
+            initialUsesVPN: initialUsesVPN,
+            events: cleanEvents
+        )
+    }
 }
 
 @MainActor
@@ -142,6 +180,13 @@ final class BootstrapTraceStore: ObservableObject {
     private var startUptime: TimeInterval = 0
 
     private init() {}
+
+    func beginProductionTraceIfNeeded(mode: String, targetAddress: String = "\(DeviceConnectionContext.targetIPAddress):49152") {
+        if let active = activeTrace, active.outcome == "IN_PROGRESS" {
+            return
+        }
+        startTrace(txId: UUID().uuidString, mode: mode, targetAddress: targetAddress)
+    }
 
     func startTrace(txId: String, mode: String, targetAddress: String = "\(DeviceConnectionContext.targetIPAddress):49152") {
         let monitor = ConnectionMonitor.shared
@@ -185,10 +230,32 @@ final class BootstrapTraceStore: ObservableObject {
                 "cellularAvailable": String(monitor.isCellularAvailable),
                 "usesVPN": String(monitor.usesVPNInterface),
                 "isExpensive": String(monitor.pathIsExpensive),
-                "internetReachable": String(monitor.internetReachable)
+                "internetReachable": String(monitor.internetReachable),
+                "configuredTarget": targetAddress
             ]
         )
         record.events.append(netEvent)
+
+        let ifaces = CellularBootstrapTransportProbe.querySystemInterfaces()
+        let vpnCandidate = CellularBootstrapTransportProbe.deriveVPNCandidate(interfaces: ifaces)
+        let candidateName = vpnCandidate.interface?.name ?? "none"
+        let candidateLocalIP = vpnCandidate.interface?.addresses.first ?? "none"
+        let p2pDst = vpnCandidate.interface?.destinationAddresses.first ?? (ifaces.first(where: { $0.destinationAddresses.contains("10.7.1.1") }) != nil ? "10.7.1.1" : "none")
+        let bonjourSummary = BonjourRemotePairingDiscovery.shared.summaryForTrace()
+
+        let ifaceEvent = BootstrapTraceEvent(
+            elapsedMs: currentElapsedMs(),
+            type: .interfaceSnapshot,
+            details: [
+                "configuredTarget": targetAddress,
+                "vpnCandidateInterface": candidateName,
+                "localIP": candidateLocalIP,
+                "p2pDstAddr": p2pDst,
+                "bonjourSummary": bonjourSummary,
+                "interfaceCount": String(ifaces.count)
+            ]
+        )
+        record.events.append(ifaceEvent)
 
         activeTrace = record
         latestTrace = record
@@ -282,9 +349,13 @@ final class BootstrapTraceStore: ObservableObject {
         let latestRpp = latest.rpairingDurationMs.map { String(format: "%.0f ms", $0) } ?? "N/A"
         lines.append(String(format: "%-18@ %-16@ %-16@", "RPairing 耗時", prevRpp, latestRpp))
 
-        let prevErrno = prev.rpairingErrno ?? "無"
-        let latestErrno = latest.rpairingErrno ?? "無"
-        lines.append(String(format: "%-18@ %-16@ %-16@", "RPairing Errno", prevErrno, latestErrno))
+        let prevFfi = prev.rpairingFfiCode ?? "無"
+        let latestFfi = latest.rpairingFfiCode ?? "無"
+        lines.append(String(format: "%-18@ %-16@ %-16@", "RPairing FFI Code", prevFfi, latestFfi))
+
+        let prevErrno = prev.rpairingPosixErrno ?? prev.rpairingErrno ?? "無"
+        let latestErrno = latest.rpairingPosixErrno ?? latest.rpairingErrno ?? "無"
+        lines.append(String(format: "%-18@ %-16@ %-16@", "RPairing POSIX Errno", prevErrno, latestErrno))
 
         let prevTotal = prev.overallDurationMs.map { String(format: "%.0f ms", $0) } ?? "N/A"
         let latestTotal = latest.overallDurationMs.map { String(format: "%.0f ms", $0) } ?? "N/A"
@@ -312,7 +383,12 @@ final class BootstrapTraceStore: ObservableObject {
         if let rpp = trace.rpairingDurationMs {
             lines.append("RPairing 耗時: \(String(format: "%.1f", rpp)) ms")
         }
-        if let errno = trace.rpairingErrno {
+        if let ffi = trace.rpairingFfiCode {
+            lines.append("RPairing FFI Code: \(ffi)")
+        }
+        if let errno = trace.rpairingPosixErrno {
+            lines.append("RPairing POSIX Errno: \(errno)")
+        } else if let errno = trace.rpairingErrno {
             lines.append("RPairing Errno: \(errno)")
         }
         if let stage = trace.failureStage {
@@ -343,12 +419,13 @@ final class BootstrapTraceStore: ObservableObject {
 
         // Keep 10.7.x.x intact as explicitly required for topology analysis.
         // Redact file paths like /var/mobile/Containers/...
-        if text.contains("/var/mobile/") || text.contains("/private/var/") {
+        if text.contains("/var/mobile/") || text.contains("/private/var/") || text.contains("/Users/") {
             text = text.replacingOccurrences(of: #"/var/mobile/Containers/[A-Za-z0-9/\-_.]+"#, with: "[REDACTED_CONTAINER_PATH]", options: .regularExpression)
             text = text.replacingOccurrences(of: #"/private/var/[A-Za-z0-9/\-_.]+"#, with: "[REDACTED_SYSTEM_PATH]", options: .regularExpression)
+            text = text.replacingOccurrences(of: #"/Users/[A-Za-z0-9/\-_.]+"#, with: "[REDACTED_USER_PATH]", options: .regularExpression)
         }
 
-        // Redact coordinate patterns: lat: 25.033, lon: 121.564
+        // Redact coordinate patterns: lat: 25.033, lon: 121.564, coord: 25.033,121.564, etc.
         text = text.replacingOccurrences(
             of: #"\b(lat|latitude)\s*[:=]\s*-?\d+\.\d+"#,
             with: "lat: [REDACTED_COORDINATE]",
@@ -358,6 +435,11 @@ final class BootstrapTraceStore: ObservableObject {
             of: #"\b(lon|lng|longitude)\s*[:=]\s*-?\d+\.\d+"#,
             with: "lon: [REDACTED_COORDINATE]",
             options: [.regularExpression, .caseInsensitive]
+        )
+        text = text.replacingOccurrences(
+            of: #"\b(-?\d{1,3}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})\b"#,
+            with: "[REDACTED_COORDINATE],[REDACTED_COORDINATE]",
+            options: .regularExpression
         )
 
         // Redact potential private keys or pairing secret payloads
@@ -371,7 +453,8 @@ final class BootstrapTraceStore: ObservableObject {
     // MARK: - Export File Generation
 
     func exportSafeTXTURL(trace: BootstrapTraceRecord? = nil) -> URL? {
-        let targetTrace = trace ?? latestTrace
+        let rawTrace = trace ?? latestTrace
+        let targetTrace = rawTrace?.sanitizedCopyForExport()
         let text: String
         if let targetTrace {
             text = formatTraceSummary(targetTrace)
@@ -391,8 +474,8 @@ final class BootstrapTraceStore: ObservableObject {
     }
 
     func exportSafeJSONURL(trace: BootstrapTraceRecord? = nil) -> URL? {
-        let targetTrace = trace ?? latestTrace
-        guard let targetTrace else { return nil }
+        let rawTrace = trace ?? latestTrace
+        guard let targetTrace = rawTrace?.sanitizedCopyForExport() else { return nil }
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

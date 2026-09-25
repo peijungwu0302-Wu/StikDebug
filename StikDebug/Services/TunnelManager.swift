@@ -176,6 +176,9 @@ final class TunnelManager: ObservableObject {
         stage = .tunnelStartup
         reconnectAttempt = 0
 
+        let mode = cellularBootstrapRequested ? "Manual" : "Direct"
+        BootstrapTraceStore.shared.beginProductionTraceIfNeeded(mode: mode)
+
         workerQueue.async { [weak self, showErrorUI] in
             guard let self else { return }
             let result = self.connectWithRetry()
@@ -280,7 +283,6 @@ final class TunnelManager: ObservableObject {
             reconnectAttempt = 0
             cellularCompatibilitySuggested = false
             BootstrapTraceStore.shared.recordEvent(.rsdReady)
-            BootstrapTraceStore.shared.recordEvent(.dvtReady)
             LogManager.shared.addInfoLog("Tunnel connected successfully")
             mountDeveloperDiskImageIfNeeded()
         case .failure(let error):
@@ -300,6 +302,13 @@ final class TunnelManager: ObservableObject {
                     "error": error.localizedDescription
                 ]
             )
+            if !CellularAssistedBootstrapStateMachine.shared.state.isRunning {
+                BootstrapTraceStore.shared.finishTrace(
+                    outcome: "FAILED",
+                    failureStage: stage.rawValue,
+                    failureReason: error.localizedDescription
+                )
+            }
             handleStartFailure(error, showErrorUI: showErrorUI)
         }
     }

@@ -130,18 +130,43 @@ struct CellularBootstrapLabView: View {
                             .foregroundStyle(.red)
                     }
 
-                    HStack {
-                        Button(L10n.text("測試 Data Off 捷徑")) {
-                            shortcutService.testDataOffShortcut()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            shortcutService.runSafeRoundTripTest { success, message in
+                                ToastManager.shared.show(message, kind: success ? .success : .error)
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                                Text(L10n.text("安全雙向測試 (Off ➔ On)"))
+                            }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.teal)
 
-                        Spacer()
+                        HStack {
+                            Button(L10n.text("僅測試 Data Off")) {
+                                shortcutService.testDataOffShortcut()
+                            }
+                            .buttonStyle(.bordered)
 
-                        Button(L10n.text("測試 Data On 捷徑")) {
-                            shortcutService.testDataOnShortcut()
+                            Spacer()
+
+                            Button(L10n.text("測試 Data On")) {
+                                shortcutService.testDataOnShortcut()
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.bordered)
+
+                        if let coord = model.selectedCoordinate ?? model.pendingSinglePointCoordinate {
+                            Text("驗證目標座標：\(String(format: "%.4f, %.4f", coord.latitude, coord.longitude))")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("（未指定地圖座標，啟動時將僅驗證通道建立，不寫入偽造位置）")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     Button {
@@ -523,7 +548,8 @@ struct CellularBootstrapLabView: View {
     }
 
     private func runAssistedBootstrapTest() {
-        stateMachine.startAssistedBootstrap { result in
+        let target = model.selectedCoordinate ?? model.pendingSinglePointCoordinate
+        stateMachine.startAssistedBootstrap(targetCoordinate: target) { result in
             switch result {
             case .success:
                 ToastManager.shared.show(L10n.text("輔助啟動測試成功！"), kind: .success)
