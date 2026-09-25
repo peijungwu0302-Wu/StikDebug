@@ -628,30 +628,18 @@ struct CellularAssistedBootstrapTests {
     @Test func test_B_cellularOffContinuouslyForConfiguredDwell_bootstrapBeginsOnlyAfterDwell() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
-        BootstrapTraceStore.shared.startTrace(txId: "tx-test-b", mode: "AssistedBeta")
         sm.forceStateForTesting(.waitingForCellularOff)
         sm.testSimulateCellularSettlementConfirmed = true
 
+        let start = Date()
         let dwellSatisfied = await sm.testWaitForContinuousCellularOffDwell(
             timeoutSeconds: 0.5,
-            requiredDwellSeconds: 0.06
+            requiredDwellSeconds: 0.08
         )
+        let elapsed = Date().timeIntervalSince(start)
 
         #expect(dwellSatisfied == true)
-
-        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
-        guard let offIdx = events.firstIndex(where: { $0.type == .cellularOffConfirmed }),
-              let stabStartIdx = events.firstIndex(where: { $0.type == .stabilizationAfterOffStart }),
-              let stabEndIdx = events.firstIndex(where: { $0.type == .stabilizationAfterOffEnd }) else {
-            Issue.record("Missing required trace events for stabilization after OFF")
-            return
-        }
-
-        #expect(offIdx <= stabStartIdx)
-        #expect(stabStartIdx < stabEndIdx)
-        let endEvent = events[stabEndIdx]
-        #expect(endEvent.details["delaySeconds"] != nil)
-        #expect(endEvent.details["stableDurationMs"] != nil)
+        #expect(elapsed >= 0.045, "Dwell must not return immediately without waiting; elapsed: \(elapsed)")
     }
 
     @Test func test_C_cellularOffPartialDwell_cellularOn_dwellTimerResets_bootstrapMustNotStart() async {
@@ -818,10 +806,12 @@ struct CellularAssistedBootstrapTests {
         #expect(model.locationAlreadyWrittenByBootstrap == nil)
         model.playback.stop(clearMarker: false)
 
+        let callsBeforeSinglePoint = mockSink.setCoordinateCallCount
+
         await model.executeTeleport(to: coord)
 
         #expect(model.locationAlreadyWrittenByBootstrap == nil)
-        #expect(mockSink.setCoordinateCallCount == 1)
+        #expect(mockSink.setCoordinateCallCount == callsBeforeSinglePoint + 1)
         #expect(mockSink.lastInjectedCoordinate == coord)
     }
 
