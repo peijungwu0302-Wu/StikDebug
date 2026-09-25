@@ -102,23 +102,21 @@ final class TunnelManager: ObservableObject {
         ToastManager.shared.show(L10n.text("定位通道已就緒\n現在可以重新開啟行動數據／關閉飛航模式。"), kind: .success, duration: 5)
     }
 
-    func handleNetworkTransition(from previous: NetworkTransport, to current: NetworkTransport) {
-        runOnMain {
-            self.activeTransport = current
-            if self.cellularBootstrapRequested, current != .cellular {
-                self.start(showErrorUI: false)
-                return
-            }
-            self.pathChangeWorkItem?.cancel()
-            let item = DispatchWorkItem { [weak self] in
-                Task { @MainActor in
-                    self?.performHealthCheckOrConnect(transport: current)
-                }
-            }
-            self.pathChangeWorkItem = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: item)
-            LogManager.shared.addInfoLog("Device tunnel health check scheduled for \(previous.rawValue)->\(current.rawValue)")
+    @MainActor func handleNetworkTransition(from previous: NetworkTransport, to current: NetworkTransport) {
+        self.activeTransport = current
+        if self.cellularBootstrapRequested, current != .cellular {
+            self.start(showErrorUI: false)
+            return
         }
+        self.pathChangeWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            Task { @MainActor in
+                self?.performHealthCheckOrConnect(transport: current)
+            }
+        }
+        self.pathChangeWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: item)
+        LogManager.shared.addInfoLog("Device tunnel health check scheduled for \(previous.rawValue)->\(current.rawValue)")
     }
 
     @MainActor func checkHealthNow(transport: NetworkTransport) {
