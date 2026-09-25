@@ -454,15 +454,138 @@ struct CellularAssistedBootstrapTests {
         #expect(eventDetails["coord"]!.contains("[REDACTED_COORDINATE]"))
     }
 
-    @Test func test_safeRoundTrip_completesBothPhases() {
+    // MARK: - 9. Minimal Safety Patch Verification
+
+    @Test func test_rollback_dataOnCallbackSuccess_cellularRemainsOff_requiresManualAlert() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-rb-unconfirmed", mode: "AssistedBeta")
+        sm.testSettlementTimeoutSeconds = 0.05
+        sm.testSimulateCellularSettlementConfirmed = false
+        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: true, restoreRequired: true)
+        sm.forceStateForTesting(.failedRecoveringData)
+
+        await sm.testHandleRollbackDataOnCallback(success: true)
+
+        #expect(sm.requiresManualDataOnAlert == true)
+        #expect(sm.dataRestoreRequired == true)
+        #expect(sm.state == .idle)
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(!events.contains { $0.type == .cellularOnConfirmed })
+        let recoveryEvent = events.first { $0.type == .recoveryDataOnCompleted }
+        #expect(recoveryEvent?.details["confirmed"] == "false")
+    }
+
+    @Test func test_rollback_dataOnCallbackSuccess_cellularOnObserved_restoreConfirmed() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-rb-confirmed", mode: "AssistedBeta")
+        sm.testSettlementTimeoutSeconds = 0.05
+        sm.testSimulateCellularSettlementConfirmed = true
+        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: true, restoreRequired: true)
+        sm.forceStateForTesting(.failedRecoveringData)
+
+        await sm.testHandleRollbackDataOnCallback(success: true)
+
+        #expect(sm.requiresManualDataOnAlert == false)
+        #expect(sm.dataRestoreRequired == false)
+        #expect(sm.state == .idle)
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(events.contains { $0.type == .cellularOnConfirmed })
+        let recoveryEvent = events.first { $0.type == .recoveryDataOnCompleted }
+        #expect(recoveryEvent?.details["confirmed"] == "true")
+    }
+
+    @Test func test_safeRoundTrip_dataOffCallback_offNotObserved_stillInvokesDataOn_fails() async {
         let service = ShortcutBootstrapService.shared
+        service.resetForTesting()
         service.isShortcutAssistedEnabled = true
+        service.testSimulateCellularOffObserved = false
+        service.testSimulateCellularOnObserved = true
 
-        service.runSafeRoundTripTest { success, message in }
+        var invokedPhases: [ShortcutPhase] = []
+        service.testMockShortcutRunner = { phase, txId, completion in
+            invokedPhases.append(phase)
+            completion(true)
+            return true
+        }
 
-        #expect(service.activeTransaction != nil)
-        #expect(service.activePhase == .dataOff)
+        var completed = false
+        var testSuccess: Bool?
+        var testMessage: String?
+        service.runSafeRoundTripTest { success, message in
+            completed = true
+            testSuccess = success
+            testMessage = message
+        }
 
-        service.cancelActiveTransaction()
+        try? await Task.sleep(for: .milliseconds(50))
+
+        #expect(completed == true)
+        #expect(testSuccess == false)
+        #expect(invokedPhases == [.dataOff, .dataOn])
+        #expect(testMessage?.contains("DataOff 未確認") == true)
+    }
+
+    @Test func test_safeRoundTrip_dataOnCallback_onNotObserved_fails() async {
+        let service = ShortcutBootstrapService.shared
+        service.resetForTesting()
+        service.isShortcutAssistedEnabled = true
+        service.testSimulateCellularOffObserved = true
+        service.testSimulateCellularOnObserved = false
+
+        var invokedPhases: [ShortcutPhase] = []
+        service.testMockShortcutRunner = { phase, txId, completion in
+            invokedPhases.append(phase)
+            completion(true)
+            return true
+        }
+
+        var completed = false
+        var testSuccess: Bool?
+        var testMessage: String?
+        service.runSafeRoundTripTest { success, message in
+            completed = true
+            testSuccess = success
+            testMessage = message
+        }
+
+        try? await Task.sleep(for: .milliseconds(50))
+
+        #expect(completed == true)
+        #expect(testSuccess == false)
+        #expect(invokedPhases == [.dataOff, .dataOn])
+        #expect(testMessage?.contains("DataOn 恢復未確認") == true)
+    }
+
+    @Test func test_safeRoundTrip_bothObserved_succeeds() async {
+        let service = ShortcutBootstrapService.shared
+        service.resetForTesting()
+        service.isShortcutAssistedEnabled = true
+        service.testSimulateCellularOffObserved = true
+        service.testSimulateCellularOnObserved = true
+
+        var invokedPhases: [ShortcutPhase] = []
+        service.testMockShortcutRunner = { phase, txId, completion in
+            invokedPhases.append(phase)
+            completion(true)
+            return true
+        }
+
+        var completed = false
+        var testSuccess: Bool?
+        var testMessage: String?
+        service.runSafeRoundTripTest { success, message in
+            completed = true
+            testSuccess = success
+            testMessage = message
+        }
+
+        try? await Task.sleep(for: .milliseconds(50))
+
+        #expect(completed == true)
+        #expect(testSuccess == true)
+        #expect(invokedPhases == [.dataOff, .dataOn])
+        #expect(testMessage?.contains("安全測試成功") == true)
     }
 }

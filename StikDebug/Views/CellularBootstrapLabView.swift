@@ -144,19 +144,10 @@ struct CellularBootstrapLabView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(.teal)
 
-                        HStack {
-                            Button(L10n.text("僅測試 Data Off")) {
-                                shortcutService.testDataOffShortcut()
-                            }
-                            .buttonStyle(.bordered)
-
-                            Spacer()
-
-                            Button(L10n.text("測試 Data On")) {
-                                shortcutService.testDataOnShortcut()
-                            }
-                            .buttonStyle(.bordered)
+                        Button(L10n.text("測試 Data On 恢復 (Recovery)")) {
+                            shortcutService.testDataOnShortcut()
                         }
+                        .buttonStyle(.bordered)
 
                         if let coord = model.selectedCoordinate ?? model.pendingSinglePointCoordinate {
                             Text("驗證目標座標：\(String(format: "%.4f, %.4f", coord.latitude, coord.longitude))")

@@ -247,13 +247,9 @@ struct SetupDiagnosticsView: View {
                             ToastManager.shared.show(L10n.text("已複製教學到剪貼簿"), kind: .success)
                         }
 
-                        HStack {
-                            Button("測試 Data Off 捷徑") {
-                                shortcutService.testDataOffShortcut()
-                            }
-                            Spacer()
-                            Button("測試 Data On 捷徑") {
-                                shortcutService.testDataOnShortcut()
+                        Button("安全測試捷徑（Data Off → Data On）") {
+                            shortcutService.runSafeRoundTripTest { success, message in
+                                ToastManager.shared.show(message, kind: success ? .success : .error)
                             }
                         }
 

@@ -234,42 +234,114 @@ final class ShortcutBootstrapService: ObservableObject {
         comp?(false)
     }
 
+    #if DEBUG
+    var testRoundTripSettlementTimeoutSeconds: Double?
+    var testSimulateCellularOffObserved: Bool?
+    var testSimulateCellularOnObserved: Bool?
+    var testMockShortcutRunner: ((_ phase: ShortcutPhase, _ txId: String, _ completion: @escaping (Bool) -> Void) -> Bool)?
+
+    func resetForTesting() {
+        cancelActiveTransaction()
+        testRoundTripSettlementTimeoutSeconds = nil
+        testSimulateCellularOffObserved = nil
+        testSimulateCellularOnObserved = nil
+        testMockShortcutRunner = nil
+    }
+    #endif
+
+    private var roundTripSettlementTimeout: Double {
+        #if DEBUG
+        if let custom = testRoundTripSettlementTimeoutSeconds { return custom }
+        #endif
+        return 4.0
+    }
+
+    private func waitForCellularOff(timeoutSeconds: Double) async -> Bool {
+        #if DEBUG
+        if let sim = testSimulateCellularOffObserved { return sim }
+        #endif
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if !ConnectionMonitor.shared.isCellularAvailable { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return !ConnectionMonitor.shared.isCellularAvailable
+    }
+
+    private func waitForCellularOn(timeoutSeconds: Double) async -> Bool {
+        #if DEBUG
+        if let sim = testSimulateCellularOnObserved { return sim }
+        #endif
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if ConnectionMonitor.shared.isCellularAvailable { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return ConnectionMonitor.shared.isCellularAvailable
+    }
+
     // MARK: - Testing Triggers
 
     func runSafeRoundTripTest(completion: @escaping (Bool, String) -> Void) {
         let testTx = "rt-\(UUID().uuidString.prefix(6))"
         lastTransactionStatus = "正在發起安全雙向測試 (DataOff -> DataOn)..."
 
-        let openedOff = runDataOffShortcut(txId: testTx) { [weak self] offSuccess in
-            guard let self else { return }
-            guard offSuccess else {
-                _ = self.runDataOnShortcut(txId: testTx) { _ in }
-                completion(false, "DataOff 捷徑回呼失敗或逾時，已嘗試自動恢復行動數據")
-                return
+        let runOff: (@escaping (Bool) -> Void) -> Bool = { [weak self] cb in
+            guard let self else { return false }
+            #if DEBUG
+            if let mock = self.testMockShortcutRunner {
+                return mock(.dataOff, testTx, cb)
             }
+            #endif
+            return self.runDataOffShortcut(txId: testTx, completion: cb)
+        }
 
-            Task {
-                let deadline = Date().addingTimeInterval(3.0)
-                while Date() < deadline {
-                    if !ConnectionMonitor.shared.isCellularAvailable { break }
-                    try? await Task.sleep(for: .milliseconds(300))
+        let runOn: (@escaping (Bool) -> Void) -> Bool = { [weak self] cb in
+            guard let self else { return false }
+            #if DEBUG
+            if let mock = self.testMockShortcutRunner {
+                return mock(.dataOn, testTx, cb)
+            }
+            #endif
+            return self.runDataOnShortcut(txId: testTx, completion: cb)
+        }
+
+        let openedOff = runOff { [weak self] offSuccess in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                var offObserved = false
+                if offSuccess {
+                    offObserved = await self.waitForCellularOff(timeoutSeconds: self.roundTripSettlementTimeout)
                 }
 
-                await MainActor.run {
-                    self.lastTransactionStatus = "DataOff 成功，正在立即發起 DataOn 恢復..."
-                    let openedOn = self.runDataOnShortcut(txId: testTx) { [weak self] onSuccess in
+                // 無論 OFF 是否確認，都必須執行 DataOn (保證恢復)
+                self.lastTransactionStatus = "正在發起 DataOn 恢復..."
+                let openedOn = runOn { [weak self] onSuccess in
+                    guard let self else { return }
+                    Task { @MainActor [weak self] in
                         guard let self else { return }
+                        var onObserved = false
                         if onSuccess {
-                            self.lastTransactionStatus = "安全雙向測試完成：已確認關閉並已成功恢復行動數據"
+                            onObserved = await self.waitForCellularOn(timeoutSeconds: self.roundTripSettlementTimeout)
+                        }
+
+                        if offObserved && onObserved {
+                            self.lastTransactionStatus = "安全雙向測試成功：已確認關閉並已成功恢復行動數據"
                             completion(true, "安全測試成功：已確認關閉並已成功恢復行動數據")
+                        } else if !offObserved && onObserved {
+                            self.lastTransactionStatus = "⚠️ 安全雙向測試失敗：DataOff 未確認"
+                            completion(false, "安全測試失敗：DataOff 未確認")
                         } else {
-                            self.lastTransactionStatus = "⚠️ DataOn 回呼未確認，請檢查控制中心"
-                            completion(false, "DataOn 回呼未確認，請手動檢查行動數據")
+                            self.lastTransactionStatus = "⚠️ 安全雙向測試失敗：DataOn 恢復未確認，請檢查控制中心"
+                            completion(false, "安全測試失敗：DataOn 恢復未確認，請檢查控制中心")
                         }
                     }
-                    if !openedOn {
-                        completion(false, "無法開啟 DataOn 捷徑 URL，請至控制中心手動開啟行動數據")
-                    }
+                }
+
+                if !openedOn {
+                    self.lastTransactionStatus = "⚠️ 無法開啟 DataOn 捷徑 URL，請至控制中心手動開啟行動數據"
+                    completion(false, "無法開啟 DataOn 捷徑 URL，請至控制中心手動開啟行動數據")
                 }
             }
         }

@@ -410,13 +410,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         let opened = ShortcutBootstrapService.shared.runDataOnShortcut(txId: recoveryTx) { [weak self] success in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                BootstrapTraceStore.shared.recordEvent(.recoveryDataOnCompleted, details: ["success": String(success)])
-                if !success {
-                    self.requiresManualDataOnAlert = true
-                } else {
-                    self.dataRestoreRequired = false
-                }
-                self.finalizeRollback(stage: stage, reason: reason)
+                await self.handleRollbackDataOnCallback(success: success, stage: stage, reason: reason)
             }
         }
 
@@ -424,6 +418,26 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             self.requiresManualDataOnAlert = true
             finalizeRollback(stage: stage, reason: reason)
         }
+    }
+
+    private func handleRollbackDataOnCallback(success: Bool, stage: String, reason: String) async {
+        if success {
+            let confirmed = await waitForCellularOnSettlement(timeoutSeconds: self.onSettlementTimeout)
+            if confirmed {
+                self.dataRestoreRequired = false
+                BootstrapTraceStore.shared.recordEvent(.cellularOnConfirmed, details: ["context": "rollback"])
+                BootstrapTraceStore.shared.recordEvent(.recoveryDataOnCompleted, details: ["confirmed": "true"])
+                LogManager.shared.addInfoLog("Rollback DataOn physical cellular restoration confirmed.")
+            } else {
+                self.requiresManualDataOnAlert = true
+                LogManager.shared.addWarningLog("Rollback DataOn callback received but physical cellular restoration unconfirmed.")
+                BootstrapTraceStore.shared.recordEvent(.recoveryDataOnCompleted, details: ["confirmed": "false"])
+            }
+        } else {
+            self.requiresManualDataOnAlert = true
+            BootstrapTraceStore.shared.recordEvent(.recoveryDataOnCompleted, details: ["success": "false"])
+        }
+        self.finalizeRollback(stage: stage, reason: reason)
     }
 
     private func finalizeRollback(stage: String, reason: String) {
@@ -520,6 +534,10 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         self.verificationCoordinate = coordinate
         self.state = .waitingForDVT
         await verifyFirstLocationWrite()
+    }
+
+    func testHandleRollbackDataOnCallback(success: Bool, stage: String = "Rollback", reason: String = "Test") async {
+        await handleRollbackDataOnCallback(success: success, stage: stage, reason: reason)
     }
     #endif
 }
