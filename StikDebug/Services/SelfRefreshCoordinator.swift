@@ -199,10 +199,12 @@ final class SelfRefreshCoordinator: ObservableObject {
     }
 
     public func persistPendingVerification(currentExpiration: Date) {
+        let expectedVersion =
+            Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.8"
         let pending = SelfRefreshPendingVerification(
             operationId: UUID().uuidString,
             beforeExpiration: currentExpiration,
-            expectedVersion: "1.2.7",
+            expectedVersion: expectedVersion,
             requestedAt: .now
         )
         if let data = try? JSONEncoder().encode(pending) {
