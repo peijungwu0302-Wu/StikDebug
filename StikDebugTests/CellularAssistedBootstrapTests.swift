@@ -605,7 +605,7 @@ struct CellularAssistedBootstrapTests {
         ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
         LocationDataPathHealth.shared.resetForTesting()
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
-        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .askFirst
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
 
         let target = RouteCoordinate(latitude: 25.0339, longitude: 121.5644)
         model.requestSinglePointSimulation(at: target)
@@ -649,8 +649,8 @@ struct CellularAssistedBootstrapTests {
         #expect(stabStartIdx < stabEndIdx)
         #expect(sm.cellularOffWasObserved == true)
         let endEvent = events[stabEndIdx]
-        #expect(endEvent.details?["delaySeconds"] != nil)
-        #expect(endEvent.details?["stableDurationMs"] != nil)
+        #expect(endEvent.details["delaySeconds"] != nil)
+        #expect(endEvent.details["stableDurationMs"] != nil)
     }
 
     @Test func test_C_cellularOffPartialDwell_cellularOn_dwellTimerResets_bootstrapMustNotStart() async {
@@ -693,7 +693,7 @@ struct CellularAssistedBootstrapTests {
             Issue.record("Missing stabilizationAfterOffEnd event")
             return
         }
-        #expect(stabEnd.details?["resetCount"] == "1")
+        #expect(stabEnd.details["resetCount"] == "1")
     }
 
     @Test func test_E_stabilizationDelayZero_immediateBootstrapOnCellularOff() async {
@@ -866,7 +866,7 @@ struct CellularAssistedBootstrapTests {
         ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
         LocationDataPathHealth.shared.resetForTesting()
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
-        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .askFirst
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
 
         let points = [
             RouteCoordinate(latitude: 25.01, longitude: 121.51),
