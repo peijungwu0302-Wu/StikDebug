@@ -70,7 +70,7 @@ final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked 
             await MainActor.run {
                 LocationDataPathHealth.shared.recordFailure(error)
                 BootstrapTraceStore.shared.recordEvent(.firstLocationWriteFailed, details: ["error": error.localizedDescription])
-                if BootstrapTraceStore.shared.activeTrace?.outcome == "IN_PROGRESS" && !CellularAssistedBootstrapStateMachine.shared.state.isRunning {
+                if BootstrapTraceStore.shared.isTraceInProgress && !CellularAssistedBootstrapStateMachine.shared.state.isRunning {
                     BootstrapTraceStore.shared.finishTrace(outcome: "FAILED", failureStage: "FirstLocationWrite", failureReason: error.localizedDescription)
                 }
             }
@@ -80,7 +80,7 @@ final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked 
         await MainActor.run {
             LocationDataPathHealth.shared.recordSuccess()
             BootstrapTraceStore.shared.recordEvent(.firstLocationWriteSuccess)
-            if BootstrapTraceStore.shared.activeTrace?.outcome == "IN_PROGRESS" && !CellularAssistedBootstrapStateMachine.shared.state.isRunning {
+            if BootstrapTraceStore.shared.isTraceInProgress && !CellularAssistedBootstrapStateMachine.shared.state.isRunning {
                 BootstrapTraceStore.shared.finishTrace(outcome: "SUCCESS")
             }
             TunnelManager.shared.locationDataPathReady()

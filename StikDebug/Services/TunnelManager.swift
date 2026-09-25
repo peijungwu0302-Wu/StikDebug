@@ -152,14 +152,8 @@ final class TunnelManager: ObservableObject {
         }
     }
 
+    @MainActor
     func start(showErrorUI: Bool = true) {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async {
-                self.start(showErrorUI: showErrorUI)
-            }
-            return
-        }
-
         let pairingFileURL = PairingFileStore.prepareURL()
         guard FileManager.default.fileExists(atPath: pairingFileURL.path) else {
             isConnected = false
@@ -183,8 +177,8 @@ final class TunnelManager: ObservableObject {
             guard let self else { return }
             let result = self.connectWithRetry()
 
-            DispatchQueue.main.async {
-                self.finishStart(result, showErrorUI: showErrorUI)
+            Task { @MainActor [weak self] in
+                self?.finishStart(result, showErrorUI: showErrorUI)
             }
         }
     }
@@ -323,6 +317,7 @@ final class TunnelManager: ObservableObject {
         MountingProgress.shared.pubMount()
     }
 
+    @MainActor
     private func handleStartFailure(_ error: NSError, showErrorUI: Bool) {
         LogManager.shared.addErrorLog(tunnelConnectionLogMessage(for: error))
         guard showErrorUI else {
@@ -346,6 +341,7 @@ final class TunnelManager: ObservableObject {
         }
     }
 
+    @MainActor
     private func handleInvalidPairingFile() {
         LogManager.shared.addInfoLog("Pairing file reported invalid; keeping existing file")
 
@@ -369,6 +365,7 @@ final class TunnelManager: ObservableObject {
     }
 }
 
+@MainActor
 func startTunnelInBackground(showErrorUI: Bool = true) {
     TunnelManager.shared.start(showErrorUI: showErrorUI)
 }
@@ -382,6 +379,7 @@ private func tunnelConnectionLogMessage(for error: NSError) -> String {
     return "Tunnel connection failed for \(target): \(error.localizedDescription) (Domain: \(error.domain), Code: \(error.code), Raw: \(String(describing: error)))"
 }
 
+@MainActor
 private func tunnelConnectionAlertMessage(for error: NSError) -> String {
     let targetIP = DeviceConnectionContext.targetIPAddress
     let rawMessage = error.localizedDescription

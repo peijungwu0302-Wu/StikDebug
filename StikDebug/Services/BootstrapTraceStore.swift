@@ -179,6 +179,10 @@ final class BootstrapTraceStore: ObservableObject {
     private var activeTrace: BootstrapTraceRecord?
     private var startUptime: TimeInterval = 0
 
+    var isTraceInProgress: Bool {
+        activeTrace != nil && activeTrace?.outcome == "IN_PROGRESS"
+    }
+
     private init() {}
 
     func beginProductionTraceIfNeeded(mode: String, targetAddress: String = "\(DeviceConnectionContext.targetIPAddress):49152") {
