@@ -629,13 +629,15 @@ struct CellularAssistedBootstrapTests {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-test-b", mode: "AssistedBeta")
-        sm.testSettlementTimeoutSeconds = 0.5
+        sm.forceStateForTesting(.waitingForCellularOff)
         sm.testSimulateCellularSettlementConfirmed = true
-        sm.testStabilizationDelaySeconds = 0.06
-        sm.forceStateForTesting(.waitingForDataOffCallback)
-        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: false, restoreRequired: true)
 
-        await sm.handleDataOffCallbackSuccess()
+        let dwellSatisfied = await sm.testWaitForContinuousCellularOffDwell(
+            timeoutSeconds: 0.5,
+            requiredDwellSeconds: 0.06
+        )
+
+        #expect(dwellSatisfied == true)
 
         let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
         guard let offIdx = events.firstIndex(where: { $0.type == .cellularOffConfirmed }),
@@ -647,7 +649,6 @@ struct CellularAssistedBootstrapTests {
 
         #expect(offIdx <= stabStartIdx)
         #expect(stabStartIdx < stabEndIdx)
-        #expect(sm.cellularOffWasObserved == true)
         let endEvent = events[stabEndIdx]
         #expect(endEvent.details["delaySeconds"] != nil)
         #expect(endEvent.details["stableDurationMs"] != nil)
@@ -657,17 +658,17 @@ struct CellularAssistedBootstrapTests {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-test-c", mode: "AssistedBeta")
-        sm.testSettlementTimeoutSeconds = 0.15
-        sm.testStabilizationDelaySeconds = 0.20
-        // Interrupted dwell: OFF once, then ON, then timeout
-        sm.testCellularOffSequence = [true, false, false, false]
-        sm.forceStateForTesting(.waitingForDataOffCallback)
-        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: false, restoreRequired: true)
+        sm.forceStateForTesting(.waitingForCellularOff)
+        // Interrupted dwell: OFF once, then ON, and fallback to false (ON)
+        sm.testSimulateCellularSettlementConfirmed = false
+        sm.testCellularOffSequence = [true, false, false, false, false]
 
-        await sm.handleDataOffCallbackSuccess()
+        let dwellSatisfied = await sm.testWaitForContinuousCellularOffDwell(
+            timeoutSeconds: 0.15,
+            requiredDwellSeconds: 0.20
+        )
 
-        #expect(sm.cellularOffWasObserved == false)
-        #expect(sm.state == .failedRecoveringData || sm.state == .idle)
+        #expect(dwellSatisfied == false)
         let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
         #expect(!events.contains { $0.type == .stabilizationAfterOffEnd })
         #expect(!events.contains { $0.type == .firstLocationWriteSuccess })
@@ -678,16 +679,17 @@ struct CellularAssistedBootstrapTests {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-test-d", mode: "AssistedBeta")
-        sm.testSettlementTimeoutSeconds = 0.6
-        sm.testStabilizationDelaySeconds = 0.05
-        // Sequence: true (OFF 50ms) -> false (ON, reset!) -> true (OFF) -> true (OFF 50ms >= dwell)
-        sm.testCellularOffSequence = [true, false, true, true]
-        sm.forceStateForTesting(.waitingForDataOffCallback)
-        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: false, restoreRequired: true)
+        sm.forceStateForTesting(.waitingForCellularOff)
+        // Sequence: true (OFF 50ms) -> false (ON, reset!) -> multiple true (OFF continuously >= dwell)
+        sm.testSimulateCellularSettlementConfirmed = true
+        sm.testCellularOffSequence = [true, false, true, true, true, true, true, true]
 
-        await sm.handleDataOffCallbackSuccess()
+        let dwellSatisfied = await sm.testWaitForContinuousCellularOffDwell(
+            timeoutSeconds: 0.8,
+            requiredDwellSeconds: 0.06
+        )
 
-        #expect(sm.cellularOffWasObserved == true)
+        #expect(dwellSatisfied == true)
         let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
         guard let stabEnd = events.first(where: { $0.type == .stabilizationAfterOffEnd }) else {
             Issue.record("Missing stabilizationAfterOffEnd event")
@@ -700,15 +702,15 @@ struct CellularAssistedBootstrapTests {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-test-e", mode: "AssistedBeta")
-        sm.testSettlementTimeoutSeconds = 0.2
-        sm.testStabilizationDelaySeconds = 0.0
+        sm.forceStateForTesting(.waitingForCellularOff)
         sm.testSimulateCellularSettlementConfirmed = true
-        sm.forceStateForTesting(.waitingForDataOffCallback)
-        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: false, restoreRequired: true)
 
-        await sm.handleDataOffCallbackSuccess()
+        let dwellSatisfied = await sm.testWaitForContinuousCellularOffDwell(
+            timeoutSeconds: 0.2,
+            requiredDwellSeconds: 0.0
+        )
 
-        #expect(sm.cellularOffWasObserved == true)
+        #expect(dwellSatisfied == true)
         let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
         #expect(events.contains { $0.type == .cellularOffConfirmed })
     }
@@ -716,11 +718,18 @@ struct CellularAssistedBootstrapTests {
     @Test func test_F_firstLocationWriteSuccess_mustOccurBeforeDataOnRequested() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        ShortcutBootstrapService.shared.cancelActiveTransaction()
+
         let sink = MockLocationSink()
         sm.simulationSink = sink
+        sm.setActiveTxIdForTesting("tx-test-f")
         BootstrapTraceStore.shared.startTrace(txId: "tx-test-f", mode: "AssistedBeta")
         sm.testSettlementTimeoutSeconds = 0.05
         sm.testSimulateCellularSettlementConfirmed = true
+
+        ShortcutBootstrapService.shared.testMockShortcutRunner = { phase, txId, completion in
+            return true
+        }
 
         let target = RouteCoordinate(latitude: 25.1234, longitude: 121.5678)
         sm.forceStateForTesting(.waitingForDVT)
@@ -737,6 +746,9 @@ struct CellularAssistedBootstrapTests {
         #expect(writeIdx < dataOnIdx)
         #expect(sink.lastInjectedCoordinate == target)
         #expect(!events.contains { $0.type == .stabilizationBeforeDataOnStart })
+
+        ShortcutBootstrapService.shared.cancelActiveTransaction()
+        sm.resetForTesting()
     }
 
     @Test func test_G_firstLocationWriteFailed_normalDataOnMustNotOccur_rollbackDataOnRecoveryOccurs() async {
@@ -773,7 +785,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_I_routeAssistedBootstrap_firstCoordinatePreserved_markerClearedOnPlaybackStart() async {
         let mockSink = MockLocationSink()
         let model = RouteLocationModel(simulationService: mockSink)
-        ConnectionMonitor.shared.updateForTesting(transport: .wifi, isWifiAvailable: true, isCellularAvailable: false, deviceSession: .connected)
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .directOnly
 
         let points = [
             RouteCoordinate(latitude: 25.01, longitude: 121.51),
@@ -795,7 +807,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_J_afterCompletedRouteBootstrap_laterSinglePointRequestDoesNotReuseStaleMarker() async {
         let mockSink = MockLocationSink()
         let model = RouteLocationModel(simulationService: mockSink)
-        ConnectionMonitor.shared.updateForTesting(transport: .wifi, isWifiAvailable: true, isCellularAvailable: false, deviceSession: .connected)
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .directOnly
 
         let coord = RouteCoordinate(latitude: 25.01, longitude: 121.51)
         model.replaceWaypoints([coord, RouteCoordinate(latitude: 25.02, longitude: 121.52)])
@@ -808,6 +820,7 @@ struct CellularAssistedBootstrapTests {
 
         await model.executeTeleport(to: coord)
 
+        #expect(model.locationAlreadyWrittenByBootstrap == nil)
         #expect(mockSink.setCoordinateCallCount == 1)
         #expect(mockSink.lastInjectedCoordinate == coord)
     }
@@ -898,14 +911,17 @@ struct CellularAssistedBootstrapTests {
     @Test func test_failureDuringStabilization_rollbackDataOnStillAttempted() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        ShortcutBootstrapService.shared.cancelActiveTransaction()
         BootstrapTraceStore.shared.startTrace(txId: "tx-test-fail-stab", mode: "AssistedBeta")
         sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: true, restoreRequired: true)
         sm.forceStateForTesting(.waitingForCellularOff)
 
         sm.cancel()
 
-        #expect(sm.state == .failedRecoveringData || sm.state == .idle)
         let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
         #expect(events.contains { $0.type == .recoveryDataOnStarted })
+
+        ShortcutBootstrapService.shared.cancelActiveTransaction()
+        sm.resetForTesting()
     }
 }

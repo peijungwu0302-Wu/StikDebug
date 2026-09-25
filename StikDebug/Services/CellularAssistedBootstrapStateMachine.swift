@@ -642,6 +642,20 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         await verifyFirstLocationWrite()
     }
 
+    func setActiveTxIdForTesting(_ txId: String?) {
+        self.activeTxId = txId
+    }
+
+    func testWaitForContinuousCellularOffDwell(
+        timeoutSeconds: Double,
+        requiredDwellSeconds: Double
+    ) async -> Bool {
+        return await waitForContinuousCellularOffDwell(
+            timeoutSeconds: timeoutSeconds,
+            requiredDwellSeconds: requiredDwellSeconds
+        )
+    }
+
     func testHandleRollbackDataOnCallback(success: Bool, stage: String = "Rollback", reason: String = "Test") async {
         await handleRollbackDataOnCallback(success: success, stage: stage, reason: reason)
     }

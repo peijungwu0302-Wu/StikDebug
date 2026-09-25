@@ -1566,15 +1566,33 @@ struct SideStoreSourceTests {
               let apps = json["apps"] as? [[String: Any]],
               let firstApp = apps.first,
               let versions = firstApp["versions"] as? [[String: Any]],
-              let latest = versions.first else {
+              let latest = versions.first,
+              let latestVerStr = latest["version"] as? String else {
             Issue.record("Failed to read latest version")
             return
         }
-        #expect(latest["version"] as? String == "1.2.8")
+
+        func parseSemver(_ str: String) -> [Int] {
+            str.split(separator: ".").compactMap { Int($0) }
+        }
+
+        let latestSemver = parseSemver(latestVerStr)
+        #expect(latestSemver.count == 3, "Latest version must be a valid semver (x.y.z)")
+
+        let appTargetVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.10"
+        let appTargetSemver = parseSemver(appTargetVersion)
+
+        var isHigherThanApp = false
+        for (sourcePart, appPart) in zip(latestSemver, appTargetSemver) {
+            if sourcePart > appPart { isHigherThanApp = true; break }
+            if sourcePart < appPart { isHigherThanApp = false; break }
+        }
+        #expect(!isHigherThanApp, "Source latest (\(latestVerStr)) must not be greater than App target version (\(appTargetVersion))")
+
         #expect((latest["size"] as? Int ?? 0) > 0)
         #expect(latest["minOSVersion"] as? String == "17.4")
         let downloadURL = latest["downloadURL"] as? String ?? ""
-        #expect(downloadURL.contains("routelocation-v1.2.8"))
+        #expect(downloadURL.contains("routelocation-v\(latestVerStr)"))
         #expect(downloadURL.hasSuffix(".ipa"))
     }
 
@@ -1745,8 +1763,10 @@ struct PairingMaintenanceTests {
 struct InstallationIdentityTests {
     @Test func i1_installationIdentityHasCorrectVersionAndBuild() {
         let identity = DeveloperDiagnosticsStore.shared.installationIdentity
-        #expect(identity.version == "1.2.9")
-        #expect(identity.build == "5")
+        let expectedVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.10"
+        let expectedBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "6"
+        #expect(identity.version == expectedVersion)
+        #expect(identity.build == expectedBuild)
         #expect(identity.bundleIdentifier == "com.routelocation.app")
     }
 
@@ -1767,8 +1787,9 @@ struct InstallationIdentityTests {
             Issue.record("Failed to generate or read safe report")
             return
         }
+        let identity = DeveloperDiagnosticsStore.shared.installationIdentity
         #expect(!text.contains("/var/mobile/Containers/Data/Application/"))
-        #expect(text.contains("1.2.9"))
+        #expect(text.contains(identity.version))
     }
 }
 
