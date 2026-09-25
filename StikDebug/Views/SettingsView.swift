@@ -49,6 +49,16 @@ struct SettingsView: View {
                         Text(effectiveTunnelHealthy ? L10n.text("已就緒") : L10n.text("需要處理"))
                             .foregroundStyle(.secondary)
                     }
+
+                    HStack {
+                        Text(L10n.text("開發者磁碟映像 (DDI)"))
+                        Spacer()
+                        Circle()
+                            .fill(mounting.coolisMounted ? .green : .orange)
+                            .frame(width: 8, height: 8)
+                        Text(mounting.coolisMounted ? L10n.text("已掛載") : (mounting.mountingThread != nil ? L10n.text("準備中") : L10n.text("未掛載")))
+                            .foregroundStyle(.secondary)
+                    }
                     
                     HStack {
                         Text(L10n.text("模擬狀態"))

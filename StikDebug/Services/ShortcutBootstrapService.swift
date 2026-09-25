@@ -1,5 +1,17 @@
-﻿import Foundation
+import Foundation
 import UIKit
+
+enum ShortcutPhase: String, Codable, CaseIterable {
+    case dataOff = "data-off"
+    case dataOn = "data-on"
+
+    var label: String {
+        switch self {
+        case .dataOff: return "關閉行動數據 (DataOff)"
+        case .dataOn: return "恢復行動數據 (DataOn)"
+        }
+    }
+}
 
 @MainActor
 final class ShortcutBootstrapService: ObservableObject {
@@ -14,11 +26,21 @@ final class ShortcutBootstrapService: ObservableObject {
     @Published var shortcutPromptMode: ShortcutExecutionPrompt {
         didSet { UserDefaults.standard.set(shortcutPromptMode.rawValue, forKey: Self.promptKey) }
     }
-    @Published var shortcutName: String {
-        didSet { UserDefaults.standard.set(shortcutName, forKey: Self.nameKey) }
+    @Published var shortcutDataOffName: String {
+        didSet { UserDefaults.standard.set(shortcutDataOffName, forKey: Self.dataOffNameKey) }
+    }
+    @Published var shortcutDataOnName: String {
+        didSet { UserDefaults.standard.set(shortcutDataOnName, forKey: Self.dataOnNameKey) }
+    }
+
+    /// Backwards-compatibility alias for single shortcut name
+    var shortcutName: String {
+        get { shortcutDataOffName }
+        set { shortcutDataOffName = newValue }
     }
 
     @Published private(set) var activeTransaction: BootstrapTransaction?
+    @Published private(set) var activePhase: ShortcutPhase?
     @Published private(set) var lastTransactionStatus: String?
 
     private var pendingCompletion: ((Bool) -> Void)?
@@ -27,10 +49,12 @@ final class ShortcutBootstrapService: ObservableObject {
     private static let enabledKey = "RouteLocation.isShortcutAssistedEnabled"
     private static let policyKey = "RouteLocation.cellularBootstrapPolicy"
     private static let promptKey = "RouteLocation.shortcutPromptMode"
-    private static let nameKey = "RouteLocation.shortcutName"
+    private static let dataOffNameKey = "RouteLocation.shortcutDataOffName"
+    private static let dataOnNameKey = "RouteLocation.shortcutDataOnName"
+    private static let legacyNameKey = "RouteLocation.shortcutName"
 
     private init() {
-        self.isShortcutAssistedEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey) // default false
+        self.isShortcutAssistedEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
         if let policyRaw = UserDefaults.standard.string(forKey: Self.policyKey),
            let policy = CellularBootstrapPolicy(rawValue: policyRaw) {
             self.cellularBootstrapPolicy = policy
@@ -45,17 +69,35 @@ final class ShortcutBootstrapService: ObservableObject {
             self.shortcutPromptMode = .alwaysAsk
         }
 
-        let savedName = UserDefaults.standard.string(forKey: Self.nameKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.shortcutName = (savedName != nil && !savedName!.isEmpty) ? savedName! : "RouteLocationBootstrap"
-    }
-
-    func startShortcutBootstrapTransaction(completion: @escaping (Bool) -> Void) -> Bool {
-        guard isShortcutAssistedEnabled else {
-            completion(false)
-            return false
+        let savedDataOff = UserDefaults.standard.string(forKey: Self.dataOffNameKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let legacyName = UserDefaults.standard.string(forKey: Self.legacyNameKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let savedDataOff, !savedDataOff.isEmpty {
+            self.shortcutDataOffName = savedDataOff
+        } else if let legacyName, !legacyName.isEmpty {
+            self.shortcutDataOffName = legacyName
+        } else {
+            self.shortcutDataOffName = "RouteLocationDataOff"
         }
 
+        let savedDataOn = UserDefaults.standard.string(forKey: Self.dataOnNameKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.shortcutDataOnName = (savedDataOn != nil && !savedDataOn!.isEmpty) ? savedDataOn! : "RouteLocationDataOn"
+    }
+
+    func runDataOffShortcut(txId: String, completion: @escaping (Bool) -> Void) -> Bool {
+        return runShortcut(name: shortcutDataOffName, phase: .dataOff, txId: txId, completion: completion)
+    }
+
+    func runDataOnShortcut(txId: String, completion: @escaping (Bool) -> Void) -> Bool {
+        return runShortcut(name: shortcutDataOnName, phase: .dataOn, txId: txId, completion: completion)
+    }
+
+    /// Legacy single-phase starter (delegates to DataOff)
+    func startShortcutBootstrapTransaction(completion: @escaping (Bool) -> Void) -> Bool {
         let txId = UUID().uuidString
+        return runDataOffShortcut(txId: txId, completion: completion)
+    }
+
+    private func runShortcut(name: String, phase: ShortcutPhase, txId: String, completion: @escaping (Bool) -> Void) -> Bool {
         let transaction = BootstrapTransaction(
             id: txId,
             createdAt: Date(),
@@ -63,12 +105,13 @@ final class ShortcutBootstrapService: ObservableObject {
             status: "pending"
         )
         activeTransaction = transaction
+        activePhase = phase
         pendingCompletion = completion
 
         DeveloperDiagnosticsStore.shared.record(
             category: .bootstrap,
-            action: "SHORTCUT_TRANSACTION_STARTED",
-            details: ["txId": txId, "shortcutName": shortcutName]
+            action: "SHORTCUT_INVOCATION_STARTED",
+            details: ["txId": txId, "phase": phase.rawValue, "shortcutName": name]
         )
 
         timeoutTimer?.cancel()
@@ -80,19 +123,20 @@ final class ShortcutBootstrapService: ObservableObject {
             await MainActor.run {
                 if self.activeTransaction?.id == txId && self.activeTransaction?.status == "pending" {
                     self.activeTransaction?.status = "timed_out"
-                    self.lastTransactionStatus = L10n.text("捷徑執行逾時（15 秒）")
+                    self.lastTransactionStatus = L10n.format("捷徑 %@ 執行逾時（15 秒）", name)
                     DeveloperDiagnosticsStore.shared.record(
                         category: .bootstrap,
-                        action: "SHORTCUT_TRANSACTION_TIMEOUT",
-                        details: ["txId": txId]
+                        action: "SHORTCUT_TIMEOUT",
+                        details: ["txId": txId, "phase": phase.rawValue]
                     )
-                    self.pendingCompletion?(false)
+                    let comp = self.pendingCompletion
                     self.pendingCompletion = nil
+                    comp?(false)
                 }
             }
         }
 
-        guard let encodedName = shortcutName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+        guard let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "shortcuts://run-shortcut?name=\(encodedName)&input=text&text=\(txId)") else {
             cancelActiveTransaction()
             completion(false)
@@ -124,12 +168,13 @@ final class ShortcutBootstrapService: ObservableObject {
 
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         let txId = components?.queryItems?.first(where: { $0.name == "tx" })?.value
+        let phaseStr = components?.queryItems?.first(where: { $0.name == "phase" })?.value
         let status = components?.queryItems?.first(where: { $0.name == "status" })?.value ?? "success"
 
         DeveloperDiagnosticsStore.shared.record(
             category: .bootstrap,
             action: "SHORTCUT_CALLBACK_RECEIVED",
-            details: ["txId": txId ?? "none", "status": status]
+            details: ["txId": txId ?? "none", "phase": phaseStr ?? "none", "status": status]
         )
 
         guard let activeTx = activeTransaction, activeTx.id == txId else {
@@ -141,13 +186,24 @@ final class ShortcutBootstrapService: ObservableObject {
             return false
         }
 
+        // Validate phase if provided
+        if let phaseStr, let expectedPhase = activePhase, phaseStr != expectedPhase.rawValue {
+            DeveloperDiagnosticsStore.shared.record(
+                category: .bootstrap,
+                action: "SHORTCUT_PHASE_MISMATCH",
+                details: ["receivedPhase": phaseStr, "expectedPhase": expectedPhase.rawValue]
+            )
+            return false
+        }
+
         timeoutTimer?.cancel()
         timeoutTimer = nil
 
         let success = status.lowercased() == "success"
         activeTransaction?.completedAt = Date()
         activeTransaction?.status = success ? "completed" : "failed"
-        lastTransactionStatus = success ? L10n.text("捷徑回呼成功") : L10n.text("捷徑回報失敗")
+        let phaseLabel = activePhase?.label ?? "捷徑"
+        lastTransactionStatus = success ? L10n.format("%@ 回呼成功", phaseLabel) : L10n.format("%@ 回報失敗", phaseLabel)
 
         let completion = pendingCompletion
         pendingCompletion = nil
@@ -167,19 +223,49 @@ final class ShortcutBootstrapService: ObservableObject {
             )
         }
         activeTransaction?.status = "cancelled"
-        pendingCompletion?(false)
+        let comp = pendingCompletion
         pendingCompletion = nil
+        comp?(false)
+    }
+
+    // MARK: - Testing Triggers
+
+    func testDataOffShortcut() {
+        let testTx = "test-off-\(UUID().uuidString.prefix(6))"
+        lastTransactionStatus = "發起 DataOff 測試..."
+        _ = runDataOffShortcut(txId: testTx) { success in
+            ToastManager.shared.show(success ? "DataOff 捷徑測試成功" : "DataOff 捷徑測試失敗或逾時", kind: success ? .success : .error)
+        }
+    }
+
+    func testDataOnShortcut() {
+        let testTx = "test-on-\(UUID().uuidString.prefix(6))"
+        lastTransactionStatus = "發起 DataOn 測試..."
+        _ = runDataOnShortcut(txId: testTx) { success in
+            ToastManager.shared.show(success ? "DataOn 捷徑測試成功" : "DataOn 捷徑測試失敗或逾時", kind: success ? .success : .error)
+        }
     }
 
     static let shortcutSetupGuide: String = """
-    【Apple 捷徑自動切換設定教學】
-    1. 打開 iOS 內建「捷徑」App，按「+」建立新捷徑，命名為「RouteLocationBootstrap」。
-    2. 新增以下 3 個動作：
+    【Apple 捷徑二階段自動切換設定教學】
+    在純行動網路環境下，透過兩組獨立捷徑完成無縫通道初始化：
+
+    一、捷徑 1：關閉行動數據（命名：「RouteLocationDataOff」）
+    1. 打開 iOS「捷徑」App，按「+」建立新捷徑。
+    2. 新增以下動作：
        (1) 「設定行動數據」-> 設為「關閉」
-       (2) 「等待」-> 設為「2 秒」
-       (3) 「打開 URL」-> 填入以下網址：
-           routelocation://bootstrap-callback?tx=[捷徑輸入]&status=success
-    3. 完成儲存。執行時將自動關閉行動網路並立即回呼 RouteLocation 完成通道建立。
-    ※ 捷徑為完全選用功能，若關閉此設定或不建立捷徑，隨時可使用手動流程。
+       (2) 「打開 URL」-> 填入以下網址：
+           routelocation://bootstrap-callback?tx=[捷徑輸入]&phase=data-off&status=success
+    3. 儲存捷徑。
+
+    二、捷徑 2：恢復行動數據（命名：「RouteLocationDataOn」）
+    1. 建立另一新捷徑，命名為「RouteLocationDataOn」。
+    2. 新增以下動作：
+       (1) 「設定行動數據」-> 設為「開啟」
+       (2) 「打開 URL」-> 填入以下網址：
+           routelocation://bootstrap-callback?tx=[捷徑輸入]&phase=data-on&status=success
+    3. 儲存捷徑。
+
+    ※ 系統在完成通道建立並驗證首次定位寫入後，會自動觸發 RouteLocationDataOn 恢復行動數據。若中途失敗亦具備自動 Rollback 機制。
     """
 }

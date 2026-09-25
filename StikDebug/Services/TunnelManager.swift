@@ -279,6 +279,8 @@ final class TunnelManager: ObservableObject {
             lastErrorMessage = nil
             reconnectAttempt = 0
             cellularCompatibilitySuggested = false
+            BootstrapTraceStore.shared.recordEvent(.rsdReady)
+            BootstrapTraceStore.shared.recordEvent(.dvtReady)
             LogManager.shared.addInfoLog("Tunnel connected successfully")
             mountDeveloperDiskImageIfNeeded()
         case .failure(let error):
@@ -290,6 +292,14 @@ final class TunnelManager: ObservableObject {
                 transport: activeTransport
             )
             cellularBootstrapRequested = activeTransport == .cellular && cellularCompatibilitySuggested
+            BootstrapTraceStore.shared.recordEvent(
+                .failed,
+                details: [
+                    "code": String(error.code),
+                    "stage": stage.rawValue,
+                    "error": error.localizedDescription
+                ]
+            )
             handleStartFailure(error, showErrorUI: showErrorUI)
         }
     }
@@ -371,6 +381,8 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
     let likelyCause: String
     let recoverySteps: [String]
 
+    let vpnDetected = ConnectionMonitor.shared.usesVPNInterface
+
     if error.code == 48 || lowercasedMessage.contains("address already in use") || lowercasedMessage.contains("port already in use") {
         likelyCause = L10n.text("裝置通道所需的連接埠已被使用。")
         recoverySteps = [
@@ -379,6 +391,22 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
             L10n.format("重新啟動 %@，然後再試一次。", ProductIdentity.name),
             L10n.text("如果問題持續發生，請重新啟動裝置以釋放卡住的連接埠。")
         ]
+    } else if error.code == -18 || lowercasedMessage.contains("parse target ip") {
+        likelyCause = L10n.text("設定的目標 IP 位址無效。")
+        recoverySteps = [
+            L10n.text("開啟設定並檢查目標 IP 位址。"),
+            L10n.format("請使用預設位址 %@。", DeviceConnectionContext.defaultTargetIPAddress)
+        ]
+    } else if vpnDetected {
+        likelyCause = L10n.text("已偵測到 LocalDevVPN，但目前無法建立新的裝置通道。")
+        var steps: [String] = []
+        if ConnectionMonitor.shared.currentTransport == .cellular {
+            steps.append(L10n.text("如果目前只有行動網路，可使用「行動網路輔助啟動 Beta」暫時關閉行動數據完成初始化。"))
+        }
+        steps.append(L10n.text("確認目標裝置已解鎖並保持喚醒。"))
+        steps.append(L10n.text("可嘗試中斷後重新連接 LocalDevVPN。"))
+        steps.append(L10n.text("如果問題持續發生，請重新匯入配對檔案。"))
+        recoverySteps = steps
     } else if error.code == 54 || lowercasedMessage.contains("connection reset") {
         likelyCause = L10n.text("裝置或 VPN 在設定完成前關閉了通道連線。")
         recoverySteps = [
@@ -386,12 +414,6 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
             L10n.format("確認 LocalDevVPN 使用預設位址 %@。", DeviceConnectionContext.defaultTargetIPAddress),
             L10n.text("重新連接 LocalDevVPN，然後再試一次；Wi-Fi 或行動網路皆可。"),
             L10n.text("如果問題持續發生，請匯入這台裝置的新配對檔案。")
-        ]
-    } else if error.code == -18 || lowercasedMessage.contains("parse target ip") {
-        likelyCause = L10n.text("設定的目標 IP 位址無效。")
-        recoverySteps = [
-            L10n.text("開啟設定並檢查目標 IP 位址。"),
-            L10n.format("請使用預設位址 %@。", DeviceConnectionContext.defaultTargetIPAddress)
         ]
     } else if lowercasedMessage.contains("timed out") || lowercasedMessage.contains("timeout") {
         likelyCause = L10n.text("連線逾時前無法連接裝置。")
@@ -405,7 +427,7 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
         recoverySteps = [
             L10n.text("中斷後重新連接 LocalDevVPN。"),
             L10n.text("確認 iOS 顯示 VPN 圖示。"),
-            L10n.text("如果目前只使用行動網路，請嘗試下方的「行動網路相容模式」。")
+            L10n.text("如果目前只使用行動網路，可使用「行動網路輔助啟動 Beta」暫時關閉行動數據完成初始化。")
         ]
     } else {
         likelyCause = L10n.text("無法建立裝置通道。")

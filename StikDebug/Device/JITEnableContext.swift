@@ -181,6 +181,12 @@ final class JITEnableContext {
             throw makeError("Failed to parse target IP address.", code: -18)
         }
 
+        let rppTarget = "\(deviceIP):49152"
+        Task { @MainActor in
+            BootstrapTraceStore.shared.recordEvent(.rpairingStart, details: ["target": rppTarget])
+        }
+        let rppStartTime = ProcessInfo.processInfo.systemUptime
+
         var tunnel = TunnelHandles()
         let ffiError = hostname.withCString { hostname in
             withUnsafePointer(to: &addr) { pointer in
@@ -198,9 +204,33 @@ final class JITEnableContext {
                 }
             }
         }
+        let durationMs = (ProcessInfo.processInfo.systemUptime - rppStartTime) * 1000.0
 
         if let ffiError {
-            throw error(from: ffiError, fallback: "Failed to create tunnel")
+            let err = error(from: ffiError, fallback: "Failed to create tunnel")
+            Task { @MainActor in
+                BootstrapTraceStore.shared.recordEvent(
+                    .rpairingFailed,
+                    details: [
+                        "target": rppTarget,
+                        "durationMs": String(format: "%.1f", durationMs),
+                        "code": String(err.code),
+                        "errno": String(err.code),
+                        "error": err.localizedDescription
+                    ]
+                )
+            }
+            throw err
+        }
+
+        Task { @MainActor in
+            BootstrapTraceStore.shared.recordEvent(
+                .rpairingSuccess,
+                details: [
+                    "target": rppTarget,
+                    "durationMs": String(format: "%.1f", durationMs)
+                ]
+            )
         }
 
         guard tunnel.adapter != nil, tunnel.handshake != nil else {

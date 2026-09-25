@@ -214,7 +214,7 @@ struct SetupDiagnosticsView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
 
-                    Toggle("Apple 捷徑自動切換輔助（選用）", isOn: $shortcutService.isShortcutAssistedEnabled)
+                    Toggle("Apple 捷徑自動切換輔助 (Beta)", isOn: $shortcutService.isShortcutAssistedEnabled)
 
                     if shortcutService.isShortcutAssistedEnabled {
                         VStack(alignment: .leading, spacing: 6) {
@@ -227,32 +227,37 @@ struct SetupDiagnosticsView: View {
                         }
 
                         HStack {
-                            Text("捷徑名稱")
+                            Text("DataOff 捷徑名稱")
                             Spacer()
-                            TextField("RouteLocationBootstrap", text: $shortcutService.shortcutName)
+                            TextField("RouteLocationDataOff", text: $shortcutService.shortcutDataOffName)
                                 .multilineTextAlignment(.trailing)
                                 .frame(width: 180)
                         }
 
-                        Button("複製捷徑設定步驟教學") {
+                        HStack {
+                            Text("DataOn 捷徑名稱")
+                            Spacer()
+                            TextField("RouteLocationDataOn", text: $shortcutService.shortcutDataOnName)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 180)
+                        }
+
+                        Button("複製二階段捷徑設定教學") {
                             UIPasteboard.general.string = ShortcutBootstrapService.shortcutSetupGuide
                             ToastManager.shared.show(L10n.text("已複製教學到剪貼簿"), kind: .success)
                         }
 
-                        Button("測試執行捷徑") {
-                            let started = shortcutService.startShortcutBootstrapTransaction { success in
-                                if success {
-                                    ToastManager.shared.show(L10n.text("捷徑測試成功！"), kind: .success)
-                                } else {
-                                    ToastManager.shared.show(L10n.text("捷徑測試失敗或逾時"), kind: .error)
-                                }
+                        HStack {
+                            Button("測試 Data Off 捷徑") {
+                                shortcutService.testDataOffShortcut()
                             }
-                            if !started {
-                                ToastManager.shared.show(L10n.text("無法啟動捷徑，請檢查名稱是否相符"), kind: .error)
+                            Spacer()
+                            Button("測試 Data On 捷徑") {
+                                shortcutService.testDataOnShortcut()
                             }
                         }
 
-                        Text("捷徑為完全選用功能；關閉時絕不呼叫 shortcuts://。無論是否開啟捷徑，所有流程均提供手動完成選項。")
+                        Text("捷徑為完全選用之二階段切換功能；關閉時絕不呼叫 shortcuts://。無論是否開啟捷徑，所有流程均提供手動完成選項。")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }

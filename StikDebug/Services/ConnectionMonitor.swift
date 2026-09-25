@@ -62,6 +62,8 @@ final class ConnectionMonitor: ObservableObject {
 
     @Published private(set) var previousTransport: NetworkTransport = .offline
     @Published private(set) var currentTransport: NetworkTransport = .offline
+    @Published private(set) var isWifiAvailable = false
+    @Published private(set) var isCellularAvailable = false
     @Published private(set) var internetReachable = false
     @Published private(set) var usesVPNInterface = false
     @Published private(set) var pathIsExpensive = false
@@ -132,16 +134,18 @@ final class ConnectionMonitor: ObservableObject {
 
     private func apply(_ path: NWPath) {
         let satisfied = path.status == .satisfied
+        let wifiAvailable = path.availableInterfaces.contains { $0.type == .wifi }
+        let cellularAvailable = path.availableInterfaces.contains { $0.type == .cellular }
         let transport = NetworkTransport.classify(
             isSatisfied: satisfied,
             usesWiFi: path.usesInterfaceType(.wifi),
             usesCellular: path.usesInterfaceType(.cellular),
-            wifiAvailable: path.availableInterfaces.contains { $0.type == .wifi },
-            cellularAvailable: path.availableInterfaces.contains { $0.type == .cellular },
+            wifiAvailable: wifiAvailable,
+            cellularAvailable: cellularAvailable,
             isExpensive: path.isExpensive
         )
         let vpnDetected = path.availableInterfaces.contains { $0.type == .other }
-        let signature = "\(satisfied)|\(transport.rawValue)|\(vpnDetected)|\(path.isExpensive)"
+        let signature = "\(satisfied)|\(transport.rawValue)|\(vpnDetected)|\(path.isExpensive)|\(wifiAvailable)|\(cellularAvailable)"
         guard signature != lastPathSignature else { return }
         lastPathSignature = signature
 
@@ -152,8 +156,10 @@ final class ConnectionMonitor: ObservableObject {
         internetReachable = satisfied
         usesVPNInterface = vpnDetected
         pathIsExpensive = path.isExpensive
+        isWifiAvailable = wifiAvailable
+        isCellularAvailable = cellularAvailable
         LogManager.shared.addInfoLog(
-            "Network path changed: transport=\(transport.rawValue), satisfied=\(satisfied), vpn=\(vpnDetected), expensive=\(path.isExpensive)"
+            "Network path changed: transport=\(transport.rawValue), satisfied=\(satisfied), vpn=\(vpnDetected), expensive=\(path.isExpensive), wifi=\(wifiAvailable), cell=\(cellularAvailable)"
         )
 
         if activeDVTSessionAvailable || locationDataPathHealthy {
@@ -183,4 +189,21 @@ final class ConnectionMonitor: ObservableObject {
         transportRevision &+= 1
         TunnelManager.shared.handleNetworkTransition(from: oldTransport, to: transport)
     }
+
+    #if DEBUG
+    func updateForTesting(
+        transport: NetworkTransport,
+        isWifiAvailable: Bool,
+        isCellularAvailable: Bool,
+        usesVPNInterface: Bool = false,
+        deviceSession: DeviceSessionStatus = .idle
+    ) {
+        self.previousTransport = self.currentTransport
+        self.currentTransport = transport
+        self.isWifiAvailable = isWifiAvailable
+        self.isCellularAvailable = isCellularAvailable
+        self.usesVPNInterface = usesVPNInterface
+        self.deviceSession = deviceSession
+    }
+    #endif
 }

@@ -21,6 +21,11 @@
 	<array>
 		<string>_routelocation._tcp</string>
 		<string>_routelocation._udp</string>
+		<string>_remotepairing._tcp</string>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>shortcuts</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

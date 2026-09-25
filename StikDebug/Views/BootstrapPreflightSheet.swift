@@ -2,26 +2,29 @@ import SwiftUI
 
 struct BootstrapPreflightSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var stateMachine = CellularAssistedBootstrapStateMachine.shared
+    @ObservedObject private var shortcutService = ShortcutBootstrapService.shared
+
     let onRecheck: () -> Void
     let onForceConnect: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
+            VStack(spacing: 16) {
                 Image(systemName: "antenna.radiowaves.left.and.right.slash")
-                    .font(.system(size: 50))
+                    .font(.system(size: 46))
                     .foregroundStyle(.orange)
-                    .padding(.top, 24)
+                    .padding(.top, 20)
 
                 Text(L10n.text("定位通道初始化"))
                     .font(.title2.bold())
 
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
                     Text(L10n.text("目前正在使用行動網路。"))
                         .font(.body)
 
-                    Text(L10n.text("為了提高首次建立定位通道的成功率，\n請暫時關閉「行動數據」，\n或暫時開啟「飛航模式」。"))
+                    Text(L10n.text("為了提高首次建立定位通道的成功率，\n建議暫時關閉「行動數據」，或暫時開啟「飛航模式」。"))
                         .font(.body)
 
                     HStack(spacing: 6) {
@@ -32,33 +35,55 @@ struct BootstrapPreflightSheet: View {
                             .foregroundStyle(.blue)
                     }
 
-                    Text(L10n.text("定位通道建立完成後，\n即可重新開啟行動數據／關閉飛航模式。"))
+                    Text(L10n.text("定位通道建立並驗證定位後，即可重新開啟行動數據。"))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
+                .padding(14)
                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal)
+
+                if stateMachine.state.isRunning {
+                    VStack(spacing: 8) {
+                        ProgressView()
+                        Text(stateMachine.state.label)
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.indigo)
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                if stateMachine.requiresManualDataOnAlert {
+                    Text(L10n.text("⚠️ 無法自動恢復行動數據，請至控制中心手動重新開啟。"))
+                        .font(.footnote.bold())
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
 
                 Spacer()
 
                 VStack(spacing: 12) {
-                    if ShortcutBootstrapService.shared.isShortcutAssistedEnabled {
+                    if shortcutService.isShortcutAssistedEnabled {
                         Button {
-                            _ = ShortcutBootstrapService.shared.startShortcutBootstrapTransaction { success in
-                                if success {
+                            stateMachine.startAssistedBootstrap { result in
+                                switch result {
+                                case .success:
                                     dismiss()
                                     onRecheck()
+                                case .failure:
+                                    break
                                 }
                             }
                         } label: {
-                            Label(L10n.text("啟動捷徑自動切換 (Shortcut)"), systemImage: "arrow.triangle.2.circlepath")
+                            Label(L10n.text("啟動捷徑輔助切換 (Beta)"), systemImage: "arrow.triangle.2.circlepath")
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 4)
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.indigo)
+                        .disabled(stateMachine.state.isRunning)
                     }
 
                     Button {
@@ -70,17 +95,20 @@ struct BootstrapPreflightSheet: View {
                             .padding(.vertical, 4)
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(stateMachine.state.isRunning)
 
                     Button {
                         dismiss()
                         onForceConnect()
                     } label: {
-                        Text(L10n.text("仍要嘗試直接連線"))
+                        Text(L10n.text("仍要嘗試直接連線 (實驗性)"))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                    .disabled(stateMachine.state.isRunning)
 
                     Button(L10n.text("取消"), role: .cancel) {
+                        stateMachine.cancel()
                         dismiss()
                         onCancel()
                     }
@@ -93,6 +121,7 @@ struct BootstrapPreflightSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.text("取消")) {
+                        stateMachine.cancel()
                         dismiss()
                         onCancel()
                     }

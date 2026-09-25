@@ -410,14 +410,27 @@ final class RouteLocationModel: ObservableObject {
         let hasActiveDVT = connectionMonitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess
         guard !hasActiveDVT else { return false }
         guard connectionMonitor.currentTransport != .wifi else { return false }
-        if policy == .assistedFirst {
-            return connectionMonitor.currentTransport == .cellular
-        }
-        return connectionMonitor.currentTransport == .cellular && !TunnelManager.shared.bootstrapAvailable
+        return connectionMonitor.currentTransport == .cellular
     }
 
-    func requestBootstrapIfCellular(action: @escaping @MainActor () -> Void) {
+    func requestBootstrapIfCellular(targetCoordinate: RouteCoordinate? = nil, action: @escaping @MainActor () -> Void) {
         if isCellularBootstrapPreparationNeeded {
+            let policy = ShortcutBootstrapService.shared.cellularBootstrapPolicy
+            if policy == .assistedFirst && ShortcutBootstrapService.shared.isShortcutAssistedEnabled {
+                CellularAssistedBootstrapStateMachine.shared.startAssistedBootstrap(targetCoordinate: targetCoordinate) { [weak self] result in
+                    guard let self else { return }
+                    Task { @MainActor in
+                        switch result {
+                        case .success:
+                            action()
+                        case .failure(let error):
+                            self.presentedError = error.localizedDescription
+                        }
+                    }
+                }
+                return
+            }
+
             pendingBootstrapAction = action
             TunnelManager.shared.cellularBootstrapRequested = true
             showBootstrapPreflightSheet = true
@@ -448,6 +461,7 @@ final class RouteLocationModel: ObservableObject {
         showBootstrapPreflightSheet = false
         pendingBootstrapAction = nil
         TunnelManager.shared.cellularBootstrapRequested = false
+        CellularAssistedBootstrapStateMachine.shared.cancel()
     }
 
     func requestSinglePointSimulation(at coordinate: RouteCoordinate? = nil) {
@@ -462,7 +476,7 @@ final class RouteLocationModel: ObservableObject {
                 return
             }
         }
-        requestBootstrapIfCellular { [weak self] in
+        requestBootstrapIfCellular(targetCoordinate: target) { [weak self] in
             guard let self else { return }
             Task { await self.executeTeleport(to: target) }
         }
@@ -541,7 +555,8 @@ final class RouteLocationModel: ObservableObject {
 
     func startPlayback() async {
         if isCellularBootstrapPreparationNeeded {
-            requestBootstrapIfCellular { [weak self] in
+            let firstCoord = geometry.coordinates.first
+            requestBootstrapIfCellular(targetCoordinate: firstCoord) { [weak self] in
                 guard let self else { return }
                 Task { await self.startPlayback() }
             }

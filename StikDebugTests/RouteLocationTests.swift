@@ -1661,8 +1661,8 @@ struct PairingMaintenanceTests {
 struct InstallationIdentityTests {
     @Test func i1_installationIdentityHasCorrectVersionAndBuild() {
         let identity = DeveloperDiagnosticsStore.shared.installationIdentity
-        #expect(identity.version == "1.2.8")
-        #expect(identity.build == "4")
+        #expect(identity.version == "1.2.9")
+        #expect(identity.build == "5")
         #expect(identity.bundleIdentifier == "com.routelocation.app")
     }
 
@@ -1684,7 +1684,7 @@ struct InstallationIdentityTests {
             return
         }
         #expect(!text.contains("/var/mobile/Containers/Data/Application/"))
-        #expect(text.contains("1.2.8"))
+        #expect(text.contains("1.2.9"))
     }
 }
 
