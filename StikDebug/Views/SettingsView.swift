@@ -183,7 +183,7 @@ struct SettingsView: View {
                     HStack {
                         Text(L10n.text("版本"))
                         Spacer()
-                        Text("RouteLocation 1.2.7")
+                        Text("RouteLocation \(diagnosticsStore.installationIdentity.version)")
                             .foregroundStyle(.secondary)
                             .contentShape(Rectangle())
                             .onTapGesture {

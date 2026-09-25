@@ -160,7 +160,7 @@ final class DeveloperDiagnosticsStore: ObservableObject {
     func startNewRun(name: String? = nil) {
         let runId = UUID().uuidString
         let date = Date()
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.7"
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.8"
         let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         let osVersion = UIDevice.current.systemVersion
 
@@ -400,7 +400,7 @@ final class DeveloperDiagnosticsStore: ObservableObject {
         let teamId = SigningStatusService.shared.profileInfo?.teamIdentifier.first ?? "APPLE_DEV"
         let redactedTeam = teamId.count > 3 ? "\(teamId.prefix(3))•••••••" : "••••••••••"
         let redactedAppId = "\(redactedTeam).\(bundleId)"
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.7"
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.8"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "4"
         let pairingPresent = FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path)
 
