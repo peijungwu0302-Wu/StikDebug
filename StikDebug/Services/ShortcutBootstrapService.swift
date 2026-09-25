@@ -261,16 +261,28 @@ final class ShortcutBootstrapService: ObservableObject {
     var testCanOpenURL: ((URL) -> Bool)?
     var testOpenURL: ((URL, @escaping (Bool) -> Void) -> Void)?
 
+    func discardActiveTransactionForTesting() {
+        timeoutTimer?.cancel()
+        timeoutTimer = nil
+
+        // IMPORTANT: do NOT invoke pendingCompletion
+        pendingCompletion = nil
+
+        activeTransaction = nil
+        activePhase = nil
+
+        testMockShortcutRunner = nil
+        testCanOpenURL = nil
+        testOpenURL = nil
+    }
+
     func resetForTesting() {
-        cancelActiveTransaction()
+        discardActiveTransactionForTesting()
         cellularBootstrapStabilizationDelay = 1.0
         UserDefaults.standard.removeObject(forKey: Self.stabilizationDelayKey)
         testRoundTripSettlementTimeoutSeconds = nil
         testSimulateCellularOffObserved = nil
         testSimulateCellularOnObserved = nil
-        testMockShortcutRunner = nil
-        testCanOpenURL = nil
-        testOpenURL = nil
     }
     #endif
 
