@@ -175,6 +175,36 @@ struct CellularBootstrapLabView: View {
                     .tint(.indigo)
                     .disabled(stateMachine.state.isRunning)
 
+                    DisclosureGroup(L10n.text("進階設定 (Advanced)")) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(L10n.text("切換穩定等待"))
+                                Spacer()
+                                Text(String(format: "%.1f 秒", shortcutService.cellularBootstrapStabilizationDelay))
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Picker(L10n.text("切換穩定等待時間"), selection: $shortcutService.cellularBootstrapStabilizationDelay) {
+                                ForEach([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0], id: \.self) { delay in
+                                    Text(String(format: "%.1f 秒", delay)).tag(delay)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            Text(L10n.text("行動網路切換完成後，額外等待短暫時間再進入下一階段。不同 iPhone、iOS 版本與電信網路環境可能需要不同等待時間。"))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+
+                            Button(L10n.text("恢復預設值")) {
+                                shortcutService.resetStabilizationDelayToDefault()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                        .padding(.vertical, 4)
+                    }
+
                     DisclosureGroup(L10n.text("查看二階段捷徑設定教學")) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(ShortcutBootstrapService.shortcutSetupGuide)

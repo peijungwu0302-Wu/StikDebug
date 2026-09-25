@@ -242,6 +242,30 @@ struct SetupDiagnosticsView: View {
                                 .frame(width: 180)
                         }
 
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(L10n.text("切換穩定等待"))
+                                Spacer()
+                                Text(String(format: "%.1f 秒", shortcutService.cellularBootstrapStabilizationDelay))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Picker(L10n.text("切換穩定等待時間"), selection: $shortcutService.cellularBootstrapStabilizationDelay) {
+                                ForEach([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0], id: \.self) { delay in
+                                    Text(String(format: "%.1f 秒", delay)).tag(delay)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            Text(L10n.text("行動網路切換完成後，額外等待短暫時間再進入下一階段。不同 iPhone、iOS 版本與電信網路環境可能需要不同等待時間。"))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+
+                            Button(L10n.text("恢復預設值")) {
+                                shortcutService.resetStabilizationDelayToDefault()
+                            }
+                            .font(.footnote)
+                        }
+
                         Button("複製二階段捷徑設定教學") {
                             UIPasteboard.general.string = ShortcutBootstrapService.shortcutSetupGuide
                             ToastManager.shared.show(L10n.text("已複製教學到剪貼簿"), kind: .success)

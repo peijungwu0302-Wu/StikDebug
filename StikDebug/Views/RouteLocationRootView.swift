@@ -82,6 +82,7 @@ struct RouteLocationRootView: View {
         }
         .sheet(isPresented: $model.showBootstrapPreflightSheet) {
             BootstrapPreflightSheet(
+                onStartAssisted: { model.startAssistedBootstrapFromPreflight() },
                 onRecheck: { model.confirmBootstrapPreflightRecheck() },
                 onForceConnect: { model.confirmBootstrapPreflightForce() },
                 onCancel: { model.cancelBootstrapPreflight() }

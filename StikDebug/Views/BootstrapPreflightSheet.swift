@@ -5,6 +5,7 @@ struct BootstrapPreflightSheet: View {
     @ObservedObject private var stateMachine = CellularAssistedBootstrapStateMachine.shared
     @ObservedObject private var shortcutService = ShortcutBootstrapService.shared
 
+    let onStartAssisted: () -> Void
     let onRecheck: () -> Void
     let onForceConnect: () -> Void
     let onCancel: () -> Void
@@ -67,15 +68,7 @@ struct BootstrapPreflightSheet: View {
                 VStack(spacing: 12) {
                     if shortcutService.isShortcutAssistedEnabled {
                         Button {
-                            stateMachine.startAssistedBootstrap { result in
-                                switch result {
-                                case .success:
-                                    dismiss()
-                                    onRecheck()
-                                case .failure:
-                                    break
-                                }
-                            }
+                            onStartAssisted()
                         } label: {
                             Label(L10n.text("啟動捷徑輔助切換 (Beta)"), systemImage: "arrow.triangle.2.circlepath")
                                 .frame(maxWidth: .infinity)

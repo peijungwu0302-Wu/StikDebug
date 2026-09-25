@@ -161,7 +161,17 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     #if DEBUG
     var testSettlementTimeoutSeconds: Double?
     var testSimulateCellularSettlementConfirmed: Bool?
+    var testStabilizationDelaySeconds: Double?
     #endif
+
+    private var effectiveStabilizationDelay: Double {
+        #if DEBUG
+        if let custom = testStabilizationDelaySeconds { return custom }
+        #endif
+        return ShortcutBootstrapService.shared.cellularBootstrapStabilizationDelay
+    }
+
+    private var stabilizationTask: Task<Void, Error>?
 
     private var offSettlementTimeout: Double {
         #if DEBUG
@@ -192,6 +202,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             self.cellularOffWasObserved = true
             BootstrapTraceStore.shared.recordEvent(.cellularOffConfirmed)
             LogManager.shared.addInfoLog("Physical cellular settlement confirmed.")
+            let continued = await self.applyStabilizationDelayAfterOff()
+            guard continued else { return }
             await self.proceedToBootstrapping()
         } else {
             LogManager.shared.addErrorLog("Cellular settlement timed out; physical cellular radio remains active. Aborting bootstrap and restoring data.")
@@ -200,6 +212,74 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
                 reason: "行動數據關閉確認逾時：系統仍偵測到行動網路，無法安全建立通道，自動觸發恢復"
             )
         }
+    }
+
+    private func applyStabilizationDelayAfterOff() async -> Bool {
+        let delay = effectiveStabilizationDelay
+        guard delay > 0 else { return true }
+
+        scheduleTimeout(seconds: max(8, delay + 5), stage: "StabilizationAfterOff")
+        BootstrapTraceStore.shared.recordEvent(
+            .stabilizationAfterOffStart,
+            details: ["delaySeconds": String(format: "%.1f", delay)]
+        )
+        LogManager.shared.addInfoLog("Stabilization delay after Cellular OFF started (\(String(format: "%.1f", delay))s)")
+
+        let task = Task {
+            try await Task.sleep(for: .seconds(delay))
+        }
+        self.stabilizationTask = task
+        do {
+            try await task.value
+            self.stabilizationTask = nil
+        } catch {
+            self.stabilizationTask = nil
+            LogManager.shared.addInfoLog("Stabilization delay after Cellular OFF cancelled")
+            return false
+        }
+
+        guard state.isRunning else { return false }
+
+        BootstrapTraceStore.shared.recordEvent(
+            .stabilizationAfterOffEnd,
+            details: ["delaySeconds": String(format: "%.1f", delay)]
+        )
+        LogManager.shared.addInfoLog("Stabilization delay after Cellular OFF completed")
+        return true
+    }
+
+    private func applyStabilizationDelayBeforeDataOn() async -> Bool {
+        let delay = effectiveStabilizationDelay
+        guard delay > 0 else { return true }
+
+        scheduleTimeout(seconds: max(10, delay + 5), stage: "StabilizationBeforeDataOn")
+        BootstrapTraceStore.shared.recordEvent(
+            .stabilizationBeforeDataOnStart,
+            details: ["delaySeconds": String(format: "%.1f", delay)]
+        )
+        LogManager.shared.addInfoLog("Stabilization delay before DataOn started (\(String(format: "%.1f", delay))s)")
+
+        let task = Task {
+            try await Task.sleep(for: .seconds(delay))
+        }
+        self.stabilizationTask = task
+        do {
+            try await task.value
+            self.stabilizationTask = nil
+        } catch {
+            self.stabilizationTask = nil
+            LogManager.shared.addInfoLog("Stabilization delay before DataOn cancelled")
+            return false
+        }
+
+        guard state.isRunning else { return false }
+
+        BootstrapTraceStore.shared.recordEvent(
+            .stabilizationBeforeDataOnEnd,
+            details: ["delaySeconds": String(format: "%.1f", delay)]
+        )
+        LogManager.shared.addInfoLog("Stabilization delay before DataOn completed")
+        return true
     }
 
     private func waitForCellularOffSettlement(timeoutSeconds: Double) async -> Bool {
@@ -267,6 +347,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
                 LocationDataPathHealth.shared.recordSuccess()
                 BootstrapTraceStore.shared.recordEvent(.firstLocationWriteSuccess, details: ["coord": "\(target.latitude),\(target.longitude)"])
                 LogManager.shared.addInfoLog("First location write verified successfully at \(target.latitude), \(target.longitude)")
+                let continued = await applyStabilizationDelayBeforeDataOn()
+                guard continued else { return }
                 await proceedToDataOn()
             } catch {
                 LocationDataPathHealth.shared.recordFailure(error)
@@ -275,6 +357,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             }
         } else {
             LogManager.shared.addInfoLog("No verification coordinate provided; skipping mock location injection in bootstrap.")
+            let continued = await applyStabilizationDelayBeforeDataOn()
+            guard continued else { return }
             await proceedToDataOn()
         }
     }
@@ -385,6 +469,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     private func handleFailure(stage: String, reason: String) {
         stateTimeoutTask?.cancel()
         stateTimeoutTask = nil
+        stabilizationTask?.cancel()
+        stabilizationTask = nil
         lastErrorMessage = "\(stage): \(reason)"
         LogManager.shared.addErrorLog("CellularAssistedBootstrap failed at \(stage): \(reason)")
 
@@ -454,6 +540,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         guard state.isRunning else { return }
         stateTimeoutTask?.cancel()
         stateTimeoutTask = nil
+        stabilizationTask?.cancel()
+        stabilizationTask = nil
         let shouldRollback = dataRestoreRequired || dataOffWasRequested
         transitionTo(.cancelled)
         BootstrapTraceStore.shared.recordEvent(.failed, details: ["reason": "CancelledByUser"])
@@ -475,6 +563,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         activeCompletion = nil
         stateTimeoutTask?.cancel()
         stateTimeoutTask = nil
+        stabilizationTask?.cancel()
+        stabilizationTask = nil
     }
 
     private func scheduleTimeout(seconds: Double, stage: String) {
@@ -511,9 +601,12 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         activeCompletion = nil
         testSettlementTimeoutSeconds = nil
         testSimulateCellularSettlementConfirmed = nil
+        testStabilizationDelaySeconds = nil
         simulationSink = DeviceLocationSimulationService.shared
         stateTimeoutTask?.cancel()
         stateTimeoutTask = nil
+        stabilizationTask?.cancel()
+        stabilizationTask = nil
     }
 
     func forceStateForTesting(_ newState: CellularAssistedState) {

@@ -26,6 +26,8 @@ final class RouteLocationModel: ObservableObject {
     @Published var pendingSinglePointCoordinate: RouteCoordinate?
     @Published var showModeSwitchAlert = false
     @Published var showBootstrapPreflightSheet = false
+    @Published private(set) var pendingBootstrapTargetCoordinate: RouteCoordinate?
+    private(set) var locationAlreadyWrittenByBootstrap: RouteCoordinate?
     @Published var previewingRoute: SavedRoute?
     @Published var showActiveRouteSwitchAlert = false
     @Published var pendingSwitchRoute: SavedRoute?
@@ -415,6 +417,7 @@ final class RouteLocationModel: ObservableObject {
 
     func requestBootstrapIfCellular(targetCoordinate: RouteCoordinate? = nil, action: @escaping @MainActor () -> Void) {
         if isCellularBootstrapPreparationNeeded {
+            self.pendingBootstrapTargetCoordinate = targetCoordinate
             let policy = ShortcutBootstrapService.shared.cellularBootstrapPolicy
             if policy == .assistedFirst && ShortcutBootstrapService.shared.isShortcutAssistedEnabled {
                 CellularAssistedBootstrapStateMachine.shared.startAssistedBootstrap(targetCoordinate: targetCoordinate) { [weak self] result in
@@ -422,8 +425,13 @@ final class RouteLocationModel: ObservableObject {
                     Task { @MainActor in
                         switch result {
                         case .success:
+                            if let targetCoordinate {
+                                self.locationAlreadyWrittenByBootstrap = targetCoordinate
+                            }
+                            self.pendingBootstrapTargetCoordinate = nil
                             action()
                         case .failure(let error):
+                            self.pendingBootstrapTargetCoordinate = nil
                             self.presentedError = error.localizedDescription
                         }
                     }
@@ -439,9 +447,36 @@ final class RouteLocationModel: ObservableObject {
         }
     }
 
+    func startAssistedBootstrapFromPreflight() {
+        guard let action = pendingBootstrapAction else { return }
+        let target = pendingBootstrapTargetCoordinate
+        CellularAssistedBootstrapStateMachine.shared.startAssistedBootstrap(targetCoordinate: target) { [weak self] result in
+            guard let self else { return }
+            Task { @MainActor in
+                switch result {
+                case .success:
+                    if let target {
+                        self.locationAlreadyWrittenByBootstrap = target
+                    }
+                    self.showBootstrapPreflightSheet = false
+                    self.pendingBootstrapAction = nil
+                    self.pendingBootstrapTargetCoordinate = nil
+                    action()
+                case .failure(let error):
+                    self.showBootstrapPreflightSheet = false
+                    self.pendingBootstrapAction = nil
+                    self.pendingBootstrapTargetCoordinate = nil
+                    self.presentedError = error.localizedDescription
+                }
+            }
+        }
+    }
+
     func confirmBootstrapPreflightRecheck() {
         showBootstrapPreflightSheet = false
         TunnelManager.shared.cellularBootstrapRequested = true
+        pendingBootstrapTargetCoordinate = nil
+        locationAlreadyWrittenByBootstrap = nil
         if let action = pendingBootstrapAction {
             pendingBootstrapAction = nil
             action()
@@ -451,6 +486,8 @@ final class RouteLocationModel: ObservableObject {
     func confirmBootstrapPreflightForce() {
         showBootstrapPreflightSheet = false
         TunnelManager.shared.cellularBootstrapRequested = true
+        pendingBootstrapTargetCoordinate = nil
+        locationAlreadyWrittenByBootstrap = nil
         if let action = pendingBootstrapAction {
             pendingBootstrapAction = nil
             action()
@@ -460,6 +497,8 @@ final class RouteLocationModel: ObservableObject {
     func cancelBootstrapPreflight() {
         showBootstrapPreflightSheet = false
         pendingBootstrapAction = nil
+        pendingBootstrapTargetCoordinate = nil
+        locationAlreadyWrittenByBootstrap = nil
         TunnelManager.shared.cellularBootstrapRequested = false
         CellularAssistedBootstrapStateMachine.shared.cancel()
     }
@@ -531,6 +570,15 @@ final class RouteLocationModel: ObservableObject {
 
     func executeTeleport(to target: RouteCoordinate) async {
         playback.stop(clearMarker: false)
+        let alreadyWritten = (locationAlreadyWrittenByBootstrap == target)
+        locationAlreadyWrittenByBootstrap = nil
+
+        if alreadyWritten {
+            startSinglePointHold(at: target)
+            statusMessage = L10n.text("已成功模擬所選位置。")
+            return
+        }
+
         do {
             try await setCoordinateWithBoundedRecovery(target)
             startSinglePointHold(at: target)

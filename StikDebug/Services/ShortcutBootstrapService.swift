@@ -32,6 +32,16 @@ final class ShortcutBootstrapService: ObservableObject {
     @Published var shortcutDataOnName: String {
         didSet { UserDefaults.standard.set(shortcutDataOnName, forKey: Self.dataOnNameKey) }
     }
+    @Published var cellularBootstrapStabilizationDelay: Double {
+        didSet {
+            let clamped = max(0.0, min(3.0, cellularBootstrapStabilizationDelay))
+            if clamped != cellularBootstrapStabilizationDelay {
+                cellularBootstrapStabilizationDelay = clamped
+            } else {
+                UserDefaults.standard.set(clamped, forKey: Self.stabilizationDelayKey)
+            }
+        }
+    }
 
     /// Backwards-compatibility alias for single shortcut name
     var shortcutName: String {
@@ -52,9 +62,17 @@ final class ShortcutBootstrapService: ObservableObject {
     private static let dataOffNameKey = "RouteLocation.shortcutDataOffName"
     private static let dataOnNameKey = "RouteLocation.shortcutDataOnName"
     private static let legacyNameKey = "RouteLocation.shortcutName"
+    static let stabilizationDelayKey = "RouteLocation.cellularBootstrapStabilizationDelay"
 
     private init() {
         self.isShortcutAssistedEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+        if UserDefaults.standard.object(forKey: Self.stabilizationDelayKey) != nil {
+            let saved = UserDefaults.standard.double(forKey: Self.stabilizationDelayKey)
+            self.cellularBootstrapStabilizationDelay = max(0.0, min(3.0, saved))
+        } else {
+            self.cellularBootstrapStabilizationDelay = 1.0
+        }
+
         if let policyRaw = UserDefaults.standard.string(forKey: Self.policyKey),
            let policy = CellularBootstrapPolicy(rawValue: policyRaw) {
             self.cellularBootstrapPolicy = policy
@@ -231,6 +249,10 @@ final class ShortcutBootstrapService: ObservableObject {
         comp?(false)
     }
 
+    func resetStabilizationDelayToDefault() {
+        cellularBootstrapStabilizationDelay = 1.0
+    }
+
     #if DEBUG
     var testRoundTripSettlementTimeoutSeconds: Double?
     var testSimulateCellularOffObserved: Bool?
@@ -241,6 +263,8 @@ final class ShortcutBootstrapService: ObservableObject {
 
     func resetForTesting() {
         cancelActiveTransaction()
+        cellularBootstrapStabilizationDelay = 1.0
+        UserDefaults.standard.removeObject(forKey: Self.stabilizationDelayKey)
         testRoundTripSettlementTimeoutSeconds = nil
         testSimulateCellularOffObserved = nil
         testSimulateCellularOnObserved = nil

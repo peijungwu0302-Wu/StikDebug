@@ -588,4 +588,206 @@ struct CellularAssistedBootstrapTests {
         #expect(invokedPhases == [.dataOff, .dataOn])
         #expect(testMessage?.contains("安全測試成功") == true)
     }
+
+    // MARK: - 9. v1.2.10 Assisted Bootstrap Sequencing & Stabilization Tests
+
+    private final class FailingMockLocationSink: LocationSimulationSink, @unchecked Sendable {
+        func setCoordinate(_ coordinate: RouteCoordinate) async throws {
+            throw NSError(domain: "FailingMockLocationSink", code: -999, userInfo: [NSLocalizedDescriptionKey: "Simulated write failure"])
+        }
+        func clearSimulatedLocation() async throws {}
+    }
+
+    @Test func test_A_preflightAssistedBootstrap_preservesExactTargetCoordinate() async {
+        let model = RouteLocationModel()
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .askFirst
+
+        let target = RouteCoordinate(latitude: 25.0339, longitude: 121.5644)
+        model.requestSinglePointSimulation(at: target)
+
+        #expect(model.showBootstrapPreflightSheet == true)
+        #expect(model.pendingBootstrapTargetCoordinate == target)
+
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+
+        // When preflight launches assisted bootstrap
+        model.startAssistedBootstrapFromPreflight()
+
+        #expect(sm.activeTxId != nil)
+        #expect(sm.state == .requestingDataOff || sm.state == .waitingForDataOffCallback)
+        sm.cancel()
+    }
+
+    @Test func test_B_cellularOffObserved_stabilizationDelay_thenBootstrap() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-test-b", mode: "AssistedBeta")
+        sm.testSettlementTimeoutSeconds = 0.05
+        sm.testSimulateCellularSettlementConfirmed = true
+        sm.testStabilizationDelaySeconds = 0.02
+        sm.forceStateForTesting(.waitingForDataOffCallback)
+        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: false, restoreRequired: true)
+
+        await sm.handleDataOffCallbackSuccess()
+
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        guard let offIdx = events.firstIndex(where: { $0.type == .cellularOffConfirmed }),
+              let stabStartIdx = events.firstIndex(where: { $0.type == .stabilizationAfterOffStart }),
+              let stabEndIdx = events.firstIndex(where: { $0.type == .stabilizationAfterOffEnd }) else {
+            Issue.record("Missing required trace events for stabilization after OFF")
+            return
+        }
+
+        #expect(offIdx < stabStartIdx)
+        #expect(stabStartIdx < stabEndIdx)
+    }
+
+    @Test func test_C_firstLocationWriteSuccess_stabilizationDelay_thenDataOn() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        let sink = MockLocationSink()
+        sm.simulationSink = sink
+        BootstrapTraceStore.shared.startTrace(txId: "tx-test-c", mode: "AssistedBeta")
+        sm.testStabilizationDelaySeconds = 0.02
+        sm.testSettlementTimeoutSeconds = 0.05
+        sm.testSimulateCellularSettlementConfirmed = true
+
+        let target = RouteCoordinate(latitude: 25.1234, longitude: 121.5678)
+        sm.forceStateForTesting(.waitingForDVT)
+
+        await sm.testVerifyLocation(coordinate: target)
+
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        guard let writeIdx = events.firstIndex(where: { $0.type == .firstLocationWriteSuccess }),
+              let stabStartIdx = events.firstIndex(where: { $0.type == .stabilizationBeforeDataOnStart }),
+              let stabEndIdx = events.firstIndex(where: { $0.type == .stabilizationBeforeDataOnEnd }),
+              let dataOnIdx = events.firstIndex(where: { $0.type == .dataOnRequested }) else {
+            Issue.record("Missing required trace events for stabilization before DataOn")
+            return
+        }
+
+        #expect(writeIdx < stabStartIdx)
+        #expect(stabStartIdx < stabEndIdx)
+        #expect(stabEndIdx < dataOnIdx)
+        #expect(sink.lastInjectedCoordinate == target)
+    }
+
+    @Test func test_D_dataOnMustNotStartBeforeFirstLocationWriteSuccess() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        sm.simulationSink = FailingMockLocationSink()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-test-d", mode: "AssistedBeta")
+        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: true, restoreRequired: true)
+        sm.forceStateForTesting(.waitingForDVT)
+
+        let target = RouteCoordinate(latitude: 25.1234, longitude: 121.5678)
+        await sm.testVerifyLocation(coordinate: target)
+
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(events.contains { $0.type == .firstLocationWriteFailed })
+        #expect(!events.contains { $0.type == .dataOnRequested })
+        #expect(!events.contains { $0.type == .stabilizationBeforeDataOnStart })
+        #expect(events.contains { $0.type == .recoveryDataOnStarted })
+    }
+
+    @Test func test_E_nilTargetMustNotBeTreatedAsVerifiedSimulateHereSuccess() {
+        let model = RouteLocationModel()
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+
+        model.selectedCoordinate = nil
+        model.requestSinglePointSimulation(at: nil)
+
+        #expect(model.showBootstrapPreflightSheet == false)
+        #expect(model.presentedError?.contains("請先選擇座標") == true)
+        #expect(model.pendingBootstrapTargetCoordinate == nil)
+    }
+
+    @Test func test_F_stabilizationDelayUserDefaultsDefault() {
+        let service = ShortcutBootstrapService.shared
+        service.resetForTesting()
+        #expect(service.cellularBootstrapStabilizationDelay == 1.0)
+    }
+
+    @Test func test_G_rangeClampZeroToThree() {
+        let service = ShortcutBootstrapService.shared
+        service.resetForTesting()
+
+        service.cellularBootstrapStabilizationDelay = -0.5
+        #expect(service.cellularBootstrapStabilizationDelay == 0.0)
+
+        service.cellularBootstrapStabilizationDelay = 5.0
+        #expect(service.cellularBootstrapStabilizationDelay == 3.0)
+
+        service.cellularBootstrapStabilizationDelay = 2.5
+        #expect(service.cellularBootstrapStabilizationDelay == 2.5)
+
+        service.resetStabilizationDelayToDefault()
+        #expect(service.cellularBootstrapStabilizationDelay == 1.0)
+    }
+
+    @Test func test_H_routeBootstrapPreservesFirstRouteCoordinate() async {
+        let model = RouteLocationModel()
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .askFirst
+
+        let points = [
+            RouteCoordinate(latitude: 25.01, longitude: 121.51),
+            RouteCoordinate(latitude: 25.02, longitude: 121.52),
+            RouteCoordinate(latitude: 25.03, longitude: 121.53)
+        ]
+        model.replaceWaypoints(points)
+
+        await model.startPlayback()
+
+        #expect(model.showBootstrapPreflightSheet == true)
+        #expect(model.pendingBootstrapTargetCoordinate == points[0])
+        model.cancelBootstrapPreflight()
+    }
+
+    @Test func test_I_failureDuringStabilization_rollbackDataOnStillAttempted() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-test-i", mode: "AssistedBeta")
+        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: true, restoreRequired: true)
+        sm.forceStateForTesting(.waitingForCellularOff)
+
+        sm.cancel()
+
+        #expect(sm.state == .failedRecoveringData || sm.state == .idle)
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(events.contains { $0.type == .recoveryDataOnStarted })
+    }
+
+    @Test func test_J_healthyExistingDVT_noDataOffShortcut_noStabilizationDelay() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .connected)
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+
+        var completed = false
+        var outcomeSuccess = false
+        sm.startAssistedBootstrap { result in
+            completed = true
+            if case .success = result {
+                outcomeSuccess = true
+            }
+        }
+
+        #expect(completed == true)
+        #expect(outcomeSuccess == true)
+        #expect(sm.state == .idle)
+        #expect(sm.dataOffWasRequested == false)
+
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(!events.contains { $0.type == .dataOffRequested })
+        #expect(!events.contains { $0.type == .stabilizationAfterOffStart })
+        #expect(!events.contains { $0.type == .stabilizationBeforeDataOnStart })
+    }
 }
