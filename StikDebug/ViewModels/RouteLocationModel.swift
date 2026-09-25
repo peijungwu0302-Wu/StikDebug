@@ -612,6 +612,7 @@ final class RouteLocationModel: ObservableObject {
         }
         teleportTask?.cancel()
         teleportTask = nil
+        locationAlreadyWrittenByBootstrap = nil
         do {
             if playbackMode == .infiniteLoop, !isClosedLoop { throw RouteLocationError.loopRequiresClosedRoute }
             if routeMode == .navigation, navigationGeometryNeedsRecalculation { throw RouteLocationError.navigationNeedsRecalculation }
@@ -730,4 +731,10 @@ final class RouteLocationModel: ObservableObject {
             favorites.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         } catch { presentedError = L10n.format("無法儲存喜愛地點：%@", error.localizedDescription) }
     }
+
+    #if DEBUG
+    func setLocationAlreadyWrittenByBootstrapForTesting(_ coord: RouteCoordinate?) {
+        self.locationAlreadyWrittenByBootstrap = coord
+    }
+    #endif
 }

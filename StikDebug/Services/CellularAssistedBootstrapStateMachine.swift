@@ -162,6 +162,10 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     var testSettlementTimeoutSeconds: Double?
     var testSimulateCellularSettlementConfirmed: Bool?
     var testStabilizationDelaySeconds: Double?
+    var testCellularOffSequence: [Bool]?
+    var testVerificationCoordinate: RouteCoordinate? {
+        return verificationCoordinate
+    }
     #endif
 
     private var effectiveStabilizationDelay: Double {
@@ -187,113 +191,123 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         return 5.0
     }
 
-    // MARK: - Cellular OFF Settlement (Blocker A)
+    // MARK: - Cellular OFF Settlement & Continuous Stable Dwell
 
     func handleDataOffCallbackSuccess() async {
         guard state == .requestingDataOff || state == .waitingForDataOffCallback else { return }
         BootstrapTraceStore.shared.recordEvent(.dataOffCallbackReceived)
         transitionTo(.waitingForCellularOff)
 
-        // Wait for physical radio interface settlement (ConnectionMonitor observes isCellularAvailable == false)
-        scheduleTimeout(seconds: 8, stage: "CellularSettle")
+        let requiredDwell = effectiveStabilizationDelay
+        let totalTimeout: Double
+        #if DEBUG
+        if let custom = testSettlementTimeoutSeconds {
+            totalTimeout = custom
+        } else {
+            totalTimeout = max(self.offSettlementTimeout, requiredDwell + 4.0)
+        }
+        #else
+        totalTimeout = max(self.offSettlementTimeout, requiredDwell + 4.0)
+        #endif
+        scheduleTimeout(seconds: totalTimeout + 2.0, stage: "CellularSettle")
 
-        let settled = await waitForCellularOffSettlement(timeoutSeconds: self.offSettlementTimeout)
-        if settled {
+        performSafePreBootstrap()
+
+        let dwellSatisfied = await waitForContinuousCellularOffDwell(
+            timeoutSeconds: totalTimeout,
+            requiredDwellSeconds: requiredDwell
+        )
+
+        guard state.isRunning else { return }
+
+        if dwellSatisfied {
             self.cellularOffWasObserved = true
-            BootstrapTraceStore.shared.recordEvent(.cellularOffConfirmed)
-            LogManager.shared.addInfoLog("Physical cellular settlement confirmed.")
-            let continued = await self.applyStabilizationDelayAfterOff()
-            guard continued else { return }
+            LogManager.shared.addInfoLog("Continuous physical cellular OFF dwell confirmed (\(String(format: "%.1f", requiredDwell))s).")
             await self.proceedToBootstrapping()
         } else {
-            LogManager.shared.addErrorLog("Cellular settlement timed out; physical cellular radio remains active. Aborting bootstrap and restoring data.")
+            LogManager.shared.addErrorLog("Cellular settlement timed out; physical cellular radio was not stably OFF. Aborting bootstrap and restoring data.")
             self.handleFailure(
                 stage: "CellularSettle",
-                reason: "行動數據關閉確認逾時：系統仍偵測到行動網路，無法安全建立通道，自動觸發恢復"
+                reason: "行動數據關閉確認逾時：未能在限時內維持連續關閉穩定狀態，自動觸發恢復"
             )
         }
     }
 
-    private func applyStabilizationDelayAfterOff() async -> Bool {
-        let delay = effectiveStabilizationDelay
-        guard delay > 0 else { return true }
-
-        scheduleTimeout(seconds: max(8, delay + 5), stage: "StabilizationAfterOff")
-        BootstrapTraceStore.shared.recordEvent(
-            .stabilizationAfterOffStart,
-            details: ["delaySeconds": String(format: "%.1f", delay)]
-        )
-        LogManager.shared.addInfoLog("Stabilization delay after Cellular OFF started (\(String(format: "%.1f", delay))s)")
-
-        let task = Task {
-            try await Task.sleep(for: .seconds(delay))
+    private func performSafePreBootstrap() {
+        let pairingURL = PairingFileStore.prepareURL()
+        let pairingExists = FileManager.default.fileExists(atPath: pairingURL.path)
+        if !pairingExists {
+            LogManager.shared.addWarningLog("Pre-bootstrap check: Pairing file not found at \(pairingURL.lastPathComponent)")
         }
-        self.stabilizationTask = task
-        do {
-            try await task.value
-            self.stabilizationTask = nil
-        } catch {
-            self.stabilizationTask = nil
-            LogManager.shared.addInfoLog("Stabilization delay after Cellular OFF cancelled")
-            return false
-        }
-
-        guard state.isRunning else { return false }
-
-        BootstrapTraceStore.shared.recordEvent(
-            .stabilizationAfterOffEnd,
-            details: ["delaySeconds": String(format: "%.1f", delay)]
-        )
-        LogManager.shared.addInfoLog("Stabilization delay after Cellular OFF completed")
-        return true
+        let usesVPN = ConnectionMonitor.shared.usesVPNInterface
+        LogManager.shared.addInfoLog("Pre-bootstrap check: VPN active: \(usesVPN), target coord present: \(verificationCoordinate != nil)")
     }
 
-    private func applyStabilizationDelayBeforeDataOn() async -> Bool {
-        let delay = effectiveStabilizationDelay
-        guard delay > 0 else { return true }
-
-        scheduleTimeout(seconds: max(10, delay + 5), stage: "StabilizationBeforeDataOn")
-        BootstrapTraceStore.shared.recordEvent(
-            .stabilizationBeforeDataOnStart,
-            details: ["delaySeconds": String(format: "%.1f", delay)]
-        )
-        LogManager.shared.addInfoLog("Stabilization delay before DataOn started (\(String(format: "%.1f", delay))s)")
-
-        let task = Task {
-            try await Task.sleep(for: .seconds(delay))
-        }
-        self.stabilizationTask = task
-        do {
-            try await task.value
-            self.stabilizationTask = nil
-        } catch {
-            self.stabilizationTask = nil
-            LogManager.shared.addInfoLog("Stabilization delay before DataOn cancelled")
-            return false
-        }
-
-        guard state.isRunning else { return false }
-
-        BootstrapTraceStore.shared.recordEvent(
-            .stabilizationBeforeDataOnEnd,
-            details: ["delaySeconds": String(format: "%.1f", delay)]
-        )
-        LogManager.shared.addInfoLog("Stabilization delay before DataOn completed")
-        return true
-    }
-
-    private func waitForCellularOffSettlement(timeoutSeconds: Double) async -> Bool {
+    private func checkIsCellularOff() -> Bool {
         #if DEBUG
-        if let sim = testSimulateCellularSettlementConfirmed { return sim }
+        if var sequence = testCellularOffSequence, !sequence.isEmpty {
+            let next = sequence.removeFirst()
+            testCellularOffSequence = sequence
+            return next
+        }
+        if let sim = testSimulateCellularSettlementConfirmed {
+            return sim
+        }
         #endif
+        return !ConnectionMonitor.shared.isCellularAvailable
+    }
+
+    private func waitForContinuousCellularOffDwell(timeoutSeconds: Double, requiredDwellSeconds: Double) async -> Bool {
         let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while Date() < deadline {
-            if !ConnectionMonitor.shared.isCellularAvailable {
-                return true
+        var continuousOffStart: Date? = nil
+        var recordedConfirmed = false
+        var resetCount = 0
+
+        while Date() < deadline && !Task.isCancelled && state.isRunning {
+            let isOff = checkIsCellularOff()
+            if isOff {
+                if continuousOffStart == nil {
+                    continuousOffStart = Date()
+                    if !recordedConfirmed {
+                        BootstrapTraceStore.shared.recordEvent(.cellularOffConfirmed)
+                        if requiredDwellSeconds > 0 {
+                            BootstrapTraceStore.shared.recordEvent(
+                                .stabilizationAfterOffStart,
+                                details: ["delaySeconds": String(format: "%.1f", requiredDwellSeconds)]
+                            )
+                        }
+                        recordedConfirmed = true
+                    }
+                    LogManager.shared.addInfoLog("Cellular OFF observed; starting continuous dwell timer (need \(requiredDwellSeconds)s)")
+                }
+
+                let elapsed = Date().timeIntervalSince(continuousOffStart!)
+                if elapsed >= requiredDwellSeconds {
+                    if requiredDwellSeconds > 0 {
+                        let durationMs = Int(elapsed * 1000)
+                        BootstrapTraceStore.shared.recordEvent(
+                            .stabilizationAfterOffEnd,
+                            details: [
+                                "delaySeconds": String(format: "%.1f", requiredDwellSeconds),
+                                "stableDurationMs": "\(durationMs)",
+                                "resetCount": "\(resetCount)"
+                            ]
+                        )
+                    }
+                    return true
+                }
+            } else {
+                if continuousOffStart != nil {
+                    resetCount += 1
+                    LogManager.shared.addWarningLog("Cellular became active during stabilization dwell; resetting continuous timer (reset #\(resetCount)).")
+                    continuousOffStart = nil
+                }
             }
+
             try? await Task.sleep(for: .milliseconds(50))
         }
-        return !ConnectionMonitor.shared.isCellularAvailable
+
+        return false
     }
 
     // MARK: - Bootstrapping Phase (Blocker E)
@@ -347,8 +361,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
                 LocationDataPathHealth.shared.recordSuccess()
                 BootstrapTraceStore.shared.recordEvent(.firstLocationWriteSuccess, details: ["coord": "\(target.latitude),\(target.longitude)"])
                 LogManager.shared.addInfoLog("First location write verified successfully at \(target.latitude), \(target.longitude)")
-                let continued = await applyStabilizationDelayBeforeDataOn()
-                guard continued else { return }
+                await Task.yield()
                 await proceedToDataOn()
             } catch {
                 LocationDataPathHealth.shared.recordFailure(error)
@@ -357,8 +370,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             }
         } else {
             LogManager.shared.addInfoLog("No verification coordinate provided; skipping mock location injection in bootstrap.")
-            let continued = await applyStabilizationDelayBeforeDataOn()
-            guard continued else { return }
+            await Task.yield()
             await proceedToDataOn()
         }
     }
@@ -602,6 +614,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         testSettlementTimeoutSeconds = nil
         testSimulateCellularSettlementConfirmed = nil
         testStabilizationDelaySeconds = nil
+        testCellularOffSequence = nil
         simulationSink = DeviceLocationSimulationService.shared
         stateTimeoutTask?.cancel()
         stateTimeoutTask = nil
