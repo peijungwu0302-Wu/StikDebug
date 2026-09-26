@@ -160,6 +160,16 @@ final class ShortcutBootstrapService: ObservableObject {
             }
         }
 
+        #if DEBUG
+        if let runner = testMockShortcutRunner {
+            let started = runner(phase, txId, completion)
+            if !started {
+                cancelActiveTransaction()
+            }
+            return started
+        }
+        #endif
+
         guard let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "shortcuts://run-shortcut?name=\(encodedName)&input=text&text=\(txId)") else {
             cancelActiveTransaction()
@@ -390,21 +400,11 @@ final class ShortcutBootstrapService: ObservableObject {
 
         let runOff: (@escaping (Bool) -> Void) -> Bool = { [weak self] cb in
             guard let self else { return false }
-            #if DEBUG
-            if let mock = self.testMockShortcutRunner {
-                return mock(.dataOff, testTx, cb)
-            }
-            #endif
             return self.runDataOffShortcut(txId: testTx, completion: cb)
         }
 
         let runOn: (@escaping (Bool) -> Void) -> Bool = { [weak self] cb in
             guard let self else { return false }
-            #if DEBUG
-            if let mock = self.testMockShortcutRunner {
-                return mock(.dataOn, testTx, cb)
-            }
-            #endif
             return self.runDataOnShortcut(txId: testTx, completion: cb)
         }
 

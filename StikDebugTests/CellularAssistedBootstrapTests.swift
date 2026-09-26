@@ -933,9 +933,11 @@ struct CellularAssistedBootstrapTests {
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
         DirectCellularResearchService.shared.isBetaEnabled = false
 
+        var invocationCount = 0
         var triggeredPhase: ShortcutPhase?
         var triggeredTx: String?
         ShortcutBootstrapService.shared.testMockShortcutRunner = { phase, txId, completion in
+            invocationCount += 1
             triggeredPhase = phase
             triggeredTx = txId
             return true
@@ -945,6 +947,7 @@ struct CellularAssistedBootstrapTests {
         model.requestSinglePointSimulation(at: target)
 
         // In .auto mode: NO preflight sheet is shown; DataOff is directly triggered with one tap
+        #expect(invocationCount == 1)
         #expect(model.showBootstrapPreflightSheet == false)
         #expect(triggeredPhase == .dataOff)
         #expect(triggeredTx != nil)
