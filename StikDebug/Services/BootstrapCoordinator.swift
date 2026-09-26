@@ -38,8 +38,8 @@ final class BootstrapCoordinator: ObservableObject {
         let hasHealthySession = monitor.activeDVTSessionAvailable || health.hasRecentSuccess
         if hasHealthySession {
             lastCoordinationPath = "healthy_session_direct"
-            LogManager.shared.addInfoLog("BootstrapCoordinator: Healthy DVT session active. Executing simulation directly.")
-            onProceed()
+            LogManager.shared.addInfoLog("BootstrapCoordinator: Healthy DVT session active. Proceeding with needsLocationWrite.")
+            onProceed(.needsLocationWrite)
             return
         }
 
@@ -56,8 +56,8 @@ final class BootstrapCoordinator: ObservableObject {
         switch policy {
         case .directOnly:
             lastCoordinationPath = "policy_direct_only"
-            LogManager.shared.addInfoLog("BootstrapCoordinator: Policy is directOnly. Proceeding to direct connection.")
-            onProceed()
+            LogManager.shared.addInfoLog("BootstrapCoordinator: Policy is directOnly. Proceeding to direct connection with needsLocationWrite.")
+            onProceed(.needsLocationWrite)
 
         case .assistedFirst:
             // "每次詢問" (Always Ask) mode
@@ -78,17 +78,25 @@ final class BootstrapCoordinator: ObservableObject {
                 lastCoordinationPath = "research_beta_direct_attempt"
                 attemptResearchBetaWithFallback(
                     targetCoordinate: targetCoordinate,
+                    onRequestPreflight: onRequestPreflight,
                     onProceed: onProceed,
                     onError: onError
                 )
             } else {
-                // One-Tap Assisted Bootstrap
-                lastCoordinationPath = "auto_one_tap_assisted"
-                executeAssistedBootstrap(
-                    targetCoordinate: targetCoordinate,
-                    onProceed: onProceed,
-                    onError: onError
-                )
+                // If shortcut assisted is enabled, run One-Tap Assisted
+                if ShortcutBootstrapService.shared.isShortcutAssistedEnabled {
+                    lastCoordinationPath = "auto_one_tap_assisted"
+                    executeAssistedBootstrap(
+                        targetCoordinate: targetCoordinate,
+                        onProceed: onProceed,
+                        onError: onError
+                    )
+                } else {
+                    // Shortcut automation unavailable -> fallback to preflight sheet!
+                    lastCoordinationPath = "auto_shortcut_disabled_preflight"
+                    LogManager.shared.addInfoLog("BootstrapCoordinator: Shortcut assisted disabled in auto mode. Prompting preflight sheet.")
+                    onRequestPreflight()
+                }
             }
         }
     }
@@ -97,6 +105,7 @@ final class BootstrapCoordinator: ObservableObject {
 
     private func attemptResearchBetaWithFallback(
         targetCoordinate: RouteCoordinate?,
+        onRequestPreflight: @escaping @MainActor () -> Void,
         onProceed: @escaping @MainActor (BootstrapProceedDisposition) -> Void,
         onError: @escaping @MainActor (Error) -> Void
     ) {
@@ -119,7 +128,14 @@ final class BootstrapCoordinator: ObservableObject {
                         failureStage: "ResearchDirect",
                         failureReason: "Research direct attempt failed"
                     )
-                    self.executeAssistedBootstrap(targetCoordinate: targetCoordinate, onProceed: onProceed, onError: onError)
+
+                    if ShortcutBootstrapService.shared.isShortcutAssistedEnabled {
+                        self.executeAssistedBootstrap(targetCoordinate: targetCoordinate, onProceed: onProceed, onError: onError)
+                    } else {
+                        self.lastCoordinationPath = "research_fail_shortcut_disabled_preflight"
+                        self.isCoordinating = false
+                        onRequestPreflight()
+                    }
                 }
             }
             return
@@ -146,11 +162,19 @@ final class BootstrapCoordinator: ObservableObject {
                     failureStage: "ResearchDirect",
                     failureReason: error.localizedDescription
                 )
-                self.executeAssistedBootstrap(
-                    targetCoordinate: targetCoordinate,
-                    onProceed: onProceed,
-                    onError: onError
-                )
+
+                if ShortcutBootstrapService.shared.isShortcutAssistedEnabled {
+                    self.executeAssistedBootstrap(
+                        targetCoordinate: targetCoordinate,
+                        onProceed: onProceed,
+                        onError: onError
+                    )
+                } else {
+                    self.lastCoordinationPath = "research_fail_shortcut_disabled_preflight"
+                    LogManager.shared.addInfoLog("BootstrapCoordinator: Research failed and shortcut disabled. Falling back to preflight.")
+                    self.isCoordinating = false
+                    onRequestPreflight()
+                }
             }
         }
     }

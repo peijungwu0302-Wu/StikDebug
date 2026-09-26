@@ -406,7 +406,10 @@ final class RouteLocationModel: ObservableObject {
         await saveFavorites()
     }
 
+    private var isBypassingCellularPreparation = false
+
     var isCellularBootstrapPreparationNeeded: Bool {
+        guard !isBypassingCellularPreparation else { return false }
         let policy = ShortcutBootstrapService.shared.cellularBootstrapPolicy
         if policy == .directOnly { return false }
         let hasActiveDVT = connectionMonitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess
@@ -476,23 +479,23 @@ final class RouteLocationModel: ObservableObject {
     func confirmBootstrapPreflightRecheck() {
         showBootstrapPreflightSheet = false
         TunnelManager.shared.cellularBootstrapRequested = true
+        let action = pendingBootstrapAction
+        pendingBootstrapAction = nil
         pendingBootstrapTargetCoordinate = nil
         locationAlreadyWrittenByBootstrap = nil
-        if let action = pendingBootstrapAction {
-            pendingBootstrapAction = nil
-            action()
-        }
+        isBypassingCellularPreparation = true
+        action?()
     }
 
     func confirmBootstrapPreflightForce() {
         showBootstrapPreflightSheet = false
         TunnelManager.shared.cellularBootstrapRequested = true
+        let action = pendingBootstrapAction
+        pendingBootstrapAction = nil
         pendingBootstrapTargetCoordinate = nil
         locationAlreadyWrittenByBootstrap = nil
-        if let action = pendingBootstrapAction {
-            pendingBootstrapAction = nil
-            action()
-        }
+        isBypassingCellularPreparation = true
+        action?()
     }
 
     func cancelBootstrapPreflight() {
@@ -500,6 +503,7 @@ final class RouteLocationModel: ObservableObject {
         pendingBootstrapAction = nil
         pendingBootstrapTargetCoordinate = nil
         locationAlreadyWrittenByBootstrap = nil
+        isBypassingCellularPreparation = false
         TunnelManager.shared.cellularBootstrapRequested = false
         CellularAssistedBootstrapStateMachine.shared.cancel()
     }
@@ -570,6 +574,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func executeTeleport(to target: RouteCoordinate) async {
+        isBypassingCellularPreparation = false
         playback.stop(clearMarker: false)
         let alreadyWritten = (locationAlreadyWrittenByBootstrap == target)
         locationAlreadyWrittenByBootstrap = nil
@@ -611,6 +616,7 @@ final class RouteLocationModel: ObservableObject {
             }
             return
         }
+        isBypassingCellularPreparation = false
         teleportTask?.cancel()
         teleportTask = nil
         locationAlreadyWrittenByBootstrap = nil
