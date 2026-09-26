@@ -8,6 +8,11 @@
 import Combine
 import Foundation
 
+enum BootstrapProceedDisposition: String, Codable, Equatable {
+    case needsLocationWrite
+    case locationAlreadyWritten
+}
+
 @MainActor
 final class BootstrapCoordinator: ObservableObject {
     static let shared = BootstrapCoordinator()
@@ -23,7 +28,7 @@ final class BootstrapCoordinator: ObservableObject {
     func coordinateSimulation(
         targetCoordinate: RouteCoordinate?,
         onRequestPreflight: @escaping @MainActor () -> Void,
-        onProceed: @escaping @MainActor () -> Void,
+        onProceed: @escaping @MainActor (BootstrapProceedDisposition) -> Void,
         onError: @escaping @MainActor (Error) -> Void
     ) {
         let monitor = ConnectionMonitor.shared
@@ -42,7 +47,7 @@ final class BootstrapCoordinator: ObservableObject {
         if monitor.isWifiAvailable || monitor.currentTransport == .wifi {
             lastCoordinationPath = "wifi_direct"
             LogManager.shared.addInfoLog("BootstrapCoordinator: Wi-Fi interface active. Skipping cellular bootstrap.")
-            onProceed()
+            onProceed(.needsLocationWrite)
             return
         }
 
@@ -64,7 +69,7 @@ final class BootstrapCoordinator: ObservableObject {
             let isCellular = monitor.currentTransport == .cellular || monitor.isCellularAvailable
             guard isCellular else {
                 lastCoordinationPath = "non_cellular_direct"
-                onProceed()
+                onProceed(.needsLocationWrite)
                 return
             }
 
@@ -92,7 +97,7 @@ final class BootstrapCoordinator: ObservableObject {
 
     private func attemptResearchBetaWithFallback(
         targetCoordinate: RouteCoordinate?,
-        onProceed: @escaping @MainActor () -> Void,
+        onProceed: @escaping @MainActor (BootstrapProceedDisposition) -> Void,
         onError: @escaping @MainActor (Error) -> Void
     ) {
         isCoordinating = true
@@ -104,7 +109,7 @@ final class BootstrapCoordinator: ObservableObject {
                 guard let self else { return }
                 if success {
                     self.isCoordinating = false
-                    onProceed()
+                    onProceed(.needsLocationWrite)
                 } else {
                     self.lastFallbackOccurred = true
                     LogManager.shared.addWarningLog("BootstrapCoordinator: Research beta failed in mock. Falling back to Assisted.")
@@ -121,8 +126,8 @@ final class BootstrapCoordinator: ObservableObject {
             switch result {
             case .success:
                 self.isCoordinating = false
-                LogManager.shared.addInfoLog("BootstrapCoordinator: Direct Cellular Research Beta SUCCEEDED. Proceeding without DataOff.")
-                onProceed()
+                LogManager.shared.addInfoLog("BootstrapCoordinator: Direct Cellular Research Beta SUCCEEDED. Proceeding with needsLocationWrite.")
+                onProceed(.needsLocationWrite)
 
             case .failure(let error):
                 self.lastFallbackOccurred = true
@@ -144,7 +149,7 @@ final class BootstrapCoordinator: ObservableObject {
 
     func executeAssistedBootstrap(
         targetCoordinate: RouteCoordinate?,
-        onProceed: @escaping @MainActor () -> Void,
+        onProceed: @escaping @MainActor (BootstrapProceedDisposition) -> Void,
         onError: @escaping @MainActor (Error) -> Void
     ) {
         isCoordinating = true
@@ -154,8 +159,8 @@ final class BootstrapCoordinator: ObservableObject {
                 guard let self else { return }
                 self.isCoordinating = false
                 switch result {
-                case .success:
-                    onProceed()
+                case .success(let disposition):
+                    onProceed(disposition)
                 case .failure(let err):
                     onError(err)
                 }
@@ -168,9 +173,9 @@ final class BootstrapCoordinator: ObservableObject {
             guard let self else { return }
             self.isCoordinating = false
             switch result {
-            case .success:
-                LogManager.shared.addInfoLog("BootstrapCoordinator: Assisted bootstrap completed successfully.")
-                onProceed()
+            case .success(let disposition):
+                LogManager.shared.addInfoLog("BootstrapCoordinator: Assisted bootstrap completed successfully (disposition: \(disposition.rawValue)).")
+                onProceed(disposition)
             case .failure(let err):
                 LogManager.shared.addErrorLog("BootstrapCoordinator: Assisted bootstrap failed: \(err.localizedDescription)")
                 onError(err)
@@ -182,7 +187,7 @@ final class BootstrapCoordinator: ObservableObject {
 
     #if DEBUG
     var testMockResearchRunner: ((RouteCoordinate?, @escaping (Bool) -> Void) -> Void)?
-    var testMockAssistedRunner: ((RouteCoordinate?, @escaping (Result<Void, Error>) -> Void) -> Void)?
+    var testMockAssistedRunner: ((RouteCoordinate?, @escaping (Result<BootstrapProceedDisposition, Error>) -> Void) -> Void)?
 
     func resetForTesting() {
         isCoordinating = false

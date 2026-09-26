@@ -71,8 +71,9 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     @Published private(set) var dataOffWasRequested: Bool = false
     @Published private(set) var cellularOffWasObserved: Bool = false
     @Published private(set) var dataRestoreRequired: Bool = false
+    private(set) var locationWriteSuccessConfirmed: Bool = false
 
-    private var activeCompletion: ((Result<Void, Error>) -> Void)?
+    private var activeCompletion: ((Result<BootstrapProceedDisposition, Error>) -> Void)?
     private var verificationCoordinate: RouteCoordinate?
     private var cancellables: Set<AnyCancellable> = []
     private var stateTimeoutTask: Task<Void, Never>?
@@ -95,7 +96,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
 
     func startAssistedBootstrap(
         targetCoordinate: RouteCoordinate? = nil,
-        completion: @escaping (Result<Void, Error>) -> Void
+        completion: @escaping (Result<BootstrapProceedDisposition, Error>) -> Void
     ) {
         guard !state.isRunning else {
             completion(.failure(NSError(domain: "RouteLocation.Assisted", code: -100, userInfo: [NSLocalizedDescriptionKey: "已有進行中的輔助啟動程序"])))
@@ -111,12 +112,12 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         let monitor = ConnectionMonitor.shared
         if monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess {
             LogManager.shared.addInfoLog("Pre-launch check: Active DVT session already present. Skipping shortcut.")
-            completion(.success(()))
+            completion(.success(.needsLocationWrite))
             return
         }
         if monitor.isWifiAvailable {
             LogManager.shared.addInfoLog("Pre-launch check: Wi-Fi interface detected. Skipping cellular shortcut.")
-            completion(.success(()))
+            completion(.success(.needsLocationWrite))
             return
         }
         guard monitor.currentTransport == .cellular || monitor.isCellularAvailable else {
@@ -127,6 +128,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         let txId = "tx-\(UUID().uuidString.prefix(8))"
         self.activeTxId = txId
         self.verificationCoordinate = targetCoordinate
+        self.locationWriteSuccessConfirmed = false
         self.activeCompletion = completion
         self.lastErrorMessage = nil
         self.requiresManualDataOnAlert = false
@@ -354,6 +356,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         if let target = verificationCoordinate {
             do {
                 try await simulationSink.setCoordinate(target)
+                self.locationWriteSuccessConfirmed = true
                 LocationDataPathHealth.shared.recordSuccess()
                 BootstrapTraceStore.shared.recordEvent(.firstLocationWriteSuccess, details: [
                     "coordinatePresent": "true",
@@ -363,11 +366,13 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
                 await Task.yield()
                 await proceedToDataOn()
             } catch {
+                self.locationWriteSuccessConfirmed = false
                 LocationDataPathHealth.shared.recordFailure(error)
                 BootstrapTraceStore.shared.recordEvent(.firstLocationWriteFailed, details: ["error": error.localizedDescription])
                 handleFailure(stage: "FirstLocationWrite", reason: error.localizedDescription)
             }
         } else {
+            self.locationWriteSuccessConfirmed = false
             LogManager.shared.addInfoLog("No verification coordinate provided; skipping mock location injection in bootstrap.")
             await Task.yield()
             await proceedToDataOn()
@@ -454,9 +459,10 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         BootstrapTraceStore.shared.finishTrace(outcome: "SUCCESS")
         TunnelManager.shared.locationDataPathReady()
 
+        let disposition: BootstrapProceedDisposition = (locationWriteSuccessConfirmed && verificationCoordinate != nil) ? .locationAlreadyWritten : .needsLocationWrite
         let completion = activeCompletion
         resetTransactionState()
-        completion?(.success(()))
+        completion?(.success(disposition))
     }
 
     private func finishWithUnconfirmedOutcome(stage: String, reason: String) {
@@ -470,9 +476,10 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         )
         TunnelManager.shared.locationDataPathReady()
 
+        let disposition: BootstrapProceedDisposition = (locationWriteSuccessConfirmed && verificationCoordinate != nil) ? .locationAlreadyWritten : .needsLocationWrite
         let completion = activeCompletion
         resetTransactionState()
-        completion?(.success(()))
+        completion?(.success(disposition))
     }
 
     // MARK: - Rollback & Recovery Logic (Blocker C)
@@ -572,6 +579,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         activeTxId = nil
         verificationCoordinate = nil
         activeCompletion = nil
+        locationWriteSuccessConfirmed = false
         stateTimeoutTask?.cancel()
         stateTimeoutTask = nil
         stabilizationTask?.cancel()
@@ -609,6 +617,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         cellularOffWasObserved = false
         dataRestoreRequired = false
         verificationCoordinate = nil
+        locationWriteSuccessConfirmed = false
         activeCompletion = nil
         testSettlementTimeoutSeconds = nil
         testSimulateCellularSettlementConfirmed = nil

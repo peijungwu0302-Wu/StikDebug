@@ -426,10 +426,12 @@ final class RouteLocationModel: ObservableObject {
                 TunnelManager.shared.cellularBootstrapRequested = true
                 self.showBootstrapPreflightSheet = true
             },
-            onProceed: { [weak self] in
+            onProceed: { [weak self] disposition in
                 guard let self else { return }
-                if let targetCoordinate {
+                if disposition == .locationAlreadyWritten, let targetCoordinate {
                     self.locationAlreadyWrittenByBootstrap = targetCoordinate
+                } else {
+                    self.locationAlreadyWrittenByBootstrap = nil
                 }
                 self.pendingBootstrapTargetCoordinate = nil
                 self.pendingBootstrapAction = nil
@@ -449,10 +451,12 @@ final class RouteLocationModel: ObservableObject {
         let target = pendingBootstrapTargetCoordinate
         BootstrapCoordinator.shared.executeAssistedBootstrap(
             targetCoordinate: target,
-            onProceed: { [weak self] in
+            onProceed: { [weak self] disposition in
                 guard let self else { return }
-                if let target {
+                if disposition == .locationAlreadyWritten, let target {
                     self.locationAlreadyWrittenByBootstrap = target
+                } else {
+                    self.locationAlreadyWrittenByBootstrap = nil
                 }
                 self.showBootstrapPreflightSheet = false
                 self.pendingBootstrapAction = nil
