@@ -1066,7 +1066,7 @@ struct CellularAssistedBootstrapTests {
         coordinator.coordinateSimulation(
             targetCoordinate: RouteCoordinate(latitude: 25.0, longitude: 121.0),
             onRequestPreflight: {},
-            onProceed: {},
+            onProceed: { _ in },
             onError: { _ in }
         )
 
@@ -1093,7 +1093,7 @@ struct CellularAssistedBootstrapTests {
         coordinator.coordinateSimulation(
             targetCoordinate: target,
             onRequestPreflight: {},
-            onProceed: {},
+            onProceed: { _ in },
             onError: { _ in }
         )
 
@@ -1123,7 +1123,7 @@ struct CellularAssistedBootstrapTests {
         coordinator.coordinateSimulation(
             targetCoordinate: RouteCoordinate(latitude: 25.0, longitude: 121.0),
             onRequestPreflight: {},
-            onProceed: { proceedCalled = true },
+            onProceed: { _ in proceedCalled = true },
             onError: { _ in }
         )
 
