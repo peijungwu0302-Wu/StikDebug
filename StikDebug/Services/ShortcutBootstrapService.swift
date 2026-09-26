@@ -332,13 +332,35 @@ final class ShortcutBootstrapService: ObservableObject {
         testOpenURL = nil
     }
 
-    func resetForTesting() {
+    func resetForTesting(resetConfiguration: Bool = false) {
+        resetRuntimeForTesting()
+        if resetConfiguration {
+            resetConfigurationForTesting()
+        }
+    }
+
+    func resetRuntimeForTesting() {
         discardActiveTransactionForTesting()
         cellularBootstrapStabilizationDelay = 0.0
         UserDefaults.standard.removeObject(forKey: Self.stabilizationDelayKey)
         testRoundTripSettlementTimeoutSeconds = nil
         testSimulateCellularOffObserved = nil
         testSimulateCellularOnObserved = nil
+    }
+
+    func resetConfigurationForTesting() {
+        isShortcutAssistedEnabled = false
+        cellularBootstrapPolicy = .auto
+        shortcutPromptMode = .alwaysAsk
+        shortcutDataOffName = "RouteLocationDataOff"
+        shortcutDataOnName = "RouteLocationDataOn"
+        cellularBootstrapStabilizationDelay = 0.0
+        UserDefaults.standard.removeObject(forKey: Self.enabledKey)
+        UserDefaults.standard.removeObject(forKey: Self.policyKey)
+        UserDefaults.standard.removeObject(forKey: Self.promptKey)
+        UserDefaults.standard.removeObject(forKey: Self.dataOffNameKey)
+        UserDefaults.standard.removeObject(forKey: Self.dataOnNameKey)
+        UserDefaults.standard.removeObject(forKey: Self.stabilizationDelayKey)
     }
     #endif
 

@@ -191,6 +191,18 @@ final class ConnectionMonitor: ObservableObject {
     }
 
     #if DEBUG
+    func resetForTesting() {
+        self.previousTransport = .offline
+        self.currentTransport = .wifi
+        self.isWifiAvailable = true
+        self.isCellularAvailable = false
+        self.internetReachable = true
+        self.usesVPNInterface = false
+        self.pathIsExpensive = false
+        self.tunnelConnected = false
+        self.deviceSession = .idle
+    }
+
     func updateForTesting(
         transport: NetworkTransport,
         isWifiAvailable: Bool,

@@ -985,6 +985,45 @@ struct SimulationStateMachineTests {
         await model.returnToRealLocation()
         #expect(model.simulationMode == .idle)
     }
+
+    @Test func crossSuiteContamination_clearedByDeterministicReset_routePlaybackRunsNormally() async throws {
+        // 1. Simulate contamination left behind by preceding cellular bootstrap tests
+        ConnectionMonitor.shared.updateForTesting(
+            transport: .cellular,
+            isWifiAvailable: false,
+            isCellularAvailable: true,
+            deviceSession: .idle
+        )
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+        DirectCellularResearchService.shared.isBetaEnabled = false
+        #expect(ConnectionMonitor.shared.currentTransport == .cellular)
+        #expect(ConnectionMonitor.shared.isCellularAvailable == true)
+
+        // 2. Perform baseline reset
+        TestBootstrapEnvironment.reset()
+
+        #expect(ConnectionMonitor.shared.currentTransport != .cellular)
+        #expect(ConnectionMonitor.shared.isCellularAvailable == false)
+        #expect(ShortcutBootstrapService.shared.cellularBootstrapPolicy == .directOnly)
+
+        // 3. Verify RouteLocationModel.startPlayback starts RoutePlaybackEngine normally without bootstrap interception
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+
+        let points = [
+            RouteCoordinate(latitude: 25.0, longitude: 121.0),
+            RouteCoordinate(latitude: 25.1, longitude: 121.1)
+        ]
+        model.replaceWaypoints(points)
+        await model.startPlayback()
+
+        #expect(model.simulationMode == .routePlaying)
+        #expect(model.playback.state == .running)
+        model.playback.stop()
+    }
 }
 
 @MainActor
