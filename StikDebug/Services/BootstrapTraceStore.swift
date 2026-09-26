@@ -340,7 +340,7 @@ final class BootstrapTraceStore: ObservableObject {
         record.failureStage = failureStage
         record.failureReason = failureReason
 
-        let finalType: BootstrapTraceEventType = (outcome == "SUCCESS") ? .completed : .failed
+        let finalType: BootstrapTraceEventType = (outcome == "SUCCESS" || outcome == "RESEARCH_DIRECT_TUNNEL_SUCCESS") ? .completed : .failed
         var details: [String: String] = ["outcome": outcome, "durationMs": String(format: "%.1f", elapsed)]
         if let failureStage { details["failureStage"] = failureStage }
         if let failureReason { details["failureReason"] = sanitizeString(failureReason) }

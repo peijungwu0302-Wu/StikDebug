@@ -118,6 +118,7 @@ final class BootstrapCoordinator: ObservableObject {
                 guard let self else { return }
                 if success {
                     self.isCoordinating = false
+                    BootstrapTraceStore.shared.finishTrace(outcome: "RESEARCH_DIRECT_TUNNEL_SUCCESS")
                     onProceed(.needsLocationWrite)
                 } else {
                     self.lastFallbackOccurred = true

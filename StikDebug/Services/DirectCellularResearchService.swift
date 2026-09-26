@@ -163,7 +163,7 @@ final class DirectCellularResearchService: ObservableObject {
                     durationMs: elapsed,
                     rsdResult: success ? "READY" : "NOT_RUN",
                     dvtResult: success ? "READY" : "NOT_RUN",
-                    locationWriteResult: success ? "SUCCESS" : "NOT_RUN",
+                    locationWriteResult: success ? "PENDING" : "NOT_RUN",
                     fallbackOccurred: !success
                 )
                 self.lastResult = res
@@ -172,6 +172,7 @@ final class DirectCellularResearchService: ObservableObject {
                     details: ["outcome": success ? "SUCCESS" : "FAILED", "durationMs": String(format: "%.1f", elapsed)]
                 )
                 if success {
+                    BootstrapTraceStore.shared.finishTrace(outcome: "RESEARCH_DIRECT_TUNNEL_SUCCESS")
                     completion(.success(()))
                 } else {
                     completion(.failure(err ?? NSError(domain: "RouteLocation.ResearchBeta", code: -202, userInfo: [NSLocalizedDescriptionKey: "直接連線測試失敗"])))
@@ -213,6 +214,7 @@ final class DirectCellularResearchService: ObservableObject {
                     .researchDirectResult,
                     details: ["outcome": "SUCCESS", "durationMs": String(format: "%.1f", elapsed)]
                 )
+                BootstrapTraceStore.shared.finishTrace(outcome: "RESEARCH_DIRECT_TUNNEL_SUCCESS")
                 completion(.success(()))
             } else {
                 let errReason = TunnelManager.shared.lastErrorMessage ?? "直接連線逾時或失敗"
