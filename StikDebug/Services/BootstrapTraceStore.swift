@@ -29,6 +29,13 @@ enum BootstrapTraceEventType: String, Codable, CaseIterable {
     case failed = "FAILED"
     case recoveryDataOnStarted = "RECOVERY_DATA_ON_STARTED"
     case recoveryDataOnCompleted = "RECOVERY_DATA_ON_COMPLETED"
+    case additionalStabilizationStart = "ADDITIONAL_STABILIZATION_START"
+    case additionalStabilizationEnd = "ADDITIONAL_STABILIZATION_END"
+    case researchDirectStart = "RESEARCH_DIRECT_START"
+    case researchDirectResult = "RESEARCH_DIRECT_RESULT"
+    case fallbackToAssisted = "FALLBACK_TO_ASSISTED"
+    case utunTopology = "UTUN_TOPOLOGY"
+    case cellularRestoreObserved = "CELLULAR_RESTORE_OBSERVED"
 
     var label: String {
         switch self {
@@ -42,6 +49,13 @@ enum BootstrapTraceEventType: String, Codable, CaseIterable {
         case .cellularOffConfirmed: return "確認行動網路中斷 (Settled)"
         case .stabilizationAfterOffStart: return "Cellular 關閉後穩定等待開始"
         case .stabilizationAfterOffEnd: return "Cellular 關閉後穩定等待結束"
+        case .additionalStabilizationStart: return "額外穩定等待開始"
+        case .additionalStabilizationEnd: return "額外穩定等待結束"
+        case .researchDirectStart: return "直接連線研究測試開始"
+        case .researchDirectResult: return "直接連線研究測試結果"
+        case .fallbackToAssisted: return "降級切換至輔助啟動 (Fallback)"
+        case .utunTopology: return "utun 介面拓撲快照"
+        case .cellularRestoreObserved: return "觀察到行動網路已恢復"
         case .rpairingStart: return "RPairing 通道建立開始"
         case .rpairingSuccess: return "RPairing 通道建立成功"
         case .rpairingFailed: return "RPairing 通道建立失敗"
@@ -99,6 +113,8 @@ struct BootstrapTraceRecord: Identifiable, Codable, Equatable {
     var initialWifiAvailable: Bool
     var initialCellularAvailable: Bool
     var initialUsesVPN: Bool
+    var observedState: String?
+    var utunTopologySummary: String?
     var events: [BootstrapTraceEvent]
 
     var rpairingDurationMs: Double? {
@@ -171,6 +187,8 @@ struct BootstrapTraceRecord: Identifiable, Codable, Equatable {
             initialWifiAvailable: initialWifiAvailable,
             initialCellularAvailable: initialCellularAvailable,
             initialUsesVPN: initialUsesVPN,
+            observedState: observedState,
+            utunTopologySummary: utunTopologySummary.map { store.sanitizeString($0) },
             events: cleanEvents
         )
     }
@@ -219,6 +237,8 @@ final class BootstrapTraceStore: ObservableObject {
             initialWifiAvailable: monitor.isWifiAvailable,
             initialCellularAvailable: monitor.isCellularAvailable,
             initialUsesVPN: monitor.usesVPNInterface,
+            observedState: DirectCellularResearchService.classifyCurrentState().rawValue,
+            utunTopologySummary: nil,
             events: []
         )
 
@@ -228,7 +248,8 @@ final class BootstrapTraceStore: ObservableObject {
             details: [
                 "mode": mode,
                 "txId": txId,
-                "target": targetAddress
+                "target": targetAddress,
+                "observedState": record.observedState ?? "none"
             ]
         )
         record.events.append(initialEvent)
@@ -243,10 +264,25 @@ final class BootstrapTraceStore: ObservableObject {
                 "usesVPN": String(monitor.usesVPNInterface),
                 "isExpensive": String(monitor.pathIsExpensive),
                 "internetReachable": String(monitor.internetReachable),
-                "configuredTarget": targetAddress
+                "configuredTarget": targetAddress,
+                "observedState": record.observedState ?? "none"
             ]
         )
         record.events.append(netEvent)
+
+        let utunReport = UtunTopologyCollector.collectTopology()
+        record.utunTopologySummary = utunReport.summary
+        let utunEvent = BootstrapTraceEvent(
+            elapsedMs: currentElapsedMs(),
+            type: .utunTopology,
+            details: [
+                "summary": utunReport.summary,
+                "interfaceCount": String(utunReport.interfaces.count),
+                "hasP2P": String(utunReport.hasPointToPointUtun),
+                "observedState": record.observedState ?? "none"
+            ]
+        )
+        record.events.append(utunEvent)
 
         let ifaces = CellularBootstrapTransportProbe.querySystemInterfaces()
         let vpnCandidate = CellularBootstrapTransportProbe.deriveVPNCandidate(interfaces: ifaces)
@@ -429,15 +465,22 @@ final class BootstrapTraceStore: ObservableObject {
     nonisolated func sanitizeString(_ input: String) -> String {
         var text = input
 
-        // Keep 10.7.x.x intact as explicitly required for topology analysis.
-        // Redact file paths like /var/mobile/Containers/...
+        // 1. Redact cryptographic keys and certificates
+        if text.contains("BEGIN RSA PRIVATE KEY") || text.contains("BEGIN PRIVATE KEY") || text.contains("BEGIN EC PRIVATE KEY") {
+            return "[REDACTED_PRIVATE_KEY]"
+        }
+        if text.contains("BEGIN CERTIFICATE") {
+            return "[REDACTED_CERTIFICATE]"
+        }
+
+        // 2. Redact file system paths
         if text.contains("/var/mobile/") || text.contains("/private/var/") || text.contains("/Users/") {
             text = text.replacingOccurrences(of: #"/var/mobile/Containers/[A-Za-z0-9/\-_.]+"#, with: "[REDACTED_CONTAINER_PATH]", options: .regularExpression)
             text = text.replacingOccurrences(of: #"/private/var/[A-Za-z0-9/\-_.]+"#, with: "[REDACTED_SYSTEM_PATH]", options: .regularExpression)
             text = text.replacingOccurrences(of: #"/Users/[A-Za-z0-9/\-_.]+"#, with: "[REDACTED_USER_PATH]", options: .regularExpression)
         }
 
-        // Redact coordinate patterns: lat: 25.033, lon: 121.564, coord: 25.033,121.564, etc.
+        // 3. Redact explicit coordinates and coordinate pairs (lat / lon / pairs / floating numbers)
         text = text.replacingOccurrences(
             of: #"\b(lat|latitude)\s*[:=]\s*-?\d+\.\d+"#,
             with: "lat: [REDACTED_COORDINATE]",
@@ -453,10 +496,40 @@ final class BootstrapTraceStore: ObservableObject {
             with: "[REDACTED_COORDINATE],[REDACTED_COORDINATE]",
             options: .regularExpression
         )
+        text = text.replacingOccurrences(
+            of: #"\b(-?\d{1,3}\.\d{4,})\b"#,
+            with: "[REDACTED_COORDINATE]",
+            options: .regularExpression
+        )
 
-        // Redact potential private keys or pairing secret payloads
-        if text.contains("BEGIN RSA PRIVATE KEY") || text.contains("BEGIN PRIVATE KEY") {
-            return "[REDACTED_PRIVATE_KEY]"
+        // 4. Redact UDIDs and serial fixtures
+        text = text.replacingOccurrences(
+            of: #"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{16}\b"#,
+            with: "[REDACTED_UDID]",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: #"\b[0-9a-fA-F]{40}\b"#,
+            with: "[REDACTED_UDID]",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: #"(?i)\b(udid|serial|token|secret)\s*[:=]\s*[^\s,;]+"#,
+            with: "$1: [REDACTED_CREDENTIAL]",
+            options: .regularExpression
+        )
+
+        // 5. Redact Public IP addresses (protecting private 10.x.x.x, 127.0.0.1, 0.0.0.0, 192.168.x.x, 172.16-31.x.x)
+        if let regex = try? NSRegularExpression(pattern: #"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"#) {
+            let nsStr = text as NSString
+            let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsStr.length))
+            for match in matches.reversed() {
+                let ip = nsStr.substring(with: match.range)
+                let isPrivate = ip.hasPrefix("10.") || ip == "127.0.0.1" || ip == "0.0.0.0" || ip.hasPrefix("192.168.") || ip.hasPrefix("172.")
+                if !isPrivate {
+                    text = (text as NSString).replacingCharacters(in: match.range, with: "[REDACTED_PUBLIC_IP]")
+                }
+            }
         }
 
         return text
