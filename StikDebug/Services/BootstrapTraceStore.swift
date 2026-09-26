@@ -219,6 +219,14 @@ final class BootstrapTraceStore: ObservableObject {
     }
 
     func startTrace(txId: String, mode: String, targetAddress: String = "\(DeviceConnectionContext.targetIPAddress):49152") {
+        if let active = activeTrace, active.outcome == "IN_PROGRESS" {
+            finishTrace(
+                outcome: "SUPERSEDED",
+                failureStage: "Lifecycle",
+                failureReason: "Trace superseded by new trace \(txId)"
+            )
+        }
+
         let monitor = ConnectionMonitor.shared
         startUptime = ProcessInfo.processInfo.systemUptime
 

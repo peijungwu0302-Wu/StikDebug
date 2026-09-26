@@ -112,8 +112,13 @@ final class BootstrapCoordinator: ObservableObject {
                     onProceed(.needsLocationWrite)
                 } else {
                     self.lastFallbackOccurred = true
-                    LogManager.shared.addWarningLog("BootstrapCoordinator: Research beta failed in mock. Falling back to Assisted.")
+                    LogManager.shared.addWarningLog("BootstrapCoordinator: Research beta failed in mock. Falling back.")
                     BootstrapTraceStore.shared.recordEvent(.fallbackToAssisted, details: ["reason": "ResearchDirectAttemptFailed"])
+                    BootstrapTraceStore.shared.finishTrace(
+                        outcome: "RESEARCH_FAILED_FALLBACK",
+                        failureStage: "ResearchDirect",
+                        failureReason: "Research direct attempt failed"
+                    )
                     self.executeAssistedBootstrap(targetCoordinate: targetCoordinate, onProceed: onProceed, onError: onError)
                 }
             }
@@ -131,11 +136,16 @@ final class BootstrapCoordinator: ObservableObject {
 
             case .failure(let error):
                 self.lastFallbackOccurred = true
-                LogManager.shared.addWarningLog("BootstrapCoordinator: Direct Cellular Research Beta failed (\(error.localizedDescription)). Cleanly falling back to Assisted Bootstrap.")
+                LogManager.shared.addWarningLog("BootstrapCoordinator: Direct Cellular Research Beta failed (\(error.localizedDescription)). Preserving trace and falling back.")
                 BootstrapTraceStore.shared.recordEvent(.fallbackToAssisted, details: [
                     "reason": "ResearchDirectAttemptFailed",
                     "error": error.localizedDescription
                 ])
+                BootstrapTraceStore.shared.finishTrace(
+                    outcome: "RESEARCH_FAILED_FALLBACK",
+                    failureStage: "ResearchDirect",
+                    failureReason: error.localizedDescription
+                )
                 self.executeAssistedBootstrap(
                     targetCoordinate: targetCoordinate,
                     onProceed: onProceed,
