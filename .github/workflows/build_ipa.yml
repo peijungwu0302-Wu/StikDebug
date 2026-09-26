@@ -87,7 +87,8 @@ jobs:
             VERSION="${GITHUB_REF_NAME#routelocation-v}"
             cp "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" "$GITHUB_WORKSPACE/RouteLocation-v${VERSION}-unsigned.ipa"
           else
-            VERSION="1.2.10"
+            PLIST_PATH="$RUNNER_TEMP/RouteLocation.xcarchive/Products/Applications/RouteLocation.app/Info.plist"
+            VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST_PATH")
             cp "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" "$GITHUB_WORKSPACE/RouteLocation-v${VERSION}-unsigned.ipa"
           fi
           /usr/bin/unzip -l "$GITHUB_WORKSPACE/RouteLocation-unsigned.ipa" | grep 'Payload/RouteLocation.app/'
