@@ -200,7 +200,7 @@ final class SelfRefreshCoordinator: ObservableObject {
 
     public func persistPendingVerification(currentExpiration: Date) {
         let expectedVersion =
-            Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.10"
+            Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.11"
         let pending = SelfRefreshPendingVerification(
             operationId: UUID().uuidString,
             beforeExpiration: currentExpiration,

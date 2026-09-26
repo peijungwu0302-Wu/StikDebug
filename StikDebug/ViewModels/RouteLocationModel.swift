@@ -412,64 +412,61 @@ final class RouteLocationModel: ObservableObject {
         let hasActiveDVT = connectionMonitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess
         guard !hasActiveDVT else { return false }
         guard connectionMonitor.currentTransport != .wifi else { return false }
-        return connectionMonitor.currentTransport == .cellular
+        return connectionMonitor.currentTransport == .cellular || connectionMonitor.isCellularAvailable
     }
 
     func requestBootstrapIfCellular(targetCoordinate: RouteCoordinate? = nil, action: @escaping @MainActor () -> Void) {
-        if isCellularBootstrapPreparationNeeded {
-            self.pendingBootstrapTargetCoordinate = targetCoordinate
-            let policy = ShortcutBootstrapService.shared.cellularBootstrapPolicy
-            if policy == .assistedFirst && ShortcutBootstrapService.shared.isShortcutAssistedEnabled {
-                CellularAssistedBootstrapStateMachine.shared.startAssistedBootstrap(targetCoordinate: targetCoordinate) { [weak self] result in
-                    guard let self else { return }
-                    Task { @MainActor in
-                        switch result {
-                        case .success:
-                            if let targetCoordinate {
-                                self.locationAlreadyWrittenByBootstrap = targetCoordinate
-                            }
-                            self.pendingBootstrapTargetCoordinate = nil
-                            action()
-                        case .failure(let error):
-                            self.pendingBootstrapTargetCoordinate = nil
-                            self.presentedError = error.localizedDescription
-                        }
-                    }
-                }
-                return
-            }
+        self.pendingBootstrapTargetCoordinate = targetCoordinate
+        self.pendingBootstrapAction = action
 
-            pendingBootstrapAction = action
-            TunnelManager.shared.cellularBootstrapRequested = true
-            showBootstrapPreflightSheet = true
-        } else {
-            action()
-        }
+        BootstrapCoordinator.shared.coordinateSimulation(
+            targetCoordinate: targetCoordinate,
+            onRequestPreflight: { [weak self] in
+                guard let self else { return }
+                TunnelManager.shared.cellularBootstrapRequested = true
+                self.showBootstrapPreflightSheet = true
+            },
+            onProceed: { [weak self] in
+                guard let self else { return }
+                if let targetCoordinate {
+                    self.locationAlreadyWrittenByBootstrap = targetCoordinate
+                }
+                self.pendingBootstrapTargetCoordinate = nil
+                self.pendingBootstrapAction = nil
+                action()
+            },
+            onError: { [weak self] error in
+                guard let self else { return }
+                self.pendingBootstrapTargetCoordinate = nil
+                self.pendingBootstrapAction = nil
+                self.presentedError = error.localizedDescription
+            }
+        )
     }
 
     func startAssistedBootstrapFromPreflight() {
         guard let action = pendingBootstrapAction else { return }
         let target = pendingBootstrapTargetCoordinate
-        CellularAssistedBootstrapStateMachine.shared.startAssistedBootstrap(targetCoordinate: target) { [weak self] result in
-            guard let self else { return }
-            Task { @MainActor in
-                switch result {
-                case .success:
-                    if let target {
-                        self.locationAlreadyWrittenByBootstrap = target
-                    }
-                    self.showBootstrapPreflightSheet = false
-                    self.pendingBootstrapAction = nil
-                    self.pendingBootstrapTargetCoordinate = nil
-                    action()
-                case .failure(let error):
-                    self.showBootstrapPreflightSheet = false
-                    self.pendingBootstrapAction = nil
-                    self.pendingBootstrapTargetCoordinate = nil
-                    self.presentedError = error.localizedDescription
+        BootstrapCoordinator.shared.executeAssistedBootstrap(
+            targetCoordinate: target,
+            onProceed: { [weak self] in
+                guard let self else { return }
+                if let target {
+                    self.locationAlreadyWrittenByBootstrap = target
                 }
+                self.showBootstrapPreflightSheet = false
+                self.pendingBootstrapAction = nil
+                self.pendingBootstrapTargetCoordinate = nil
+                action()
+            },
+            onError: { [weak self] error in
+                guard let self else { return }
+                self.showBootstrapPreflightSheet = false
+                self.pendingBootstrapAction = nil
+                self.pendingBootstrapTargetCoordinate = nil
+                self.presentedError = error.localizedDescription
             }
-        }
+        )
     }
 
     func confirmBootstrapPreflightRecheck() {

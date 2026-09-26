@@ -1,0 +1,195 @@
+//
+//  BootstrapCoordinator.swift
+//  StikDebug
+//
+//  Created for RouteLocation v1.2.11 Architecture Coordination Layer.
+//
+
+import Combine
+import Foundation
+
+@MainActor
+final class BootstrapCoordinator: ObservableObject {
+    static let shared = BootstrapCoordinator()
+
+    @Published private(set) var isCoordinating = false
+    @Published private(set) var lastFallbackOccurred = false
+    @Published private(set) var lastCoordinationPath: String = "idle"
+
+    private init() {}
+
+    // MARK: - Simulation Request Coordination
+
+    func coordinateSimulation(
+        targetCoordinate: RouteCoordinate?,
+        onRequestPreflight: @escaping @MainActor () -> Void,
+        onProceed: @escaping @MainActor () -> Void,
+        onError: @escaping @MainActor (Error) -> Void
+    ) {
+        let monitor = ConnectionMonitor.shared
+        let health = LocationDataPathHealth.shared
+
+        // 1. Evidence Hierarchy Rule #1: Existing healthy DVT / recent success has absolute priority
+        let hasHealthySession = monitor.activeDVTSessionAvailable || health.hasRecentSuccess
+        if hasHealthySession {
+            lastCoordinationPath = "healthy_session_direct"
+            LogManager.shared.addInfoLog("BootstrapCoordinator: Healthy DVT session active. Executing simulation directly.")
+            onProceed()
+            return
+        }
+
+        // 2. Wi-Fi interface detected or offline: no cellular bootstrap needed
+        if monitor.isWifiAvailable || monitor.currentTransport == .wifi {
+            lastCoordinationPath = "wifi_direct"
+            LogManager.shared.addInfoLog("BootstrapCoordinator: Wi-Fi interface active. Skipping cellular bootstrap.")
+            onProceed()
+            return
+        }
+
+        // 3. Check Policy
+        let policy = ShortcutBootstrapService.shared.cellularBootstrapPolicy
+        switch policy {
+        case .directOnly:
+            lastCoordinationPath = "policy_direct_only"
+            LogManager.shared.addInfoLog("BootstrapCoordinator: Policy is directOnly. Proceeding to direct connection.")
+            onProceed()
+
+        case .assistedFirst:
+            // "每次詢問" (Always Ask) mode
+            lastCoordinationPath = "policy_always_ask_preflight"
+            onRequestPreflight()
+
+        case .auto:
+            // "自動（建議）"
+            let isCellular = monitor.currentTransport == .cellular || monitor.isCellularAvailable
+            guard isCellular else {
+                lastCoordinationPath = "non_cellular_direct"
+                onProceed()
+                return
+            }
+
+            // Check Direct Cellular Research Beta
+            if DirectCellularResearchService.shared.isBetaEnabled {
+                lastCoordinationPath = "research_beta_direct_attempt"
+                attemptResearchBetaWithFallback(
+                    targetCoordinate: targetCoordinate,
+                    onProceed: onProceed,
+                    onError: onError
+                )
+            } else {
+                // One-Tap Assisted Bootstrap
+                lastCoordinationPath = "auto_one_tap_assisted"
+                executeAssistedBootstrap(
+                    targetCoordinate: targetCoordinate,
+                    onProceed: onProceed,
+                    onError: onError
+                )
+            }
+        }
+    }
+
+    // MARK: - Research Beta Attempt & Fallback
+
+    private func attemptResearchBetaWithFallback(
+        targetCoordinate: RouteCoordinate?,
+        onProceed: @escaping @MainActor () -> Void,
+        onError: @escaping @MainActor (Error) -> Void
+    ) {
+        isCoordinating = true
+        lastFallbackOccurred = false
+
+        #if DEBUG
+        if let mock = testMockResearchRunner {
+            mock(targetCoordinate) { [weak self] success in
+                guard let self else { return }
+                if success {
+                    self.isCoordinating = false
+                    onProceed()
+                } else {
+                    self.lastFallbackOccurred = true
+                    LogManager.shared.addWarningLog("BootstrapCoordinator: Research beta failed in mock. Falling back to Assisted.")
+                    BootstrapTraceStore.shared.recordEvent(.fallbackToAssisted, details: ["reason": "ResearchDirectAttemptFailed"])
+                    self.executeAssistedBootstrap(targetCoordinate: targetCoordinate, onProceed: onProceed, onError: onError)
+                }
+            }
+            return
+        }
+        #endif
+
+        DirectCellularResearchService.shared.performResearchDirectAttempt(targetCoordinate: targetCoordinate) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                self.isCoordinating = false
+                LogManager.shared.addInfoLog("BootstrapCoordinator: Direct Cellular Research Beta SUCCEEDED. Proceeding without DataOff.")
+                onProceed()
+
+            case .failure(let error):
+                self.lastFallbackOccurred = true
+                LogManager.shared.addWarningLog("BootstrapCoordinator: Direct Cellular Research Beta failed (\(error.localizedDescription)). Cleanly falling back to Assisted Bootstrap.")
+                BootstrapTraceStore.shared.recordEvent(.fallbackToAssisted, details: [
+                    "reason": "ResearchDirectAttemptFailed",
+                    "error": error.localizedDescription
+                ])
+                self.executeAssistedBootstrap(
+                    targetCoordinate: targetCoordinate,
+                    onProceed: onProceed,
+                    onError: onError
+                )
+            }
+        }
+    }
+
+    // MARK: - One-Tap Assisted Bootstrap
+
+    func executeAssistedBootstrap(
+        targetCoordinate: RouteCoordinate?,
+        onProceed: @escaping @MainActor () -> Void,
+        onError: @escaping @MainActor (Error) -> Void
+    ) {
+        isCoordinating = true
+        #if DEBUG
+        if let mock = testMockAssistedRunner {
+            mock(targetCoordinate) { [weak self] result in
+                guard let self else { return }
+                self.isCoordinating = false
+                switch result {
+                case .success:
+                    onProceed()
+                case .failure(let err):
+                    onError(err)
+                }
+            }
+            return
+        }
+        #endif
+
+        CellularAssistedBootstrapStateMachine.shared.startAssistedBootstrap(targetCoordinate: targetCoordinate) { [weak self] result in
+            guard let self else { return }
+            self.isCoordinating = false
+            switch result {
+            case .success:
+                LogManager.shared.addInfoLog("BootstrapCoordinator: Assisted bootstrap completed successfully.")
+                onProceed()
+            case .failure(let err):
+                LogManager.shared.addErrorLog("BootstrapCoordinator: Assisted bootstrap failed: \(err.localizedDescription)")
+                onError(err)
+            }
+        }
+    }
+
+    // MARK: - Testing Seams
+
+    #if DEBUG
+    var testMockResearchRunner: ((RouteCoordinate?, @escaping (Bool) -> Void) -> Void)?
+    var testMockAssistedRunner: ((RouteCoordinate?, @escaping (Result<Void, Error>) -> Void) -> Void)?
+
+    func resetForTesting() {
+        isCoordinating = false
+        lastFallbackOccurred = false
+        lastCoordinationPath = "idle"
+        testMockResearchRunner = nil
+        testMockAssistedRunner = nil
+    }
+    #endif
+}
