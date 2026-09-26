@@ -605,7 +605,7 @@ struct CellularAssistedBootstrapTests {
         ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
         LocationDataPathHealth.shared.resetForTesting()
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
-        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .alwaysAsk
 
         let target = RouteCoordinate(latitude: 25.0339, longitude: 121.5644)
         model.requestSinglePointSimulation(at: target)
@@ -850,7 +850,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_config_stabilizationDelayUserDefaultsDefault() {
         let service = ShortcutBootstrapService.shared
         service.resetForTesting()
-        #expect(service.cellularBootstrapStabilizationDelay == 1.0)
+        #expect(service.cellularBootstrapStabilizationDelay == 0.0)
     }
 
     @Test func test_config_rangeClampZeroToThree() {
@@ -867,7 +867,7 @@ struct CellularAssistedBootstrapTests {
         #expect(service.cellularBootstrapStabilizationDelay == 2.5)
 
         service.resetStabilizationDelayToDefault()
-        #expect(service.cellularBootstrapStabilizationDelay == 1.0)
+        #expect(service.cellularBootstrapStabilizationDelay == 0.0)
     }
 
     @Test func test_preflightRouteBootstrapPreservesFirstRouteCoordinate() async {
@@ -875,7 +875,7 @@ struct CellularAssistedBootstrapTests {
         ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
         LocationDataPathHealth.shared.resetForTesting()
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
-        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .alwaysAsk
 
         let points = [
             RouteCoordinate(latitude: 25.01, longitude: 121.51),
@@ -919,5 +919,311 @@ struct CellularAssistedBootstrapTests {
 
         ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
         sm.resetForTesting()
+    }
+
+    // MARK: - 10. v1.2.11 One-Tap, Direct Beta, Strict Callbacks & Privacy Tests
+
+    @Test func test_v1211_oneTapAuto_singleTap_triggersDataOffDirectlyWithoutPreflight() async {
+        let model = RouteLocationModel()
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+        DirectCellularResearchService.shared.isBetaEnabled = false
+
+        var triggeredPhase: ShortcutPhase?
+        var triggeredTx: String?
+        ShortcutBootstrapService.shared.testMockShortcutRunner = { phase, txId, completion in
+            triggeredPhase = phase
+            triggeredTx = txId
+            return true
+        }
+
+        let target = RouteCoordinate(latitude: 25.0339, longitude: 121.5644)
+        model.requestSinglePointSimulation(at: target)
+
+        // In .auto mode: NO preflight sheet is shown; DataOff is directly triggered with one tap
+        #expect(model.showBootstrapPreflightSheet == false)
+        #expect(triggeredPhase == .dataOff)
+        #expect(triggeredTx != nil)
+
+        ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
+        CellularAssistedBootstrapStateMachine.shared.resetForTesting()
+    }
+
+    @Test func test_v1211_dataOffCallbackSuccess_cellularStillReportedAvailable_bootstrapProceedsImmediately() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-test-still-avail", mode: "AssistedBeta")
+
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        ShortcutBootstrapService.shared.cellularBootstrapStabilizationDelay = 0.0
+
+        sm.setActiveTxIdForTesting("tx-test-still-avail")
+        sm.forceStateForTesting(.waitingForDataOffCallback)
+
+        // Callback arrives; even though isCellularAvailable == true, state machine MUST treat DataOff callback as primary signal
+        await sm.handleDataOffCallbackSuccess()
+
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(events.contains { $0.type == .dataOffCallbackReceived })
+        guard let confirmedEvent = events.first(where: { $0.type == .cellularOffConfirmed }) else {
+            Issue.record("Missing cellularOffConfirmed event")
+            return
+        }
+        #expect(confirmedEvent.details["source"] == "shortcut_callback_primary")
+        #expect(confirmedEvent.details["cellular_available"] == "true")
+        #expect(sm.cellularOffWasObserved == true)
+
+        sm.resetForTesting()
+    }
+
+    @Test func test_v1211_additionalStabilizationDelay_positiveWait_recordsStartAndEnd() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-test-delay-events", mode: "AssistedBeta")
+
+        // Set small delay for fast test
+        ShortcutBootstrapService.shared.cellularBootstrapStabilizationDelay = 0.05
+        sm.setActiveTxIdForTesting("tx-test-delay-events")
+        sm.forceStateForTesting(.waitingForDataOffCallback)
+
+        await sm.handleDataOffCallbackSuccess()
+
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        #expect(events.contains { $0.type == .additionalStabilizationStart })
+        #expect(events.contains { $0.type == .additionalStabilizationEnd })
+
+        ShortcutBootstrapService.shared.resetStabilizationDelayToDefault()
+        sm.resetForTesting()
+    }
+
+    @Test func test_v1211_strictShortcutCallbackContract_validationPermutations() {
+        let service = ShortcutBootstrapService.shared
+        service.resetForTesting()
+        service.isShortcutAssistedEnabled = true
+
+        let activeTx = "tx-strict-100"
+        var completionResult: Bool?
+        _ = service.runDataOffShortcut(txId: activeTx) { success in
+            completionResult = success
+        }
+
+        #expect(service.activeTransaction?.id == activeTx)
+        #expect(service.activePhase == .dataOff)
+
+        // 1. Missing tx
+        let noTxURL = URL(string: "routelocation://bootstrap-callback?phase=data-off&status=success")!
+        #expect(service.handleCallback(url: noTxURL) == false)
+
+        // 2. Mismatched tx
+        let wrongTxURL = URL(string: "routelocation://bootstrap-callback?tx=tx-wrong&phase=data-off&status=success")!
+        #expect(service.handleCallback(url: wrongTxURL) == false)
+
+        // 3. Missing phase
+        let noPhaseURL = URL(string: "routelocation://bootstrap-callback?tx=\(activeTx)&status=success")!
+        #expect(service.handleCallback(url: noPhaseURL) == false)
+
+        // 4. Mismatched phase
+        let wrongPhaseURL = URL(string: "routelocation://bootstrap-callback?tx=\(activeTx)&phase=data-on&status=success")!
+        #expect(service.handleCallback(url: wrongPhaseURL) == false)
+
+        // 5. Missing status (NEVER default to success)
+        let noStatusURL = URL(string: "routelocation://bootstrap-callback?tx=\(activeTx)&phase=data-off")!
+        #expect(service.handleCallback(url: noStatusURL) == false)
+
+        // 6. Invalid status
+        let invalidStatusURL = URL(string: "routelocation://bootstrap-callback?tx=\(activeTx)&phase=data-off&status=maybe")!
+        #expect(service.handleCallback(url: invalidStatusURL) == false)
+
+        // 7. Status = failure -> handled = true, but completion(false)
+        var failResult: Bool?
+        _ = service.runDataOffShortcut(txId: "tx-strict-101") { s in failResult = s }
+        let failURL = URL(string: "routelocation://bootstrap-callback?tx=tx-strict-101&phase=data-off&status=failure")!
+        #expect(service.handleCallback(url: failURL) == true)
+        #expect(failResult == false)
+
+        // 8. Valid matching contract -> handled = true, completion(true)
+        var successResult: Bool?
+        _ = service.runDataOffShortcut(txId: "tx-strict-102") { s in successResult = s }
+        let successURL = URL(string: "routelocation://bootstrap-callback?tx=tx-strict-102&phase=data-off&status=success")!
+        #expect(service.handleCallback(url: successURL) == true)
+        #expect(successResult == true)
+
+        service.discardActiveTransactionForTesting()
+    }
+
+    @Test func test_v1211_directCellularResearchBeta_disabled_proceedsToAssistedDirectly() {
+        let coordinator = BootstrapCoordinator.shared
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+        DirectCellularResearchService.shared.isBetaEnabled = false
+
+        coordinator.coordinateSimulation(
+            targetCoordinate: RouteCoordinate(latitude: 25.0, longitude: 121.0),
+            onRequestPreflight: {},
+            onProceed: {},
+            onError: { _ in }
+        )
+
+        #expect(coordinator.lastCoordinationPath == "auto_one_tap_assisted")
+        CellularAssistedBootstrapStateMachine.shared.resetForTesting()
+        ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
+    }
+
+    @Test func test_v1211_directCellularResearchBeta_failedDirect_autoFallbacksWithPreservedTarget() async {
+        let coordinator = BootstrapCoordinator.shared
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+        DirectCellularResearchService.shared.isBetaEnabled = true
+
+        let target = RouteCoordinate(latitude: 25.0421, longitude: 121.5322)
+
+        // Mock research direct attempt failure
+        DirectCellularResearchService.shared.testMockDirectAttempt = { coord, comp in
+            comp(false, NSError(domain: "NSPOSIXErrorDomain", code: 65, userInfo: [NSLocalizedDescriptionKey: "No route to host"]))
+        }
+
+        coordinator.coordinateSimulation(
+            targetCoordinate: target,
+            onRequestPreflight: {},
+            onProceed: {},
+            onError: { _ in }
+        )
+
+        try? await Task.sleep(for: .milliseconds(50))
+
+        #expect(coordinator.lastCoordinationPath == "research_beta_direct_attempt")
+        #expect(coordinator.lastFallbackOccurred == true)
+        #expect(DirectCellularResearchService.shared.lastResult?.posixErrno == "65")
+        #expect(DirectCellularResearchService.shared.lastResult?.fallbackOccurred == true)
+        #expect(CellularAssistedBootstrapStateMachine.shared.testVerificationCoordinate == target)
+
+        DirectCellularResearchService.shared.testMockDirectAttempt = nil
+        DirectCellularResearchService.shared.isBetaEnabled = false
+        CellularAssistedBootstrapStateMachine.shared.resetForTesting()
+        ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
+    }
+
+    @Test func test_v1211_directCellularResearchBeta_healthyDVT_preservesSessionWithoutDirectAttempt() {
+        let coordinator = BootstrapCoordinator.shared
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .connected)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+        DirectCellularResearchService.shared.isBetaEnabled = true
+
+        var proceedCalled = false
+        coordinator.coordinateSimulation(
+            targetCoordinate: RouteCoordinate(latitude: 25.0, longitude: 121.0),
+            onRequestPreflight: {},
+            onProceed: { proceedCalled = true },
+            onError: { _ in }
+        )
+
+        #expect(proceedCalled == true)
+        #expect(coordinator.lastCoordinationPath == "healthy_session_direct")
+
+        DirectCellularResearchService.shared.isBetaEnabled = false
+    }
+
+    @Test func test_v1211_privacySafeExport_firstLocationWrite_zeroCoordinateLeakage() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
+
+        let sink = MockLocationSink()
+        sm.simulationSink = sink
+        sm.setActiveTxIdForTesting("tx-privacy-test")
+        BootstrapTraceStore.shared.startTrace(txId: "tx-privacy-test", mode: "AssistedBeta")
+        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: true, restoreRequired: true)
+
+        let secretCoord = RouteCoordinate(latitude: 25.123456, longitude: 121.654321)
+        await sm.testVerifyLocation(coordinate: secretCoord)
+
+        let trace = BootstrapTraceStore.shared.latestTrace
+        let events = trace?.events ?? []
+        guard let writeEvent = events.first(where: { $0.type == .firstLocationWriteSuccess }) else {
+            Issue.record("Missing firstLocationWriteSuccess event")
+            return
+        }
+
+        // Privacy check 1: Event details must NOT contain coordinates
+        #expect(writeEvent.details["coordinatePresent"] == "true")
+        #expect(writeEvent.details["targetKind"] == "singlePoint")
+        #expect(writeEvent.details["lat"] == nil)
+        #expect(writeEvent.details["lon"] == nil)
+        #expect(writeEvent.details["latitude"] == nil)
+        #expect(writeEvent.details["longitude"] == nil)
+
+        // Privacy check 2: Exported summary must NOT contain latitude or longitude
+        let summary = BootstrapTraceStore.shared.formatTraceSummary(trace!)
+        #expect(!summary.contains("25.123456"))
+        #expect(!summary.contains("121.654321"))
+
+        // Privacy check 3: Safe TXT export must NOT contain latitude or longitude
+        if let txtURL = BootstrapTraceStore.shared.exportSafeTXTURL(trace: trace!),
+           let txtContent = try? String(contentsOf: txtURL, encoding: .utf8) {
+            #expect(!txtContent.contains("25.123456"))
+            #expect(!txtContent.contains("121.654321"))
+        }
+
+        // Privacy check 4: Safe JSON export must NOT contain latitude or longitude
+        if let jsonURL = BootstrapTraceStore.shared.exportSafeJSONURL(trace: trace!),
+           let jsonContent = try? String(contentsOf: jsonURL, encoding: .utf8) {
+            #expect(!jsonContent.contains("25.123456"))
+            #expect(!jsonContent.contains("121.654321"))
+        }
+
+        sm.resetForTesting()
+        ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
+    }
+
+    @Test func test_v1211_utunTopologyCollector_andStateClassification() {
+        // State Classification Permutations
+        let monitor = ConnectionMonitor.shared
+
+        // State A: Cellular ON, no healthy DVT
+        monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        #expect(DirectCellularResearchService.classifyCurrentState() == .stateA)
+
+        // State B: Cellular OFF, no healthy DVT
+        monitor.updateForTesting(transport: .offline, isWifiAvailable: false, isCellularAvailable: false, deviceSession: .idle)
+        #expect(DirectCellularResearchService.classifyCurrentState() == .stateB)
+
+        // State C: Cellular ON, healthy DVT
+        monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .connected)
+        #expect(DirectCellularResearchService.classifyCurrentState() == .stateC)
+
+        // Utun Topology Collector with neutral naming
+        UtunTopologyCollector.testMockEntries = [
+            UtunInterfaceEntry(
+                interfaceName: "utun3",
+                addressFamily: "IPv4",
+                ifaFlags: 0x8051,
+                isPointToPoint: true,
+                isUp: true,
+                isRunning: true,
+                observedInterfaceAddress: "10.7.0.2",
+                observedP2PLocalAddress: "10.7.0.2",
+                observedP2PDestination: "10.7.1.1",
+                observedNetmask: "255.255.255.0"
+            )
+        ]
+
+        let report = UtunTopologyCollector.collectTopology()
+        #expect(report.hasPointToPointUtun == true)
+        #expect(report.interfaces.count == 1)
+        #expect(report.interfaces.first?.observedP2PDestination == "10.7.1.1")
+        #expect(report.interfaces.first?.observedInterfaceAddress == "10.7.0.2")
+
+        UtunTopologyCollector.testMockEntries = nil
     }
 }
