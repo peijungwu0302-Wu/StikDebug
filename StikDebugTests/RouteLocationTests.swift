@@ -1322,10 +1322,19 @@ struct DeveloperDiagnosticsStoreTests {
     }
 }
 
+@Suite(.serialized)
 @MainActor
 struct ShortcutBootstrapServiceTests {
+    init() {
+        let service = ShortcutBootstrapService.shared
+        service.discardActiveTransactionForTesting()
+        service.resetForTesting()
+    }
+
     @Test func defaultIsDisabledAndNeverStartsURL() {
         let service = ShortcutBootstrapService.shared
+        service.discardActiveTransactionForTesting()
+        service.resetForTesting()
         service.isShortcutAssistedEnabled = false
 
         var completed = false
@@ -1342,6 +1351,8 @@ struct ShortcutBootstrapServiceTests {
 
     @Test func handlesCallbackMatchingTransaction() {
         let service = ShortcutBootstrapService.shared
+        service.discardActiveTransactionForTesting()
+        service.resetForTesting()
         service.isShortcutAssistedEnabled = true
 
         var callbackSuccess = false
@@ -1355,23 +1366,26 @@ struct ShortcutBootstrapServiceTests {
         }
 
         // Test mismatched transaction URL
-        let mismatchURL = URL(string: "routelocation://bootstrap-callback?tx=wrong-id&status=success")!
+        let mismatchURL = URL(string: "routelocation://bootstrap-callback?tx=wrong-id&phase=data-off&status=success")!
         let mismatchHandled = service.handleCallback(url: mismatchURL)
         #expect(!mismatchHandled)
         #expect(!callbackSuccess)
 
         // Test matching transaction URL
-        let matchURL = URL(string: "routelocation://bootstrap-callback?tx=\(activeTxId)&status=success")!
+        let matchURL = URL(string: "routelocation://bootstrap-callback?tx=\(activeTxId)&phase=data-off&status=success")!
         let matchHandled = service.handleCallback(url: matchURL)
         #expect(matchHandled)
         #expect(callbackSuccess)
 
         // Reset to false for safety
         service.isShortcutAssistedEnabled = false
+        service.discardActiveTransactionForTesting()
+        service.resetForTesting()
     }
 
     @Test func cannotOpenURL_completionInvocationCountIsExactlyOne() {
         let service = ShortcutBootstrapService.shared
+        service.discardActiveTransactionForTesting()
         service.resetForTesting()
         service.isShortcutAssistedEnabled = true
         service.testCanOpenURL = { _ in false }
@@ -1388,11 +1402,13 @@ struct ShortcutBootstrapServiceTests {
         #expect(returnedSuccess == false)
 
         service.isShortcutAssistedEnabled = false
+        service.discardActiveTransactionForTesting()
         service.resetForTesting()
     }
 
     @Test func openURLFailed_completionInvocationCountIsExactlyOne() async {
         let service = ShortcutBootstrapService.shared
+        service.discardActiveTransactionForTesting()
         service.resetForTesting()
         service.isShortcutAssistedEnabled = true
         service.testCanOpenURL = { _ in true }
@@ -1414,11 +1430,13 @@ struct ShortcutBootstrapServiceTests {
         #expect(returnedSuccess == false)
 
         service.isShortcutAssistedEnabled = false
+        service.discardActiveTransactionForTesting()
         service.resetForTesting()
     }
 
     @Test func explicitCancel_completionInvocationCountIsExactlyOne() {
         let service = ShortcutBootstrapService.shared
+        service.discardActiveTransactionForTesting()
         service.resetForTesting()
         service.isShortcutAssistedEnabled = true
 
@@ -1433,11 +1451,13 @@ struct ShortcutBootstrapServiceTests {
 
         #expect(invocationCount == 1)
         service.isShortcutAssistedEnabled = false
+        service.discardActiveTransactionForTesting()
         service.resetForTesting()
     }
 
     @Test func callbackFailure_completionInvocationCountIsExactlyOne() {
         let service = ShortcutBootstrapService.shared
+        service.discardActiveTransactionForTesting()
         service.resetForTesting()
         service.isShortcutAssistedEnabled = true
 
@@ -1446,11 +1466,12 @@ struct ShortcutBootstrapServiceTests {
             invocationCount += 1
         }
 
-        let url = URL(string: "routelocation://bootstrap-callback?tx=tx-cb-fail&phase=data-off&status=failed")!
+        let url = URL(string: "routelocation://bootstrap-callback?tx=tx-cb-fail&phase=data-off&status=failure")!
         _ = service.handleCallback(url: url)
 
         #expect(invocationCount == 1)
         service.isShortcutAssistedEnabled = false
+        service.discardActiveTransactionForTesting()
         service.resetForTesting()
     }
 }
