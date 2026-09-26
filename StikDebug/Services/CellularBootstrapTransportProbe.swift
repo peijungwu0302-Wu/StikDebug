@@ -106,6 +106,37 @@ public enum ProbeStatus: String, Equatable {
     case notRun = "NOT RUN"
 }
 
+public struct EndpointMatrixProbeResult: Identifiable, Equatable {
+    public let id: UUID
+    public let target: String
+    public let policy: InterfacePolicy
+    public let status: ProbeStatus
+    public let elapsedMs: Int
+    public let localEndpoint: String?
+    public let remoteEndpoint: String?
+    public let errorDescription: String?
+
+    public init(
+        id: UUID = UUID(),
+        target: String,
+        policy: InterfacePolicy,
+        status: ProbeStatus,
+        elapsedMs: Int,
+        localEndpoint: String? = nil,
+        remoteEndpoint: String? = nil,
+        errorDescription: String? = nil
+    ) {
+        self.id = id
+        self.target = target
+        self.policy = policy
+        self.status = status
+        self.elapsedMs = elapsedMs
+        self.localEndpoint = localEndpoint
+        self.remoteEndpoint = remoteEndpoint
+        self.errorDescription = errorDescription
+    }
+}
+
 public struct CellularPathProbeResult: Identifiable, Equatable {
     public let id: UUID
     public let probeType: CellularProbeType
@@ -257,7 +288,9 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
     @Published public private(set) var probeBResult: CellularPathProbeResult?
     @Published public private(set) var probeCResult: CellularPathProbeResult?
     @Published public private(set) var candidatePeerProbeResult: CellularPathProbeResult?
+    @Published public private(set) var matrixResults: [EndpointMatrixProbeResult] = []
     @Published public private(set) var isProbing = false
+    @Published public private(set) var isProbingMatrix = false
 
     private let pathMonitor = NWPathMonitor()
     private var currentNWPath: NWPath?
@@ -395,6 +428,53 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
             candidatePeerProbe: resPeer
         )
         self.latestCompletedRun = completedRun
+    }
+
+    public func runEndpointMatrixProbes() async -> [EndpointMatrixProbeResult] {
+        guard !isProbingMatrix else { return matrixResults }
+        isProbingMatrix = true
+        defer { isProbingMatrix = false }
+
+        var results: [EndpointMatrixProbeResult] = []
+        let snapshot = captureSnapshot()
+        let vpnIface = snapshot.vpnCandidate.interface
+
+        let matrixSpecs: [(String, Int, [InterfacePolicy])] = [
+            ("10.7.0.1", 49152, [.DEFAULT, .CELLULAR_PROHIBITED, .REQUIRED_INTERFACE]),
+            ("127.0.0.1", 49152, [.DEFAULT, .CELLULAR_PROHIBITED]),
+            ("::1", 49152, [.DEFAULT, .CELLULAR_PROHIBITED])
+        ]
+
+        for (host, port, policies) in matrixSpecs {
+            for policy in policies {
+                let probeType: CellularProbeType
+                switch policy {
+                case .DEFAULT: probeType = .baseline
+                case .CELLULAR_PROHIBITED: probeType = .cellularProhibited
+                case .REQUIRED_INTERFACE: probeType = .requiredInterface
+                }
+
+                let probeRes = await executeSingleProbe(
+                    type: probeType,
+                    targetIP: host,
+                    targetPort: port,
+                    candidateInterface: policy == .REQUIRED_INTERFACE ? vpnIface : nil
+                )
+                let item = EndpointMatrixProbeResult(
+                    target: "\(host):\(port)",
+                    policy: policy,
+                    status: probeRes.status,
+                    elapsedMs: probeRes.elapsedMs,
+                    localEndpoint: probeRes.localEndpoint,
+                    remoteEndpoint: probeRes.remoteEndpoint,
+                    errorDescription: probeRes.errorDescription
+                )
+                results.append(item)
+            }
+        }
+
+        self.matrixResults = results
+        return results
     }
 
     private func executeSingleProbe(
