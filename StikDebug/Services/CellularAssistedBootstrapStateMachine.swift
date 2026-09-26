@@ -197,21 +197,23 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
 
     func handleDataOffCallbackSuccess() async {
         guard state == .requestingDataOff || state == .waitingForDataOffCallback else { return }
-        BootstrapTraceStore.shared.recordEvent(.dataOffCallbackReceived)
         transitionTo(.waitingForCellularOff)
 
         let additionalDelay = effectiveStabilizationDelay
         let isCellularOff = checkIsCellularOff()
 
-        LogManager.shared.addInfoLog("DataOff callback success received (primary transition signal). NWPath cellular off: \(isCellularOff), additional stabilization delay: \(additionalDelay)s.")
-
         if isCellularOff {
+            BootstrapTraceStore.shared.recordEvent(.dataOffCallbackReceived)
             BootstrapTraceStore.shared.recordEvent(.cellularOffConfirmed, details: ["source": "nwpath"])
+            self.cellularOffWasObserved = true
+            LogManager.shared.addInfoLog("DataOff callback success received. NWPath cellular off confirmed. Additional stabilization delay: \(additionalDelay)s.")
         } else {
-            BootstrapTraceStore.shared.recordEvent(.cellularOffConfirmed, details: ["source": "shortcut_callback_primary", "cellular_available": "true"])
+            BootstrapTraceStore.shared.recordEvent(.dataOffCallbackReceived, details: [
+                "cellularInterfaceStillObserved": "true"
+            ])
+            self.cellularOffWasObserved = false
+            LogManager.shared.addInfoLog("DataOff callback success received, but cellular interface still observed by NWPath. Proceeding with bootstrap.")
         }
-
-        self.cellularOffWasObserved = true
 
         if additionalDelay > 0 {
             BootstrapTraceStore.shared.recordEvent(
