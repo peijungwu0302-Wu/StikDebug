@@ -165,6 +165,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     var testSimulateCellularSettlementConfirmed: Bool?
     var testStabilizationDelaySeconds: Double?
     var testCellularOffSequence: [Bool]?
+    var testMockBootstrapRunner: (() async -> Bool)?
+    var testBootstrapAttemptCount: Int = 0
     var testVerificationCoordinate: RouteCoordinate? {
         return verificationCoordinate
     }
@@ -316,6 +318,21 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         guard state == .waitingForCellularOff else { return }
         transitionTo(.bootstrapping)
         scheduleTimeout(seconds: 25, stage: "BootstrapTunnel")
+
+        #if DEBUG
+        if let mock = testMockBootstrapRunner {
+            testBootstrapAttemptCount += 1
+            let connected = await mock()
+            guard connected else {
+                handleFailure(stage: "RPairing/Tunnel", reason: "通道建立失敗 (Mock)")
+                return
+            }
+            transitionTo(.waitingForRSD)
+            transitionTo(.waitingForDVT)
+            await verifyFirstLocationWrite()
+            return
+        }
+        #endif
 
         // Trigger TunnelManager start
         TunnelManager.shared.start(showErrorUI: false)
@@ -625,6 +642,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         testSimulateCellularSettlementConfirmed = nil
         testStabilizationDelaySeconds = nil
         testCellularOffSequence = nil
+        testMockBootstrapRunner = nil
+        testBootstrapAttemptCount = 0
         simulationSink = DeviceLocationSimulationService.shared
         stateTimeoutTask?.cancel()
         stateTimeoutTask = nil
