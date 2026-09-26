@@ -70,7 +70,7 @@ final class ShortcutBootstrapService: ObservableObject {
             let saved = UserDefaults.standard.double(forKey: Self.stabilizationDelayKey)
             self.cellularBootstrapStabilizationDelay = max(0.0, min(3.0, saved))
         } else {
-            self.cellularBootstrapStabilizationDelay = 1.0
+            self.cellularBootstrapStabilizationDelay = 0.0
         }
 
         if let policyRaw = UserDefaults.standard.string(forKey: Self.policyKey),
@@ -188,42 +188,88 @@ final class ShortcutBootstrapService: ObservableObject {
         }
 
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        let txId = components?.queryItems?.first(where: { $0.name == "tx" })?.value
-        let phaseStr = components?.queryItems?.first(where: { $0.name == "phase" })?.value
-        let status = components?.queryItems?.first(where: { $0.name == "status" })?.value ?? "success"
+        guard let queryItems = components?.queryItems else {
+            DeveloperDiagnosticsStore.shared.record(
+                category: .bootstrap,
+                action: "SHORTCUT_CALLBACK_REJECTED",
+                details: ["reason": "Missing query items"]
+            )
+            return false
+        }
 
-        DeveloperDiagnosticsStore.shared.record(
-            category: .bootstrap,
-            action: "SHORTCUT_CALLBACK_RECEIVED",
-            details: ["txId": txId ?? "none", "phase": phaseStr ?? "none", "status": status]
-        )
+        // Strict Contract 1: Transaction ID must be present and non-empty
+        guard let txId = queryItems.first(where: { $0.name == "tx" })?.value, !txId.isEmpty else {
+            DeveloperDiagnosticsStore.shared.record(
+                category: .bootstrap,
+                action: "SHORTCUT_CALLBACK_REJECTED",
+                details: ["reason": "Missing or empty tx"]
+            )
+            return false
+        }
 
+        // Strict Contract 2: Phase must be present and non-empty
+        guard let phaseStr = queryItems.first(where: { $0.name == "phase" })?.value, !phaseStr.isEmpty else {
+            DeveloperDiagnosticsStore.shared.record(
+                category: .bootstrap,
+                action: "SHORTCUT_CALLBACK_REJECTED",
+                details: ["reason": "Missing or empty phase", "txId": txId]
+            )
+            return false
+        }
+
+        // Strict Contract 3: Status must be explicitly present and non-empty (never default to success)
+        guard let statusStr = queryItems.first(where: { $0.name == "status" })?.value, !statusStr.isEmpty else {
+            DeveloperDiagnosticsStore.shared.record(
+                category: .bootstrap,
+                action: "SHORTCUT_CALLBACK_REJECTED",
+                details: ["reason": "Missing or empty status", "txId": txId, "phase": phaseStr]
+            )
+            return false
+        }
+
+        let normalizedStatus = statusStr.lowercased()
+        guard normalizedStatus == "success" || normalizedStatus == "failure" else {
+            DeveloperDiagnosticsStore.shared.record(
+                category: .bootstrap,
+                action: "SHORTCUT_CALLBACK_REJECTED",
+                details: ["reason": "Unknown status value", "status": statusStr, "txId": txId]
+            )
+            return false
+        }
+
+        // Strict Contract 4: Active transaction must match
         guard let activeTx = activeTransaction, activeTx.id == txId else {
             DeveloperDiagnosticsStore.shared.record(
                 category: .bootstrap,
                 action: "SHORTCUT_CALLBACK_MISMATCH",
-                details: ["receivedTx": txId ?? "none", "activeTx": activeTransaction?.id ?? "none"]
+                details: ["receivedTx": txId, "activeTx": activeTransaction?.id ?? "none"]
             )
             return false
         }
 
-        // Validate phase if provided
-        if let phaseStr, let expectedPhase = activePhase, phaseStr != expectedPhase.rawValue {
+        // Strict Contract 5: Active phase must match exactly
+        guard let activePhase = activePhase, activePhase.rawValue == phaseStr else {
             DeveloperDiagnosticsStore.shared.record(
                 category: .bootstrap,
                 action: "SHORTCUT_PHASE_MISMATCH",
-                details: ["receivedPhase": phaseStr, "expectedPhase": expectedPhase.rawValue]
+                details: ["receivedPhase": phaseStr, "expectedPhase": activePhase?.rawValue ?? "none", "txId": txId]
             )
             return false
         }
+
+        DeveloperDiagnosticsStore.shared.record(
+            category: .bootstrap,
+            action: "SHORTCUT_CALLBACK_RECEIVED",
+            details: ["txId": txId, "phase": phaseStr, "status": normalizedStatus]
+        )
 
         timeoutTimer?.cancel()
         timeoutTimer = nil
 
-        let success = status.lowercased() == "success"
+        let success = (normalizedStatus == "success")
         activeTransaction?.completedAt = Date()
         activeTransaction?.status = success ? "completed" : "failed"
-        let phaseLabel = activePhase?.label ?? "捷徑"
+        let phaseLabel = activePhase.label
         lastTransactionStatus = success ? L10n.format("%@ 回呼成功", phaseLabel) : L10n.format("%@ 回報失敗", phaseLabel)
 
         let completion = pendingCompletion
@@ -250,7 +296,7 @@ final class ShortcutBootstrapService: ObservableObject {
     }
 
     func resetStabilizationDelayToDefault() {
-        cellularBootstrapStabilizationDelay = 1.0
+        cellularBootstrapStabilizationDelay = 0.0
     }
 
     #if DEBUG
@@ -278,7 +324,7 @@ final class ShortcutBootstrapService: ObservableObject {
 
     func resetForTesting() {
         discardActiveTransactionForTesting()
-        cellularBootstrapStabilizationDelay = 1.0
+        cellularBootstrapStabilizationDelay = 0.0
         UserDefaults.standard.removeObject(forKey: Self.stabilizationDelayKey)
         testRoundTripSettlementTimeoutSeconds = nil
         testSimulateCellularOffObserved = nil
@@ -444,5 +490,6 @@ final class ShortcutBootstrapService: ObservableObject {
     3. 儲存捷徑。
 
     ※ 系統在完成通道建立並驗證首次定位寫入後，會自動觸發 RouteLocationDataOn 恢復行動數據。若中途失敗亦具備自動 Rollback 機制。
+    ※ 若 iOS 捷徑執行完畢後系統自動附加「停止並輸出 (Stop and Output)」，此屬系統介面正常行為，RouteLocation 不依賴且不影響自動回呼運作，無需手動刪除。
     """
 }
