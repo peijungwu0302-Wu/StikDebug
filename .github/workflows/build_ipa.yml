@@ -52,6 +52,7 @@ jobs:
             -scheme StikDebug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:StikDebugTests \
+            -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Archive unsigned app
