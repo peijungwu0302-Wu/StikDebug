@@ -406,10 +406,7 @@ final class RouteLocationModel: ObservableObject {
         await saveFavorites()
     }
 
-    private var isBypassingCellularPreparation = false
-
     var isCellularBootstrapPreparationNeeded: Bool {
-        guard !isBypassingCellularPreparation else { return false }
         let policy = ShortcutBootstrapService.shared.cellularBootstrapPolicy
         if policy == .directOnly { return false }
         let hasActiveDVT = connectionMonitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess
@@ -483,7 +480,6 @@ final class RouteLocationModel: ObservableObject {
         pendingBootstrapAction = nil
         pendingBootstrapTargetCoordinate = nil
         locationAlreadyWrittenByBootstrap = nil
-        isBypassingCellularPreparation = true
         action?()
     }
 
@@ -494,7 +490,6 @@ final class RouteLocationModel: ObservableObject {
         pendingBootstrapAction = nil
         pendingBootstrapTargetCoordinate = nil
         locationAlreadyWrittenByBootstrap = nil
-        isBypassingCellularPreparation = true
         action?()
     }
 
@@ -503,7 +498,6 @@ final class RouteLocationModel: ObservableObject {
         pendingBootstrapAction = nil
         pendingBootstrapTargetCoordinate = nil
         locationAlreadyWrittenByBootstrap = nil
-        isBypassingCellularPreparation = false
         TunnelManager.shared.cellularBootstrapRequested = false
         CellularAssistedBootstrapStateMachine.shared.cancel()
     }
@@ -574,7 +568,6 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func executeTeleport(to target: RouteCoordinate) async {
-        isBypassingCellularPreparation = false
         playback.stop(clearMarker: false)
         let alreadyWritten = (locationAlreadyWrittenByBootstrap == target)
         locationAlreadyWrittenByBootstrap = nil
@@ -612,11 +605,15 @@ final class RouteLocationModel: ObservableObject {
             let firstCoord = geometry.coordinates.first
             requestBootstrapIfCellular(targetCoordinate: firstCoord) { [weak self] in
                 guard let self else { return }
-                Task { await self.startPlayback() }
+                Task { await self.startPlaybackAfterBootstrapPreparation() }
             }
             return
         }
-        isBypassingCellularPreparation = false
+
+        await startPlaybackAfterBootstrapPreparation()
+    }
+
+    private func startPlaybackAfterBootstrapPreparation() async {
         teleportTask?.cancel()
         teleportTask = nil
         locationAlreadyWrittenByBootstrap = nil
