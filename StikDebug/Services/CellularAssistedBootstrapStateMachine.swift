@@ -191,46 +191,42 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         return 5.0
     }
 
-    // MARK: - Cellular OFF Settlement & Continuous Stable Dwell
+    // MARK: - Cellular OFF Settlement & Additional Stabilization
 
     func handleDataOffCallbackSuccess() async {
         guard state == .requestingDataOff || state == .waitingForDataOffCallback else { return }
         BootstrapTraceStore.shared.recordEvent(.dataOffCallbackReceived)
         transitionTo(.waitingForCellularOff)
 
-        let requiredDwell = effectiveStabilizationDelay
-        let totalTimeout: Double
-        #if DEBUG
-        if let custom = testSettlementTimeoutSeconds {
-            totalTimeout = custom
+        let additionalDelay = effectiveStabilizationDelay
+        let isCellularOff = checkIsCellularOff()
+
+        LogManager.shared.addInfoLog("DataOff callback success received (primary transition signal). NWPath cellular off: \(isCellularOff), additional stabilization delay: \(additionalDelay)s.")
+
+        if isCellularOff {
+            BootstrapTraceStore.shared.recordEvent(.cellularOffConfirmed, details: ["source": "nwpath"])
         } else {
-            totalTimeout = max(self.offSettlementTimeout, requiredDwell + 4.0)
+            BootstrapTraceStore.shared.recordEvent(.cellularOffConfirmed, details: ["source": "shortcut_callback_primary", "cellular_available": "true"])
         }
-        #else
-        totalTimeout = max(self.offSettlementTimeout, requiredDwell + 4.0)
-        #endif
-        scheduleTimeout(seconds: totalTimeout + 2.0, stage: "CellularSettle")
 
-        performSafePreBootstrap()
+        self.cellularOffWasObserved = true
 
-        let dwellSatisfied = await waitForContinuousCellularOffDwell(
-            timeoutSeconds: totalTimeout,
-            requiredDwellSeconds: requiredDwell
-        )
-
-        guard state.isRunning else { return }
-
-        if dwellSatisfied {
-            self.cellularOffWasObserved = true
-            LogManager.shared.addInfoLog("Continuous physical cellular OFF dwell confirmed (\(String(format: "%.1f", requiredDwell))s).")
-            await self.proceedToBootstrapping()
-        } else {
-            LogManager.shared.addErrorLog("Cellular settlement timed out; physical cellular radio was not stably OFF. Aborting bootstrap and restoring data.")
-            self.handleFailure(
-                stage: "CellularSettle",
-                reason: "行動數據關閉確認逾時：未能在限時內維持連續關閉穩定狀態，自動觸發恢復"
+        if additionalDelay > 0 {
+            BootstrapTraceStore.shared.recordEvent(
+                .additionalStabilizationStart,
+                details: ["delaySeconds": String(format: "%.1f", additionalDelay)]
+            )
+            scheduleTimeout(seconds: additionalDelay + 5.0, stage: "AdditionalStabilization")
+            try? await Task.sleep(for: .milliseconds(Int(additionalDelay * 1000)))
+            guard state.isRunning else { return }
+            BootstrapTraceStore.shared.recordEvent(
+                .additionalStabilizationEnd,
+                details: ["delaySeconds": String(format: "%.1f", additionalDelay)]
             )
         }
+
+        performSafePreBootstrap()
+        await self.proceedToBootstrapping()
     }
 
     private func performSafePreBootstrap() {
@@ -359,8 +355,11 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             do {
                 try await simulationSink.setCoordinate(target)
                 LocationDataPathHealth.shared.recordSuccess()
-                BootstrapTraceStore.shared.recordEvent(.firstLocationWriteSuccess, details: ["coord": "\(target.latitude),\(target.longitude)"])
-                LogManager.shared.addInfoLog("First location write verified successfully at \(target.latitude), \(target.longitude)")
+                BootstrapTraceStore.shared.recordEvent(.firstLocationWriteSuccess, details: [
+                    "coordinatePresent": "true",
+                    "targetKind": "singlePointOrRouteFirst"
+                ])
+                LogManager.shared.addInfoLog("First location write verified successfully (coordinate injected).")
                 await Task.yield()
                 await proceedToDataOn()
             } catch {
