@@ -545,8 +545,12 @@ fileprivate extension SavedRoute {
     }
 }
 
+@Suite(.serialized)
 @MainActor
 struct SimulationStateMachineTests {
+    init() {
+        TestBootstrapEnvironment.reset()
+    }
     @Test func singlePointToRouteStartsNormallyWithoutClearingRealLocation() async throws {
         let sink = FakeLocationSink()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -1026,8 +1030,12 @@ struct SimulationStateMachineTests {
     }
 }
 
+@Suite(.serialized)
 @MainActor
 struct SharedRouteDraftAndUITests {
+    init() {
+        TestBootstrapEnvironment.reset()
+    }
     @Test func classicAndQuickRouteSwitchPreservesPlaybackState() async throws {
         let sink = FakeLocationSink()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
