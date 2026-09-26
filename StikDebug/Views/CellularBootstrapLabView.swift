@@ -10,6 +10,7 @@ struct CellularBootstrapLabView: View {
     @ObservedObject private var probeService = CellularBootstrapTransportProbe.shared
     @ObservedObject private var traceStore = BootstrapTraceStore.shared
     @ObservedObject private var stateMachine = CellularAssistedBootstrapStateMachine.shared
+    @ObservedObject private var researchService = DirectCellularResearchService.shared
     @ObservedObject private var bonjourDiscovery = BonjourRemotePairingDiscovery.shared
 
     @State private var isTestingAssisted = false
@@ -18,9 +19,14 @@ struct CellularBootstrapLabView: View {
     @State private var copiedMessage = ""
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
+    @State private var utunReport: UtunTopologyReport? = nil
 
     private var hasHealthySession: Bool {
         monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess
+    }
+
+    private var currentStateClassification: BootstrapStateClassification {
+        DirectCellularResearchService.classifyCurrentState()
     }
 
     var body: some View {
@@ -29,6 +35,13 @@ struct CellularBootstrapLabView: View {
             // 1. 目前 Session Health
             // ==========================================
             Section(L10n.text("1. 目前 Session Health (即時狀態)")) {
+                HStack {
+                    Text(L10n.text("研究狀態快照"))
+                    Spacer()
+                    Text(currentStateClassification.title)
+                        .font(.caption.bold())
+                        .foregroundStyle(currentStateClassification == .stateC ? .green : (currentStateClassification == .stateA ? .blue : .secondary))
+                }
                 HStack {
                     Text(L10n.text("DVT 工作階段"))
                     Spacer()
@@ -178,21 +191,21 @@ struct CellularBootstrapLabView: View {
                     DisclosureGroup(L10n.text("進階設定 (Advanced)")) {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text(L10n.text("切換穩定等待"))
+                                Text(L10n.text("額外穩定等待"))
                                 Spacer()
                                 Text(String(format: "%.1f 秒", shortcutService.cellularBootstrapStabilizationDelay))
                                     .font(.subheadline.bold())
                                     .foregroundStyle(.secondary)
                             }
 
-                            Picker(L10n.text("切換穩定等待時間"), selection: $shortcutService.cellularBootstrapStabilizationDelay) {
+                            Picker(L10n.text("額外穩定等待時間"), selection: $shortcutService.cellularBootstrapStabilizationDelay) {
                                 ForEach([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0], id: \.self) { delay in
                                     Text(String(format: "%.1f 秒", delay)).tag(delay)
                                 }
                             }
                             .pickerStyle(.segmented)
 
-                            Text(L10n.text("行動網路切換完成後，額外等待短暫時間再進入下一階段。不同 iPhone、iOS 版本與電信網路環境可能需要不同等待時間。"))
+                            Text(L10n.text("收到 DataOff 回呼成功後，額外等待短暫時間再建立通道。預設 0.0 秒（即刻啟動，不額外等待）。若特定機型需要電信網路完全沉降，可微調此設定。"))
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
 
@@ -224,9 +237,160 @@ struct CellularBootstrapLabView: View {
             }
 
             // ==========================================
-            // 3. Bootstrap Trace
+            // 3. Direct Cellular Bootstrap — Research Beta
             // ==========================================
-            Section(L10n.text("3. 生產引導追蹤 (Bootstrap Trace v2)")) {
+            Section(L10n.text("3. 直接連線研究測試 (Research Beta)")) {
+                Toggle(L10n.text("啟用直接連線研究模式 (Beta)"), isOn: $researchService.isBetaEnabled)
+
+                Text(L10n.text("此模式僅供研究探測。若開啟，在行動網路環境下發起定位時會先嘗試直連一次，失敗自動切換為 One-Tap 輔助啟動，絕不損壞健康連線與目標座標。"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    Text(L10n.text("當前狀態分類"))
+                    Spacer()
+                    Text(currentStateClassification.title)
+                        .font(.caption.bold())
+                        .foregroundStyle(currentStateClassification == .stateC ? .green : (currentStateClassification == .stateA ? .blue : .secondary))
+                }
+
+                Button {
+                    runResearchDirectAttempt()
+                } label: {
+                    HStack {
+                        Text(researchService.isAttemptInProgress ? L10n.text("直連研究測試中...") : L10n.text("執行單次直連研究測試"))
+                        if researchService.isAttemptInProgress {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .disabled(researchService.isAttemptInProgress || stateMachine.state.isRunning)
+
+                if let lastRes = researchService.lastResult {
+                    researchResultView(result: lastRes)
+                }
+            }
+
+            // ==========================================
+            // 4. 端點研究矩陣 (Endpoint Research Matrix — PROBE ONLY)
+            // ==========================================
+            Section(L10n.text("4. 端點研究矩陣 (Endpoint Research Matrix)")) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.shield")
+                            .foregroundStyle(.orange)
+                        Text(L10n.text("僅供診斷研究 (PROBE ONLY)。探測端點為分析 iOS NWPath 與 utun 封包路由行為，不干擾生產定位與 DVT 工作階段。"))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Button {
+                    runEndpointMatrix()
+                } label: {
+                    HStack {
+                        Text(probeService.isProbingMatrix ? L10n.text("矩陣探測中...") : L10n.text("執行端點研究矩陣探測 (Run Matrix Probes)"))
+                        if probeService.isProbingMatrix {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(probeService.isProbingMatrix || probeService.isProbing)
+
+                if !probeService.matrixResults.isEmpty {
+                    ForEach(probeService.matrixResults) { item in
+                        matrixResultRow(result: item)
+                    }
+                } else {
+                    Text(L10n.text("尚未執行矩陣探測。點擊上方按鈕測試 10.7.0.1、127.0.0.1、::1。"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // ==========================================
+            // 5. 生產底層真理 (Production FFI Truth & Route Analysis)
+            // ==========================================
+            Section(L10n.text("5. 生產底層真理 (Production FFI Truth)")) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(L10n.text("生產連線目標 (Target)"))
+                        Spacer()
+                        Text("10.7.0.1:49152")
+                            .font(.caption.monospaced().bold())
+                    }
+                    HStack {
+                        Text(L10n.text("來源 IP 綁定 (Source IP Bind)"))
+                        Spacer()
+                        Text("NO (由 OS 核心路由決定)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text(L10n.text("介面綁定 (Interface Bind)"))
+                        Spacer()
+                        Text("NO (底層 C 庫無 SO_BINDTODEVICE)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text(L10n.text("路由表操控 (Routing Sockets)"))
+                        Spacer()
+                        Text("UNAVAILABLE (iOS Sandbox 禁止)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                    Divider()
+                    Text(L10n.text("行為事實說明：\n• 當行動網路開啟時，iOS 預設路由表將 10.7.0.1 封包導向 pdp_ip0 (蜂巢網路)，因而收到 POSIX 65 (No route to host)。\n• 當行動網路關閉時，LocalDevVPN 的 utun 介面接管或成為唯一直連路徑，連線瞬間成功。\n• 一旦建立 DVT Session，即便重新開啟行動數據，既有 TCP/TLS 保持活躍 (State C)，因此 One-Tap 輔助流程是當前最穩定可靠的解決方案。"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+
+            // ==========================================
+            // 6. utun 網路拓撲快照 (Utun Topology Collector)
+            // ==========================================
+            Section(L10n.text("6. utun 網路拓撲快照 (Utun Topology)")) {
+                HStack {
+                    Text(L10n.text("拓撲摘要"))
+                    Spacer()
+                    if let report = utunReport {
+                        Text(report.summary)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(L10n.text("未載入"))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Button(L10n.text("重新收集 utun 拓撲快照")) {
+                    refreshUtunTopology()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                if let report = utunReport, !report.interfaces.isEmpty {
+                    ForEach(report.interfaces) { iface in
+                        utunEntryRow(entry: iface)
+                    }
+                } else {
+                    Text(L10n.text("未偵測到作用中之 utun 介面。請確認 LocalDevVPN 是否已啟用。"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // ==========================================
+            // 7. 生產引導追蹤 (Bootstrap Trace v3)
+            // ==========================================
+            Section(L10n.text("7. 生產引導追蹤 (Bootstrap Trace v3)")) {
                 if let trace = traceStore.latestTrace {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
@@ -241,6 +405,16 @@ struct CellularBootstrapLabView: View {
                                 .cornerRadius(4)
                         }
 
+                        if let state = trace.observedState {
+                            Text("觀測狀態分類：\(state)")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                        if let utunSummary = trace.utunTopologySummary {
+                            Text("utun 拓撲：\(utunSummary)")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
                         if let totalMs = trace.overallDurationMs {
                             Text(L10n.format("總耗時：%.1f ms", totalMs))
                                 .font(.caption.monospaced())
@@ -305,9 +479,9 @@ struct CellularBootstrapLabView: View {
             }
 
             // ==========================================
-            // 4. RemotePairing / Peer
+            // 8. RemotePairing / Peer 網路拓撲
             // ==========================================
-            Section(L10n.text("4. RemotePairing / Peer 網路拓撲")) {
+            Section(L10n.text("8. RemotePairing / Peer 網路拓撲")) {
                 HStack {
                     Text(L10n.text("設定目標 (Target)"))
                     Spacer()
@@ -377,9 +551,9 @@ struct CellularBootstrapLabView: View {
             }
 
             // ==========================================
-            // 5. Recent Runs Comparison
+            // 9. 多次執行比對 (Previous vs Latest)
             // ==========================================
-            Section(L10n.text("5. 多次執行比對 (Previous vs Latest)")) {
+            Section(L10n.text("9. 多次執行比對 (Previous vs Latest)")) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(traceStore.generateComparisonText())
                         .font(.caption2.monospaced())
@@ -401,9 +575,9 @@ struct CellularBootstrapLabView: View {
             }
 
             // ==========================================
-            // 6. Candidate Matrix & Legacy Probes
+            // 10. 診斷探測矩陣 (Candidate Matrix & Probes)
             // ==========================================
-            Section(L10n.text("6. 診斷探測矩陣 (Candidate Matrix & Probes)")) {
+            Section(L10n.text("10. 診斷探測矩陣 (Candidate Matrix & Probes)")) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "info.circle")
@@ -489,6 +663,9 @@ struct CellularBootstrapLabView: View {
             }
         }
         .navigationTitle(L10n.text("行動網路實驗室"))
+        .onAppear {
+            refreshUtunTopology()
+        }
         .alert(L10n.text("提示"), isPresented: $showCopiedAlert) {
             Button(L10n.text("確定"), role: .cancel) {}
         } message: {
@@ -500,6 +677,115 @@ struct CellularBootstrapLabView: View {
     }
 
     // MARK: - Subviews & Actions
+
+    @ViewBuilder
+    private func researchResultView(result: DirectCellularResearchResult) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(L10n.text("直連研究最新結果"))
+                    .font(.caption.bold())
+                Spacer()
+                Text(result.productionRPairingResult)
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(result.productionRPairingResult == "SUCCESS" ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
+                    .cornerRadius(4)
+            }
+            Text("狀態：\(result.stateClassification.rawValue) | 目標：\(result.productionTarget)")
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+            Text("耗時：\(String(format: "%.1f ms", result.durationMs))")
+                .font(.caption2.monospaced())
+            if let ffi = result.ffiCode {
+                Text("FFI Code: \(ffi)").font(.caption2.monospaced()).foregroundStyle(.red)
+            }
+            if let errno = result.posixErrno {
+                Text("POSIX Errno: \(errno)").font(.caption2.monospaced()).foregroundStyle(.red)
+            }
+            if result.fallbackOccurred {
+                Text("自動 Fallback 至輔助啟動：是")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(6)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(6)
+    }
+
+    @ViewBuilder
+    private func matrixResultRow(result: EndpointMatrixProbeResult) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(result.target)
+                    .font(.caption.monospaced().bold())
+                Spacer()
+                Text(result.policy.rawValue)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(result.status.rawValue)
+                    .font(.caption2.bold())
+                    .foregroundStyle(result.status == .success ? .green : (result.status == .failure ? .red : .secondary))
+                Text("\(result.elapsedMs) ms")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            if let err = result.errorDescription {
+                Text("錯誤：\(err)")
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(6)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(6)
+    }
+
+    @ViewBuilder
+    private func utunEntryRow(entry: UtunInterfaceEntry) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(entry.interfaceName)
+                    .font(.caption.bold())
+                Text("(\(entry.addressFamily))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if entry.isPointToPoint {
+                    Text("P2P")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.green)
+                }
+                if entry.isUp {
+                    Text("UP")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.blue)
+                }
+            }
+            if let ifAddr = entry.observedInterfaceAddress {
+                Text("位址: \(ifAddr)")
+                    .font(.caption2.monospaced())
+            }
+            if let p2pLocal = entry.observedP2PLocalAddress {
+                Text("本機: \(p2pLocal)")
+                    .font(.caption2.monospaced())
+            }
+            if let p2pDst = entry.observedP2PDestination {
+                Text("對端 (DST): \(p2pDst)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.purple)
+            }
+            if let mask = entry.observedNetmask {
+                Text("遮罩: \(mask)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(6)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(6)
+    }
 
     @ViewBuilder
     private func probeResultView(result: CellularPathProbeResult?) -> some View {
@@ -578,6 +864,28 @@ struct CellularBootstrapLabView: View {
                 ToastManager.shared.show(L10n.format("輔助啟動測試失敗：%@", error.localizedDescription), kind: .error)
             }
         }
+    }
+
+    private func runResearchDirectAttempt() {
+        let target = model.selectedCoordinate ?? model.pendingSinglePointCoordinate
+        researchService.performResearchDirectAttempt(targetCoordinate: target) { result in
+            switch result {
+            case .success:
+                ToastManager.shared.show(L10n.text("直連研究測試成功建立！"), kind: .success)
+            case .failure(let err):
+                ToastManager.shared.show(L10n.format("直連研究測試失敗：%@", err.localizedDescription), kind: .error)
+            }
+        }
+    }
+
+    private func runEndpointMatrix() {
+        Task {
+            _ = await probeService.runEndpointMatrixProbes()
+        }
+    }
+
+    private func refreshUtunTopology() {
+        utunReport = UtunTopologyCollector.collectTopology()
     }
 
     private func showCopyFeedback(_ msg: String) {

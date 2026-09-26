@@ -70,7 +70,7 @@ struct BootstrapPreflightSheet: View {
                         Button {
                             onStartAssisted()
                         } label: {
-                            Label(L10n.text("啟動捷徑輔助切換 (Beta)"), systemImage: "arrow.triangle.2.circlepath")
+                            Label(L10n.text("自動輔助"), systemImage: "arrow.triangle.2.circlepath")
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 4)
                         }
@@ -83,7 +83,7 @@ struct BootstrapPreflightSheet: View {
                         dismiss()
                         onRecheck()
                     } label: {
-                        Text(L10n.text("我已手動切換，重新檢查"))
+                        Text(L10n.text("我已手動關閉行動數據，繼續"))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 4)
                     }
@@ -94,7 +94,7 @@ struct BootstrapPreflightSheet: View {
                         dismiss()
                         onForceConnect()
                     } label: {
-                        Text(L10n.text("仍要嘗試直接連線 (實驗性)"))
+                        Text(L10n.text("仍要直接嘗試"))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

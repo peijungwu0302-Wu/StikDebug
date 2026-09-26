@@ -217,15 +217,6 @@ struct SetupDiagnosticsView: View {
                     Toggle("Apple 捷徑自動切換輔助 (Beta)", isOn: $shortcutService.isShortcutAssistedEnabled)
 
                     if shortcutService.isShortcutAssistedEnabled {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Picker("捷徑執行提示", selection: $shortcutService.shortcutPromptMode) {
-                                ForEach(ShortcutExecutionPrompt.allCases) { prompt in
-                                    Text(prompt.title).tag(prompt)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                        }
-
                         HStack {
                             Text("DataOff 捷徑名稱")
                             Spacer()

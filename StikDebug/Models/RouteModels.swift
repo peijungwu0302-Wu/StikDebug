@@ -334,21 +334,23 @@ enum RouteBuilder {
 enum CellularBootstrapPolicy: String, Codable, CaseIterable, Identifiable {
     case auto
     case directOnly
-    case assistedFirst
+    case assistedFirst // Keeps rawValue for backwards-compatible persistence, semantic: Always Ask ("每次詢問")
+
+    public static let alwaysAsk = CellularBootstrapPolicy.assistedFirst
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .auto: return L10n.text("自動（建議）")
         case .directOnly: return L10n.text("僅直接連線")
-        case .assistedFirst: return L10n.text("優先提示輔助")
+        case .assistedFirst: return L10n.text("每次詢問")
         }
     }
     var detail: String {
         switch self {
-        case .auto: return L10n.text("在行動網路下先直接嘗試連線；若失敗則提示輔助模式（手動或捷徑）。")
-        case .directOnly: return L10n.text("在行動網路下始終直接嘗試連線，不自動跳出輔助切換提醒。")
-        case .assistedFirst: return L10n.text("在行動網路下啟動前，優先顯示輔助切換提示。")
+        case .auto: return L10n.text("行動網路下自動以一鍵捷徑輔助啟動；已有工作階段或實驗直接成功時直接連線。")
+        case .directOnly: return L10n.text("在行動網路下完全不啟動捷徑，始終僅使用直接連線路徑。")
+        case .assistedFirst: return L10n.text("在行動網路下啟動前，顯示提示詢問選擇輔助切換或直接連線。")
         }
     }
 }
