@@ -1515,7 +1515,7 @@ struct CellularAssistedBootstrapTests {
     }
 
     @Test func test_v1211_manualPreflight_routeStartsExactlyOnce_noRecursivePreflightLoop() async {
-        let model = RouteLocationModel()
+        let model = RouteLocationModel(simulationService: MockLocationSink())
         ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
         LocationDataPathHealth.shared.resetForTesting()
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = .assistedFirst
@@ -1545,7 +1545,7 @@ struct CellularAssistedBootstrapTests {
     }
 
     @Test func test_v1211_manualPreflight_genericPendingAction_subsequentOperationNotBypassed() async {
-        let model = RouteLocationModel()
+        let model = RouteLocationModel(simulationService: MockLocationSink())
         ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
         LocationDataPathHealth.shared.resetForTesting()
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = .assistedFirst
