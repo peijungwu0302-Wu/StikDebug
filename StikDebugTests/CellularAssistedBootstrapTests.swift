@@ -1476,8 +1476,123 @@ struct CellularAssistedBootstrapTests {
 
         #expect(model.showBootstrapPreflightSheet == false)
         #expect(model.locationAlreadyWrittenByBootstrap == nil)
-        #expect(model.isCellularBootstrapPreparationNeeded == false) // Bypassing flag prevents re-check loop!
+        #expect(model.isCellularBootstrapPreparationNeeded == true) // Fresh check without sticky bypass!
 
         model.cancelBootstrapPreflight()
+    }
+
+    @Test func test_v1211_manualPreflight_singlePointCompletes_nextColdCellularRequestRequiresPreparationAgain() async {
+        let model = RouteLocationModel()
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .assistedFirst
+
+        let target1 = RouteCoordinate(latitude: 25.11, longitude: 121.51)
+        model.requestSinglePointSimulation(at: target1)
+
+        #expect(model.showBootstrapPreflightSheet == true)
+        #expect(model.pendingBootstrapTargetCoordinate == target1)
+
+        // User taps Recheck/Force
+        model.confirmBootstrapPreflightRecheck()
+        #expect(model.showBootstrapPreflightSheet == false)
+
+        try? await Task.sleep(for: .milliseconds(50))
+
+        // Next cold cellular request: preparation MUST still be needed (no sticky bypass!)
+        #expect(model.isCellularBootstrapPreparationNeeded == true)
+
+        let target2 = RouteCoordinate(latitude: 25.12, longitude: 121.52)
+        model.requestSinglePointSimulation(at: target2)
+
+        #expect(model.showBootstrapPreflightSheet == true)
+        #expect(model.pendingBootstrapTargetCoordinate == target2)
+
+        model.cancelBootstrapPreflight()
+    }
+
+    @Test func test_v1211_manualPreflight_routeStartsExactlyOnce_noRecursivePreflightLoop() async {
+        let model = RouteLocationModel()
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .assistedFirst
+
+        let points = [
+            RouteCoordinate(latitude: 25.21, longitude: 121.61),
+            RouteCoordinate(latitude: 25.22, longitude: 121.62)
+        ]
+        model.replaceWaypoints(points)
+
+        await model.startPlayback()
+
+        #expect(model.showBootstrapPreflightSheet == true)
+        #expect(model.pendingBootstrapTargetCoordinate == points[0])
+
+        // User confirms preflight force
+        model.confirmBootstrapPreflightForce()
+
+        #expect(model.showBootstrapPreflightSheet == false)
+        try? await Task.sleep(for: .milliseconds(50))
+
+        // Verify preflight sheet does NOT re-appear recursively
+        #expect(model.showBootstrapPreflightSheet == false)
+        #expect(model.simulationMode == .routePlaying)
+
+        model.endRoute()
+    }
+
+    @Test func test_v1211_manualPreflight_genericPendingAction_subsequentOperationNotBypassed() async {
+        let model = RouteLocationModel()
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .assistedFirst
+
+        var actionExecuted = false
+        model.requestBootstrapIfCellular(targetCoordinate: nil) {
+            actionExecuted = true
+        }
+
+        #expect(model.showBootstrapPreflightSheet == true)
+
+        model.confirmBootstrapPreflightForce()
+
+        #expect(actionExecuted == true)
+        #expect(model.showBootstrapPreflightSheet == false)
+
+        // Ensure next operation is NOT bypassed
+        #expect(model.isCellularBootstrapPreparationNeeded == true)
+    }
+
+    @Test func test_v1211_researchDirectSuccess_traceFinalizedAsResearchDirectTunnelSuccess() async {
+        let store = BootstrapTraceStore.shared
+        store.resetForTesting()
+        store.startTrace(txId: "tx-research-success-test", mode: "Direct")
+
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        DirectCellularResearchService.shared.isBetaEnabled = true
+
+        DirectCellularResearchService.shared.testMockDirectAttempt = { coord, comp in
+            comp(true, nil)
+        }
+
+        let target = RouteCoordinate(latitude: 25.30, longitude: 121.70)
+        var didSucceed = false
+        DirectCellularResearchService.shared.performResearchDirectAttempt(targetCoordinate: target) { result in
+            if case .success = result {
+                didSucceed = true
+            }
+        }
+
+        #expect(didSucceed == true)
+        #expect(DirectCellularResearchService.shared.lastResult?.locationWriteResult == "PENDING")
+        #expect(store.isTraceInProgress == false)
+        #expect(store.latestTrace?.outcome == "RESEARCH_DIRECT_TUNNEL_SUCCESS")
+        let events = store.latestTrace?.events ?? []
+        #expect(events.contains { $0.type == .completed })
+
+        DirectCellularResearchService.shared.testMockDirectAttempt = nil
+        DirectCellularResearchService.shared.isBetaEnabled = false
+        store.resetForTesting()
     }
 }
