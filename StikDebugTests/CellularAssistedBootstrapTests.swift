@@ -1535,13 +1535,18 @@ struct CellularAssistedBootstrapTests {
         #expect(model.pendingBootstrapTargetCoordinate == points[0])
 
         // User confirms preflight force
-        model.confirmBootstrapPreflightForce()
+        await withCheckedContinuation { continuation in
+            model.testPlaybackAfterBootstrapCompletion = {
+                continuation.resume()
+            }
+            model.confirmBootstrapPreflightForce()
+        }
 
+        // Verify preflight sheet does NOT re-appear recursively and playback started exactly once
+        #expect(model.testPlaybackStartInvocationCount == 1)
         #expect(model.showBootstrapPreflightSheet == false)
-        try? await Task.sleep(for: .milliseconds(50))
-
-        // Verify preflight sheet does NOT re-appear recursively
-        #expect(model.showBootstrapPreflightSheet == false)
+        #expect(model.presentedError == nil)
+        #expect(model.playback.state == .running)
         #expect(model.simulationMode == .routePlaying)
 
         model.endRoute()

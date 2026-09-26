@@ -50,6 +50,10 @@ final class RouteLocationModel: ObservableObject {
     private var teleportTask: Task<Void, Never>?
     private var loadedRouteID: UUID?
     private var cancellables: Set<AnyCancellable> = []
+    #if DEBUG
+    var testPlaybackAfterBootstrapCompletion: (@MainActor () -> Void)?
+    var testPlaybackStartInvocationCount: Int = 0
+    #endif
     private static let speedKey = "RouteLocation.lastSpeedKmh"
     private static let mapStyleKey = "RouteLocation.mapInteractionStyle"
     private static let modeSwitchKey = "RouteLocation.modeSwitchConfirmation"
@@ -617,6 +621,14 @@ final class RouteLocationModel: ObservableObject {
         teleportTask?.cancel()
         teleportTask = nil
         locationAlreadyWrittenByBootstrap = nil
+        #if DEBUG
+        testPlaybackStartInvocationCount += 1
+        defer {
+            let completion = testPlaybackAfterBootstrapCompletion
+            testPlaybackAfterBootstrapCompletion = nil
+            completion?()
+        }
+        #endif
         do {
             if playbackMode == .infiniteLoop, !isClosedLoop { throw RouteLocationError.loopRequiresClosedRoute }
             if routeMode == .navigation, navigationGeometryNeedsRecalculation { throw RouteLocationError.navigationNeedsRecalculation }
