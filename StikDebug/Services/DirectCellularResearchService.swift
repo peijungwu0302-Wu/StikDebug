@@ -8,13 +8,13 @@
 import Combine
 import Foundation
 
-public enum BootstrapStateClassification: String, Codable, CaseIterable {
+enum BootstrapStateClassification: String, Codable, CaseIterable {
     case stateA = "A" // Cellular ON, No healthy DVT
     case stateB = "B" // Cellular OFF / primary not cellular, No healthy DVT
     case stateC = "C" // Cellular ON, Healthy DVT / recent location success
     case other = "OTHER"
 
-    public var title: String {
+    var title: String {
         switch self {
         case .stateA: return "State A: 行動網路開啟，無作用中 DVT"
         case .stateB: return "State B: 行動網路關閉／非行動網路，無作用中 DVT"
@@ -24,24 +24,24 @@ public enum BootstrapStateClassification: String, Codable, CaseIterable {
     }
 }
 
-public struct DirectCellularResearchResult: Identifiable, Codable, Equatable {
-    public let id: String // runId
-    public let timestamp: Date
-    public let stateClassification: BootstrapStateClassification
-    public let transport: String
-    public let vpnObserved: Bool
-    public let utunTopologySummary: String
-    public let productionTarget: String
-    public let productionRPairingResult: String // "SUCCESS", "FAILED"
-    public let ffiCode: String?
-    public let posixErrno: String?
-    public let durationMs: Double
-    public let rsdResult: String
-    public let dvtResult: String
-    public let locationWriteResult: String
-    public let fallbackOccurred: Bool
+struct DirectCellularResearchResult: Identifiable, Codable, Equatable {
+    let id: String // runId
+    let timestamp: Date
+    let stateClassification: BootstrapStateClassification
+    let transport: String
+    let vpnObserved: Bool
+    let utunTopologySummary: String
+    let productionTarget: String
+    let productionRPairingResult: String // "SUCCESS", "FAILED"
+    let ffiCode: String?
+    let posixErrno: String?
+    let durationMs: Double
+    let rsdResult: String
+    let dvtResult: String
+    let locationWriteResult: String
+    let fallbackOccurred: Bool
 
-    public init(
+    init(
         id: String = UUID().uuidString,
         timestamp: Date = Date(),
         stateClassification: BootstrapStateClassification,
@@ -77,17 +77,17 @@ public struct DirectCellularResearchResult: Identifiable, Codable, Equatable {
 }
 
 @MainActor
-public final class DirectCellularResearchService: ObservableObject {
-    public static let shared = DirectCellularResearchService()
+final class DirectCellularResearchService: ObservableObject {
+    static let shared = DirectCellularResearchService()
 
-    @Published public var isBetaEnabled: Bool {
+    @Published var isBetaEnabled: Bool {
         didSet {
             UserDefaults.standard.set(isBetaEnabled, forKey: Self.betaKey)
         }
     }
 
-    @Published public private(set) var lastResult: DirectCellularResearchResult?
-    @Published public private(set) var isAttemptInProgress: Bool = false
+    @Published private(set) var lastResult: DirectCellularResearchResult?
+    @Published private(set) var isAttemptInProgress: Bool = false
 
     private static let betaKey = "RouteLocation.directCellularResearchBetaEnabled"
 
@@ -97,7 +97,7 @@ public final class DirectCellularResearchService: ObservableObject {
 
     // MARK: - State Classification
 
-    public static func classifyCurrentState() -> BootstrapStateClassification {
+    static func classifyCurrentState() -> BootstrapStateClassification {
         let monitor = ConnectionMonitor.shared
         let isHealthy = monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess
         let isCellular = monitor.currentTransport == .cellular || monitor.isCellularAvailable
@@ -115,7 +115,7 @@ public final class DirectCellularResearchService: ObservableObject {
 
     // MARK: - Research Direct Attempt
 
-    public func performResearchDirectAttempt(
+    func performResearchDirectAttempt(
         targetCoordinate: RouteCoordinate?,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
@@ -254,9 +254,9 @@ public final class DirectCellularResearchService: ObservableObject {
     }
 
     #if DEBUG
-    public var testMockDirectAttempt: ((RouteCoordinate?, @escaping (Bool, Error?) -> Void) -> Void)?
+    var testMockDirectAttempt: ((RouteCoordinate?, @escaping (Bool, Error?) -> Void) -> Void)?
 
-    public func resetForTesting() {
+    func resetForTesting() {
         isBetaEnabled = false
         lastResult = nil
         isAttemptInProgress = false

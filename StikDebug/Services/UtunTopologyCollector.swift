@@ -10,20 +10,20 @@ import Foundation
 import Darwin
 #endif
 
-public struct UtunInterfaceEntry: Identifiable, Codable, Equatable {
-    public var id: String { "\(interfaceName)_\(addressFamily)_\(observedInterfaceAddress ?? "none")" }
-    public let interfaceName: String
-    public let addressFamily: String // "IPv4" or "IPv6"
-    public let ifaFlags: UInt32
-    public let isPointToPoint: Bool
-    public let isUp: Bool
-    public let isRunning: Bool
-    public let observedInterfaceAddress: String? // Neutral naming
-    public let observedP2PLocalAddress: String?   // Local / source address
-    public let observedP2PDestination: String?    // Destination address (ifa_dstaddr)
-    public let observedNetmask: String?
+struct UtunInterfaceEntry: Identifiable, Codable, Equatable {
+    var id: String { "\(interfaceName)_\(addressFamily)_\(observedInterfaceAddress ?? "none")" }
+    let interfaceName: String
+    let addressFamily: String // "IPv4" or "IPv6"
+    let ifaFlags: UInt32
+    let isPointToPoint: Bool
+    let isUp: Bool
+    let isRunning: Bool
+    let observedInterfaceAddress: String? // Neutral naming
+    let observedP2PLocalAddress: String?   // Local / source address
+    let observedP2PDestination: String?    // Destination address (ifa_dstaddr)
+    let observedNetmask: String?
 
-    public init(
+    init(
         interfaceName: String,
         addressFamily: String,
         ifaFlags: UInt32,
@@ -48,13 +48,13 @@ public struct UtunInterfaceEntry: Identifiable, Codable, Equatable {
     }
 }
 
-public struct UtunTopologyReport: Codable, Equatable {
-    public let timestamp: Date
-    public let interfaces: [UtunInterfaceEntry]
-    public let hasPointToPointUtun: Bool
-    public let summary: String
+struct UtunTopologyReport: Codable, Equatable {
+    let timestamp: Date
+    let interfaces: [UtunInterfaceEntry]
+    let hasPointToPointUtun: Bool
+    let summary: String
 
-    public init(
+    init(
         timestamp: Date = Date(),
         interfaces: [UtunInterfaceEntry],
         hasPointToPointUtun: Bool,
@@ -67,13 +67,13 @@ public struct UtunTopologyReport: Codable, Equatable {
     }
 }
 
-public final class UtunTopologyCollector {
+final class UtunTopologyCollector {
 
     #if DEBUG
-    public static var testMockEntries: [UtunInterfaceEntry]?
+    static var testMockEntries: [UtunInterfaceEntry]?
     #endif
 
-    public static func collectTopology() -> UtunTopologyReport {
+    static func collectTopology() -> UtunTopologyReport {
         #if DEBUG
         if let mock = testMockEntries {
             let hasP2P = mock.contains { $0.isPointToPoint }
