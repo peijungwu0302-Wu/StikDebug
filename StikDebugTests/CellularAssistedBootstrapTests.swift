@@ -1226,4 +1226,258 @@ struct CellularAssistedBootstrapTests {
 
         UtunTopologyCollector.testMockEntries = nil
     }
+
+    // MARK: - 14. RouteLocation v1.2.11 Coordination & Correctness Tests
+
+    @Test func test_v1211_healthyDVT_proceedsWithNeedsLocationWrite_teleportWritesLocationOnce() async {
+        let monitor = ConnectionMonitor.shared
+        monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .connected)
+        LocationDataPathHealth.shared.recordSuccess()
+
+        var observedDisposition: BootstrapProceedDisposition?
+        BootstrapCoordinator.shared.coordinateSimulation(
+            targetCoordinate: RouteCoordinate(latitude: 25.01, longitude: 121.51),
+            onRequestPreflight: { Issue.record("Preflight should not be requested when DVT is healthy") },
+            onProceed: { disposition in observedDisposition = disposition },
+            onError: { _ in Issue.record("Error should not occur when DVT is healthy") }
+        )
+
+        #expect(observedDisposition == .needsLocationWrite)
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "healthy_session_direct")
+
+        let sink = MockLocationSink()
+        let model = RouteLocationModel(simulationService: sink)
+        let target = RouteCoordinate(latitude: 25.01, longitude: 121.51)
+
+        model.requestSinglePointSimulation(at: target)
+        try? await Task.sleep(for: .milliseconds(50))
+
+        #expect(model.locationAlreadyWrittenByBootstrap == nil)
+        #expect(sink.lastInjectedCoordinate == target)
+        #expect(sink.setCoordinateCallCount >= 1)
+    }
+
+    @Test func test_v1211_researchDirectSuccess_proceedsWithNeedsLocationWrite_teleportWritesLocationOnce() async {
+        let monitor = ConnectionMonitor.shared
+        monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+        DirectCellularResearchService.shared.isBetaEnabled = true
+
+        BootstrapCoordinator.shared.testMockResearchRunner = { _, completion in
+            completion(true)
+        }
+
+        var observedDisposition: BootstrapProceedDisposition?
+        BootstrapCoordinator.shared.coordinateSimulation(
+            targetCoordinate: RouteCoordinate(latitude: 25.02, longitude: 121.52),
+            onRequestPreflight: { Issue.record("Preflight should not be requested on research direct success") },
+            onProceed: { disposition in observedDisposition = disposition },
+            onError: { _ in Issue.record("Error should not occur on research direct success") }
+        )
+
+        #expect(observedDisposition == .needsLocationWrite)
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "research_beta_direct_attempt")
+
+        BootstrapCoordinator.shared.resetForTesting()
+        DirectCellularResearchService.shared.isBetaEnabled = false
+    }
+
+    @Test func test_v1211_directOnlyPolicy_proceedsWithNeedsLocationWrite() {
+        let monitor = ConnectionMonitor.shared
+        monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .directOnly
+
+        var observedDisposition: BootstrapProceedDisposition?
+        BootstrapCoordinator.shared.coordinateSimulation(
+            targetCoordinate: RouteCoordinate(latitude: 25.03, longitude: 121.53),
+            onRequestPreflight: { Issue.record("Preflight should not be requested in directOnly mode") },
+            onProceed: { disposition in observedDisposition = disposition },
+            onError: { _ in Issue.record("Error should not occur in directOnly mode") }
+        )
+
+        #expect(observedDisposition == .needsLocationWrite)
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "policy_direct_only")
+
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+    }
+
+    @Test func test_v1211_assistedFullSuccess_setsLocationAlreadyWritten_avoidsDuplicateWrite() async {
+        let target = RouteCoordinate(latitude: 25.04, longitude: 121.54)
+        let sink = MockLocationSink()
+        let model = RouteLocationModel(simulationService: sink)
+
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+        DirectCellularResearchService.shared.isBetaEnabled = false
+
+        BootstrapCoordinator.shared.testMockAssistedRunner = { _, completion in
+            completion(.success(.locationAlreadyWritten))
+        }
+
+        model.requestSinglePointSimulation(at: target)
+        try? await Task.sleep(for: .milliseconds(50))
+
+        // After teleport finishes consuming the marker:
+        #expect(model.locationAlreadyWrittenByBootstrap == nil)
+        // Sink should NOT have been called by executeTeleport because location was already written by bootstrap
+        #expect(sink.setCoordinateCallCount == 0)
+
+        BootstrapCoordinator.shared.resetForTesting()
+    }
+
+    @Test func test_v1211_dataOffCallbackWithCellularStillObserved_proceedsWithoutCellularOffConfirmed() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        BootstrapTraceStore.shared.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-test-cell-observed", mode: "AssistedBeta")
+
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true)
+        sm.forceStateForTesting(.requestingDataOff)
+        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: false, restoreRequired: true)
+
+        await sm.handleDataOffCallbackSuccess()
+
+        #expect(sm.cellularOffWasObserved == false)
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        let callbackEvent = events.first { $0.type == .dataOffCallbackReceived }
+        #expect(callbackEvent != nil)
+        #expect(callbackEvent?.details["cellularInterfaceStillObserved"] == "true")
+        #expect(!events.contains { $0.type == .cellularOffConfirmed })
+
+        sm.resetForTesting()
+    }
+
+    @Test func test_v1211_dataOffCallbackWithCellularOff_proceedsWithCellularOffConfirmed() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        BootstrapTraceStore.shared.resetForTesting()
+        BootstrapTraceStore.shared.startTrace(txId: "tx-test-cell-off", mode: "AssistedBeta")
+
+        ConnectionMonitor.shared.updateForTesting(transport: .offline, isWifiAvailable: false, isCellularAvailable: false)
+        sm.forceStateForTesting(.requestingDataOff)
+        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: false, restoreRequired: true)
+
+        await sm.handleDataOffCallbackSuccess()
+
+        #expect(sm.cellularOffWasObserved == true)
+        let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
+        let offEvent = events.first { $0.type == .cellularOffConfirmed }
+        #expect(offEvent != nil)
+        #expect(offEvent?.details["source"] == "nwpath")
+
+        sm.resetForTesting()
+    }
+
+    @Test func test_v1211_researchDirectFailure_preservesResearchTraceAcrossAssistedFallback() {
+        let store = BootstrapTraceStore.shared
+        store.resetForTesting()
+
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        DirectCellularResearchService.shared.isBetaEnabled = true
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+
+        store.startTrace(txId: "tx-research-test", mode: "Direct")
+        store.recordEvent(.researchDirectStart)
+
+        BootstrapCoordinator.shared.testMockResearchRunner = { _, completion in
+            completion(false)
+        }
+        BootstrapCoordinator.shared.testMockAssistedRunner = { _, completion in
+            store.startTrace(txId: "tx-assisted-test", mode: "AssistedBeta")
+            completion(.success(.locationAlreadyWritten))
+        }
+
+        var didProceed = false
+        BootstrapCoordinator.shared.coordinateSimulation(
+            targetCoordinate: RouteCoordinate(latitude: 25.05, longitude: 121.55),
+            onRequestPreflight: {},
+            onProceed: { _ in didProceed = true },
+            onError: { _ in }
+        )
+
+        #expect(didProceed == true)
+        #expect(BootstrapCoordinator.shared.lastFallbackOccurred == true)
+
+        let researchTrace = store.history.first { $0.txId == "tx-research-test" } ?? (store.previousTrace?.txId == "tx-research-test" ? store.previousTrace : nil)
+        #expect(researchTrace != nil)
+        #expect(researchTrace?.outcome == "RESEARCH_FAILED_FALLBACK")
+        #expect(researchTrace?.failureStage == "ResearchDirect")
+
+        BootstrapCoordinator.shared.resetForTesting()
+        DirectCellularResearchService.shared.isBetaEnabled = false
+    }
+
+    @Test func test_v1211_autoModeShortcutDisabled_fallsBackToPreflight() {
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+        DirectCellularResearchService.shared.isBetaEnabled = false
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = false
+
+        var preflightCalled = false
+        BootstrapCoordinator.shared.coordinateSimulation(
+            targetCoordinate: RouteCoordinate(latitude: 25.06, longitude: 121.56),
+            onRequestPreflight: { preflightCalled = true },
+            onProceed: { _ in Issue.record("Should not proceed directly when shortcuts disabled") },
+            onError: { _ in Issue.record("Should not error when shortcuts disabled, must prompt preflight") }
+        )
+
+        #expect(preflightCalled == true)
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "auto_shortcut_disabled_preflight")
+
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+    }
+
+    @Test func test_v1211_researchDirectFailShortcutDisabled_fallsBackToPreflight() {
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
+        DirectCellularResearchService.shared.isBetaEnabled = true
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = false
+
+        BootstrapCoordinator.shared.testMockResearchRunner = { _, completion in
+            completion(false)
+        }
+
+        var preflightCalled = false
+        BootstrapCoordinator.shared.coordinateSimulation(
+            targetCoordinate: RouteCoordinate(latitude: 25.07, longitude: 121.57),
+            onRequestPreflight: { preflightCalled = true },
+            onProceed: { _ in Issue.record("Should not proceed directly on research failure with shortcut disabled") },
+            onError: { _ in Issue.record("Should not error, must prompt preflight") }
+        )
+
+        #expect(preflightCalled == true)
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "research_fail_shortcut_disabled_preflight")
+
+        BootstrapCoordinator.shared.resetForTesting()
+        DirectCellularResearchService.shared.isBetaEnabled = false
+        ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
+    }
+
+    @Test func test_v1211_manualPreflightRecheckAndForce_preservesTargetAndPreventsLoop() {
+        let model = RouteLocationModel()
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.resetForTesting()
+        ShortcutBootstrapService.shared.cellularBootstrapPolicy = .assistedFirst
+
+        let target = RouteCoordinate(latitude: 25.08, longitude: 121.58)
+        model.requestSinglePointSimulation(at: target)
+
+        #expect(model.showBootstrapPreflightSheet == true)
+        #expect(model.pendingBootstrapTargetCoordinate == target)
+
+        model.confirmBootstrapPreflightRecheck()
+
+        #expect(model.showBootstrapPreflightSheet == false)
+        #expect(model.locationAlreadyWrittenByBootstrap == nil)
+        #expect(model.isCellularBootstrapPreparationNeeded == false) // Bypassing flag prevents re-check loop!
+
+        model.cancelBootstrapPreflight()
+    }
 }
