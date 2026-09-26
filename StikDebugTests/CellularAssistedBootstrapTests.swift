@@ -286,6 +286,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_cellularOffTimeout_triggersFailureAndRollback() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        ShortcutBootstrapService.shared.testMockShortcutRunner = { _, _, _ in true }
         sm.testMockBootstrapRunner = { false }
         BootstrapTraceStore.shared.startTrace(txId: "tx-off-timeout", mode: "AssistedBeta")
         sm.testSettlementTimeoutSeconds = 0.1
@@ -375,6 +376,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_removeHardcodedGPS_noCoordinate_skipsLocationSet() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        ShortcutBootstrapService.shared.testMockShortcutRunner = { _, _, _ in true }
         BootstrapTraceStore.shared.startTrace(txId: "tx-no-coord", mode: "AssistedBeta")
 
         await sm.testVerifyLocation(coordinate: nil)
@@ -387,6 +389,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_removeHardcodedGPS_withCoordinate_setsLocation() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        ShortcutBootstrapService.shared.testMockShortcutRunner = { _, _, _ in true }
         BootstrapTraceStore.shared.startTrace(txId: "tx-with-coord", mode: "AssistedBeta")
         let mockSink = MockLocationSink()
         sm.simulationSink = mockSink
@@ -750,6 +753,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_G_firstLocationWriteFailed_normalDataOnMustNotOccur_rollbackDataOnRecoveryOccurs() async {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
+        ShortcutBootstrapService.shared.testMockShortcutRunner = { _, _, _ in true }
         sm.simulationSink = FailingMockLocationSink()
         BootstrapTraceStore.shared.startTrace(txId: "tx-test-g", mode: "AssistedBeta")
         sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: true, restoreRequired: true)
@@ -1141,6 +1145,7 @@ struct CellularAssistedBootstrapTests {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
         ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
+        ShortcutBootstrapService.shared.testMockShortcutRunner = { _, _, _ in true }
 
         let sink = MockLocationSink()
         sm.simulationSink = sink
@@ -1337,6 +1342,7 @@ struct CellularAssistedBootstrapTests {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
         sm.testMockBootstrapRunner = { false }
+        ShortcutBootstrapService.shared.testMockShortcutRunner = { _, _, _ in true }
         BootstrapTraceStore.shared.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-test-cell-observed", mode: "AssistedBeta")
 
@@ -1360,6 +1366,7 @@ struct CellularAssistedBootstrapTests {
         let sm = CellularAssistedBootstrapStateMachine.shared
         sm.resetForTesting()
         sm.testMockBootstrapRunner = { false }
+        ShortcutBootstrapService.shared.testMockShortcutRunner = { _, _, _ in true }
         BootstrapTraceStore.shared.resetForTesting()
         BootstrapTraceStore.shared.startTrace(txId: "tx-test-cell-off", mode: "AssistedBeta")
 
