@@ -58,9 +58,13 @@ jobs:
 
       - name: Run CellularAssistedBootstrapTests
         run: |
-          set -euo pipefail
+          set -uo pipefail
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
-          xcodebuild test -project StikDebug.xcodeproj -scheme StikDebug -destination "platform=iOS Simulator,id=$DEVICE_ID" -only-testing:StikDebugTests/CellularAssistedBootstrapTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+          LOG_PATH="$RUNNER_TEMP/CellularAssistedBootstrapTests.log"
+          xcodebuild test -project StikDebug.xcodeproj -scheme StikDebug -destination "platform=iOS Simulator,id=$DEVICE_ID" -only-testing:StikDebugTests/CellularAssistedBootstrapTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO >"$LOG_PATH" 2>&1
+          STATUS=$?
+          grep -E "(Test .* failed|failed:|expectation failed|Issue recorded|error:)" "$LOG_PATH" | tail -n 40 | while IFS= read -r line; do echo "::error::$line"; done
+          exit "$STATUS"
 
       - name: Run RouteLocationTests
         run: |
