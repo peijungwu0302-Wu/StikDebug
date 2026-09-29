@@ -7,10 +7,18 @@ import Foundation
 struct CellularAssistedBootstrapTests {
 
     init() {
-        ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
+        ShortcutBootstrapService.shared.resetForTesting(resetConfiguration: true)
         CellularAssistedBootstrapStateMachine.shared.resetForTesting()
         LocationDataPathHealth.shared.resetForTesting()
         BootstrapTraceStore.shared.resetForTesting()
+        BootstrapCoordinator.shared.resetForTesting()
+        DirectCellularResearchService.shared.resetForTesting()
+        ConnectionMonitor.shared.updateForTesting(
+            transport: .offline,
+            isWifiAvailable: false,
+            isCellularAvailable: false,
+            deviceSession: .idle
+        )
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
     }
 
