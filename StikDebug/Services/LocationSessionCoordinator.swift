@@ -250,4 +250,16 @@ final class LocationSessionCoordinator: ObservableObject {
             )
         }
     }
+
+    #if DEBUG
+    /// Clears process-local session state between deterministic test cases.
+    func resetForTesting() {
+        sessionState = .noSession
+        currentSessionId = nil
+        transportHistory = []
+        consecutiveFailures = 0
+        lastPrewarmTimestamp = nil
+        isPrewarming = false
+    }
+    #endif
 }
