@@ -44,7 +44,6 @@ jobs:
         run: xcodebuild -resolvePackageDependencies -project StikDebug.xcodeproj -scheme StikDebug
 
       - name: Run unit tests
-        continue-on-error: true
         run: |
           set -euo pipefail
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
@@ -53,34 +52,6 @@ jobs:
             -scheme StikDebug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:StikDebugTests \
-            -parallel-testing-enabled NO \
-            CODE_SIGNING_ALLOWED=NO
-
-      - name: Run BootstrapCoordinatorCorrectionTests (diagnostic)
-        if: always()
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
-          xcodebuild test \
-            -project StikDebug.xcodeproj \
-            -scheme StikDebug \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -only-testing:StikDebugTests/BootstrapCoordinatorCorrectionTests \
-            -parallel-testing-enabled NO \
-            CODE_SIGNING_ALLOWED=NO
-
-      - name: Run BootstrapSessionTests base suite (diagnostic)
-        if: always()
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
-          xcodebuild test \
-            -project StikDebug.xcodeproj \
-            -scheme StikDebug \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -only-testing:StikDebugTests/BootstrapSessionTests \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO
 
