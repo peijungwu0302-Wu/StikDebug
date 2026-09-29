@@ -771,14 +771,12 @@
 "新地點" = "New Location";
 "已收藏「%@」" = "Saved \"%@\" to Favorites";
 "收藏目前模擬位置" = "Favorite Current Simulated Location";
-"清除路線" = "Clear Route";
 "已完成待恢復的行動數據復原。" = "Pending cellular-data recovery completed.";
 "偵測到未完成的行動數據恢復。請手動開啟行動數據，或完成 RouteLocationDataOn 捷徑設定。" = "An incomplete cellular-data recovery was detected. Turn Cellular Data on manually or finish configuring the RouteLocationDataOn shortcut.";
 "偵測到未完成的行動數據恢復。請手動開啟行動數據。" = "An incomplete cellular-data recovery was detected. Turn Cellular Data on manually.";
 "捷徑設定錯誤：目前使用的是文字『[捷徑輸入]』。請刪除這段文字，改用 iOS 捷徑中的『捷徑輸入』Magic Variable。" = "Shortcut configuration error: the literal text '[捷徑輸入]' is being used. Replace it with the Shortcuts app's 'Shortcut Input' Magic Variable.";
 "最近收藏" = "Recently Added";
 "最早收藏" = "Oldest First";
-"最近使用" = "Recently Used";
 "排序方式" = "Sort By";
 "顯示收藏時間" = "Show Saved Time";
 "最近位置" = "Recent Locations";
@@ -790,5 +788,4 @@
 "此模式僅供研究探測，不會改變一般 Cellular Auto 行為。研究試驗失敗時不會損壞健康連線與目標座標。" = "This mode is for research probes only and does not change normal Cellular Auto behavior. A failed research trial does not damage a healthy session or the requested coordinate.";
 "自動模式：Wi-Fi 使用 10.7.0.1；行動網路冷啟動直接使用已驗證的輔助流程（DataOff 後使用 10.7.0.1）。研究模式不會修改此設定。" = "Automatic mode uses 10.7.0.1 on Wi-Fi; cellular cold starts use the validated assisted flow, which uses 10.7.0.1 after DataOff. Research mode does not change this setting.";
 "行為事實說明：\n• Wi-Fi 自動模式使用 10.7.0.1；行動網路冷啟動使用 DataOff 輔助流程，完成後以 10.7.0.1 建立 DVT。\n• TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功；完整研究套件會分開記錄每個階段。\n• 已建立的 DVT Session 不應因新的輔助探測失敗而被摧毀。" = "Behavior notes:\n• Wi-Fi automatic mode uses 10.7.0.1; cellular cold starts use the DataOff assisted flow, then establish DVT through 10.7.0.1.\n• TCP or Bonjour success does not prove RPairing/RSD/DVT success; the full suite records each stage separately.\n• A prepared DVT session must not be destroyed because an auxiliary probe fails.";
-"觀測到的 P2P destination address" = "Observed P2P destination address";
 "Bonjour 僅提供觀測證據；TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功。Automatic 在 Wi-Fi 使用 10.7.0.1:49152；行動網路冷啟動使用輔助流程，完成後以 10.7.0.1:49152 建立 DVT。研究端點可另外測試 127.0.0.1:49152。" = "Bonjour is observational evidence only; TCP or Bonjour success does not prove RPairing/RSD/DVT. Automatic uses 10.7.0.1:49152 on Wi-Fi; cellular cold starts use the assisted flow and establish DVT through 10.7.0.1:49152. Research may test 127.0.0.1:49152 separately.";
