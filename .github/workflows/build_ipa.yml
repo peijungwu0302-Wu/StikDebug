@@ -26,6 +26,7 @@ permissions:
 jobs:
   build:
     name: Compile, test, and package
+    # Keep branch CI rerunnable after transient macOS simulator failures.
     runs-on: macos-latest
     timeout-minutes: 45
 
