@@ -61,6 +61,9 @@ enum CellularAssistedState: String, Codable, CaseIterable {
 @MainActor
 final class CellularAssistedBootstrapStateMachine: ObservableObject {
     static let shared = CellularAssistedBootstrapStateMachine()
+    /// The known-good Assisted DataOff sequence always bootstraps through
+    /// LocalDevVPN, independent of any developer direct-endpoint selection.
+    static let assistedBootstrapEndpoint = DeviceConnectionContext.defaultTargetIPAddress
 
     @Published private(set) var state: CellularAssistedState = .idle
     @Published private(set) var activeTxId: String?
@@ -136,7 +139,14 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         self.cellularOffWasObserved = false
         self.dataRestoreRequired = true
 
-        BootstrapTraceStore.shared.startTrace(txId: txId, mode: "AssistedBeta")
+        #if DEBUG
+        lastAssistedBootstrapEndpointForTesting = Self.assistedBootstrapEndpoint
+        #endif
+        BootstrapTraceStore.shared.startTrace(
+            txId: txId,
+            mode: "AssistedBeta",
+            targetAddress: "\(Self.assistedBootstrapEndpoint):49152"
+        )
         transitionTo(.requestingDataOff)
 
         BootstrapTraceStore.shared.recordEvent(.dataOffRequested, details: ["txId": txId])
@@ -167,6 +177,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     var testCellularOffSequence: [Bool]?
     var testMockBootstrapRunner: (() async -> Bool)?
     var testBootstrapAttemptCount: Int = 0
+    private(set) var lastAssistedBootstrapEndpointForTesting: String?
     var testVerificationCoordinate: RouteCoordinate? {
         return verificationCoordinate
     }
@@ -335,7 +346,10 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         #endif
 
         // Trigger TunnelManager start
-        TunnelManager.shared.start(showErrorUI: false)
+        TunnelManager.shared.start(
+            showErrorUI: false,
+            targetIPAddress: Self.assistedBootstrapEndpoint
+        )
 
         // Await connection / RSD ready
         let connected = await waitForTunnelConnected(timeoutSeconds: 15.0)
@@ -374,7 +388,14 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
 
         if let target = verificationCoordinate {
             do {
-                try await simulationSink.setCoordinate(target)
+                if let deviceSink = simulationSink as? DeviceLocationSimulationService {
+                    try await deviceSink.setCoordinate(
+                        target,
+                        endpointAddress: Self.assistedBootstrapEndpoint
+                    )
+                } else {
+                    try await simulationSink.setCoordinate(target)
+                }
                 self.locationWriteSuccessConfirmed = true
                 LocationDataPathHealth.shared.recordSuccess()
                 BootstrapTraceStore.shared.recordEvent(.firstLocationWriteSuccess, details: [
@@ -644,6 +665,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         testCellularOffSequence = nil
         testMockBootstrapRunner = nil
         testBootstrapAttemptCount = 0
+        lastAssistedBootstrapEndpointForTesting = nil
         simulationSink = DeviceLocationSimulationService.shared
         stateTimeoutTask?.cancel()
         stateTimeoutTask = nil

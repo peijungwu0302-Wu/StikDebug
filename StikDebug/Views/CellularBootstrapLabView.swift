@@ -240,10 +240,10 @@ struct CellularBootstrapLabView: View {
             }
 
             // ==========================================
-            // 3. Direct Cellular Bootstrap — Research Beta
+            // 3. Direct Cellular Bootstrap — Research Only
             // ==========================================
-            Section(L10n.text("3. 直接連線研究測試 (Research Beta)")) {
-                Toggle(L10n.text("啟用直接連線研究模式 (Beta)"), isOn: $researchService.isBetaEnabled)
+            Section(L10n.text("3. 直接連線研究測試 (Research Only)")) {
+                Toggle(L10n.text("啟用直接連線研究模式（僅研究）"), isOn: $researchService.isBetaEnabled)
 
                 Text(L10n.text("此模式僅供研究探測。若開啟，在行動網路環境下發起定位時會先嘗試直連一次，失敗自動切換為 One-Tap 輔助啟動，絕不損壞健康連線與目標座標。"))
                     .font(.caption2)
@@ -552,7 +552,7 @@ struct CellularBootstrapLabView: View {
                         .foregroundStyle(.secondary)
                 }
                 HStack {
-                    Text(L10n.text("預期 Peer IP"))
+                    Text(L10n.text("觀測到的 P2P destination address"))
                     Spacer()
                     Text("10.7.1.1 (P2P_DSTADDR)")
                         .font(.caption.monospaced())
@@ -575,7 +575,7 @@ struct CellularBootstrapLabView: View {
                             .font(.caption2.bold())
                             .foregroundStyle(.orange)
                     }
-                    Text(L10n.text("探索本機或鄰近設備廣播之 RemotePairing 服務。RouteLocation 固定使用生產目標 10.7.0.1:49152，不自動替換。"))
+                    Text(L10n.text("Bonjour 僅提供觀測證據；TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功。Automatic 會依傳輸使用 Wi-Fi 10.7.0.1:49152，或行動網路冷啟動先嘗試 127.0.0.1:49152；輔助流程使用 10.7.0.1:49152。"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
 

@@ -151,7 +151,7 @@ final class TunnelManager: ObservableObject {
     }
 
     @MainActor
-    func start(showErrorUI: Bool = true) {
+    func start(showErrorUI: Bool = true, targetIPAddress: String? = nil) {
         let pairingFileURL = PairingFileStore.prepareURL()
         guard FileManager.default.fileExists(atPath: pairingFileURL.path) else {
             isConnected = false
@@ -173,7 +173,7 @@ final class TunnelManager: ObservableObject {
 
         workerQueue.async { [weak self, showErrorUI] in
             guard let self else { return }
-            let result = self.connectWithRetry()
+            let result = self.connectWithRetry(targetIPAddress: targetIPAddress)
 
             Task { @MainActor [weak self] in
                 self?.finishStart(result, showErrorUI: showErrorUI)
@@ -181,13 +181,13 @@ final class TunnelManager: ObservableObject {
         }
     }
 
-    private func connectWithRetry() -> Result<Void, NSError> {
+    private func connectWithRetry(targetIPAddress: String? = nil) -> Result<Void, NSError> {
         var lastError: NSError?
         let totalAttempts = TunnelRetryPolicy.delays.count + 1
         for attempt in 1...totalAttempts {
             DispatchQueue.main.async { self.reconnectAttempt = attempt }
             do {
-                try JITEnableContext.shared.startTunnel()
+                try JITEnableContext.shared.startTunnel(targetIPAddress: targetIPAddress)
                 return .success(())
             } catch let error as NSError {
                 lastError = error

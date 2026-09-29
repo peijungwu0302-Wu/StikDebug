@@ -42,3 +42,7 @@
 "App 內重新整理限制" = "App 內重新整理限制";
 "App 內重新整理目前僅支援 Wi-Fi；這不影響行動網路 + LocalDevVPN 的定位模擬。請使用 SideStore 重新整理。" = "App 內重新整理目前僅支援 Wi-Fi；這不影響行動網路 + LocalDevVPN 的定位模擬。請使用 SideStore 重新整理。";
 "App 內簽名重新整理目前僅支援 Wi-Fi + LocalDevVPN；這不影響行動網路 + LocalDevVPN 的定位模擬。請使用 SideStore 重新整理。" = "App 內簽名重新整理目前僅支援 Wi-Fi + LocalDevVPN；這不影響行動網路 + LocalDevVPN 的定位模擬。請使用 SideStore 重新整理。";
+"3. 直接連線研究測試 (Research Only)" = "3. 直接連線研究測試（僅研究）";
+"啟用直接連線研究模式（僅研究）" = "啟用直接連線研究模式（僅研究）";
+"觀測到的 P2P destination address" = "觀測到的 P2P destination address";
+"Bonjour 僅提供觀測證據；TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功。Automatic 會依傳輸使用 Wi-Fi 10.7.0.1:49152，或行動網路冷啟動先嘗試 127.0.0.1:49152；輔助流程使用 10.7.0.1:49152。" = "Bonjour 僅提供觀測證據；TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功。Automatic 會依傳輸使用 Wi-Fi 10.7.0.1:49152，或行動網路冷啟動先嘗試 127.0.0.1:49152；輔助流程使用 10.7.0.1:49152。";

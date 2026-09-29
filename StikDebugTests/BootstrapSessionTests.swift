@@ -140,6 +140,7 @@ struct BootstrapSessionTests {
     }
 }
 
+@Suite(.serialized)
 @MainActor
 struct BootstrapCoordinatorCorrectionTests {
     private let success = LocationSimulationPreparationResult(
@@ -211,6 +212,113 @@ struct BootstrapCoordinatorCorrectionTests {
         #expect(assistedTarget == target)
         #expect(BootstrapCoordinator.shared.lastFallbackOccurred)
         #expect(BootstrapCoordinator.shared.lastCoordinationPath == "production_direct_failed_assisted_fallback")
+        TestBootstrapEnvironment.reset()
+    }
+
+    @Test func loopbackDirectFailureUsesFixedAssistedEndpointAndPreservesPreference() {
+        cellular(.auto)
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.string(forKey: BootstrapEndpointStrategy.modeKey)
+        let previousCustom = defaults.string(forKey: BootstrapEndpointStrategy.customAddressKey)
+        defaults.set(BootstrapEndpointMode.loopbackIPv4.rawValue, forKey: BootstrapEndpointStrategy.modeKey)
+
+        let target = RouteCoordinate(latitude: 25.0478, longitude: 121.5319)
+        var directEndpoint = ""
+        var assistedCount = 0
+        var assistedTarget: RouteCoordinate?
+        ProductionLocationSessionPreparer.shared.mockPreparationResult = { endpoint, _ in
+            directEndpoint = endpoint
+            return failure
+        }
+        BootstrapCoordinator.shared.testMockAssistedRunner = { coordinate, completion in
+            assistedCount += 1
+            assistedTarget = coordinate
+            completion(.success(.needsLocationWrite))
+        }
+
+        BootstrapCoordinator.shared.coordinateSimulation(
+            targetCoordinate: target,
+            onRequestPreflight: { Issue.record("Auto fallback should not request preflight") },
+            onProceed: { _ in },
+            onError: { Issue.record("Assisted fallback should handle loopback failure") }
+        )
+
+        #expect(directEndpoint == BootstrapEndpointStrategy.loopbackAddress)
+        #expect(assistedCount == 1)
+        #expect(assistedTarget == target)
+        #expect(CellularAssistedBootstrapStateMachine.assistedBootstrapEndpoint == BootstrapEndpointStrategy.localDevVPNAddress)
+        #expect(BootstrapEndpointStrategy.storedMode() == .loopbackIPv4)
+
+        if let previousMode {
+            defaults.set(previousMode, forKey: BootstrapEndpointStrategy.modeKey)
+        } else {
+            defaults.removeObject(forKey: BootstrapEndpointStrategy.modeKey)
+        }
+        if let previousCustom {
+            defaults.set(previousCustom, forKey: BootstrapEndpointStrategy.customAddressKey)
+        } else {
+            defaults.removeObject(forKey: BootstrapEndpointStrategy.customAddressKey)
+        }
+        TestBootstrapEnvironment.reset()
+    }
+
+    @Test func customDirectFailureFallsBackOnceWithoutMutatingEndpointPreference() {
+        cellular(.auto)
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.string(forKey: BootstrapEndpointStrategy.modeKey)
+        let previousCustom = defaults.string(forKey: BootstrapEndpointStrategy.customAddressKey)
+        defaults.set(BootstrapEndpointMode.custom.rawValue, forKey: BootstrapEndpointStrategy.modeKey)
+        defaults.set("192.0.2.10", forKey: BootstrapEndpointStrategy.customAddressKey)
+
+        var assistedCount = 0
+        ProductionLocationSessionPreparer.shared.mockPreparationResult = { endpoint, _ in
+            #expect(endpoint == "192.0.2.10")
+            return failure
+        }
+        BootstrapCoordinator.shared.testMockAssistedRunner = { _, completion in
+            assistedCount += 1
+            completion(.success(.needsLocationWrite))
+        }
+
+        BootstrapCoordinator.shared.coordinateSimulation(
+            targetCoordinate: RouteCoordinate(latitude: 25, longitude: 121),
+            onRequestPreflight: { Issue.record("Auto fallback should not request preflight") },
+            onProceed: { _ in },
+            onError: { Issue.record("Assisted fallback should handle custom endpoint failure") }
+        )
+
+        #expect(assistedCount == 1)
+        #expect(BootstrapEndpointStrategy.storedMode() == .custom)
+        #expect(BootstrapEndpointStrategy.storedCustomAddress() == "192.0.2.10")
+        #expect(CellularAssistedBootstrapStateMachine.assistedBootstrapEndpoint == "10.7.0.1")
+
+        if let previousMode {
+            defaults.set(previousMode, forKey: BootstrapEndpointStrategy.modeKey)
+        } else {
+            defaults.removeObject(forKey: BootstrapEndpointStrategy.modeKey)
+        }
+        if let previousCustom {
+            defaults.set(previousCustom, forKey: BootstrapEndpointStrategy.customAddressKey)
+        } else {
+            defaults.removeObject(forKey: BootstrapEndpointStrategy.customAddressKey)
+        }
+        TestBootstrapEnvironment.reset()
+    }
+
+    @Test func assistedStateMachineRecordsKnownGoodEndpointBeforeAnyShortcutRuns() async {
+        cellular(.auto)
+        let service = ShortcutBootstrapService.shared
+        service.testMockShortcutRunner = { _, _, completion in
+            completion(false)
+            return true
+        }
+        let stateMachine = CellularAssistedBootstrapStateMachine.shared
+        stateMachine.startAssistedBootstrap(targetCoordinate: RouteCoordinate(latitude: 25, longitude: 121)) { _ in }
+
+        #expect(stateMachine.lastAssistedBootstrapEndpointForTesting == "10.7.0.1")
+        await Task.yield()
+        stateMachine.resetForTesting()
+        service.discardActiveTransactionForTesting()
         TestBootstrapEnvironment.reset()
     }
 

@@ -50,12 +50,19 @@ final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked 
     static let shared = DeviceLocationSimulationService()
 
     func setCoordinate(_ coordinate: RouteCoordinate) async throws {
+        try await setCoordinate(coordinate, endpointAddress: nil)
+    }
+
+    /// Sends a coordinate using an explicit, scoped bootstrap endpoint. This
+    /// is used by the known-good Assisted DataOff flow so a failed Developer
+    /// direct endpoint cannot leak into the fresh first-write bootstrap.
+    func setCoordinate(_ coordinate: RouteCoordinate, endpointAddress: String?) async throws {
         guard coordinate.isValid else { throw LocationSimulationError.invalidCoordinate }
         let pairingURL = PairingFileStore.prepareURL()
         guard FileManager.default.fileExists(atPath: pairingURL.path) else { throw LocationSimulationError.pairingFileMissing }
         let currentTransport = await MainActor.run { ConnectionMonitor.shared.currentTransport }
         let transport = currentTransport.rawValue
-        let target = BootstrapEndpointStrategy.resolvedAddress(transport: currentTransport) ?? DeviceConnectionContext.targetIPAddress
+        let target = endpointAddress ?? BootstrapEndpointStrategy.resolvedAddress(transport: currentTransport) ?? DeviceConnectionContext.targetIPAddress
         LogManager.shared.addDebugLog("Location update attempt: transport=\(transport), target=\(target)")
         let code: Int32 = await withCheckedContinuation { continuation in
             LocationSimulationCommandQueue.shared.async {

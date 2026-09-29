@@ -167,7 +167,7 @@ final class JITEnableContext {
         return pairingFile
     }
 
-    private func createTunnel(hostname: String) throws -> TunnelHandles {
+    private func createTunnel(hostname: String, targetIPAddress: String? = nil) throws -> TunnelHandles {
         let pairingFile = try getPairingFile()
         defer { rp_pairing_file_free(pairingFile) }
 
@@ -175,7 +175,9 @@ final class JITEnableContext {
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_port = in_port_t(49152).bigEndian
 
-        let deviceIP = DeviceConnectionContext.targetIPAddress
+        // Scoped callers (notably the known-good Assisted DataOff path) may
+        // select an endpoint without mutating the user's persisted strategy.
+        let deviceIP = targetIPAddress ?? DeviceConnectionContext.targetIPAddress
         let parseResult = deviceIP.withCString { inet_pton(AF_INET, $0, &addr.sin_addr) }
         guard parseResult == 1 else {
             throw makeError("Failed to parse target IP address.", code: -18)
@@ -246,7 +248,7 @@ final class JITEnableContext {
         return tunnel
     }
 
-    func startTunnel() throws {
+    func startTunnel(targetIPAddress: String? = nil) throws {
         tunnelLock.lock()
         if tunnelConnecting {
             let waitSemaphore = tunnelSemaphore
@@ -284,7 +286,7 @@ final class JITEnableContext {
         }
 
         do {
-            let newTunnel = try createTunnel(hostname: "StikDebug")
+            let newTunnel = try createTunnel(hostname: "StikDebug", targetIPAddress: targetIPAddress)
             newAdapter = newTunnel.adapter
             newHandshake = newTunnel.handshake
         } catch let tunnelError as NSError {
