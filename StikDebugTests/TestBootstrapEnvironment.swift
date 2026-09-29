@@ -16,6 +16,7 @@ enum TestBootstrapEnvironment {
         ShortcutBootstrapService.shared.resetForTesting(resetConfiguration: true)
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = policy
         DirectCellularResearchService.shared.resetForTesting()
+        ProductionLocationSessionPreparer.shared.resetForTesting()
         BootstrapTraceStore.shared.resetForTesting()
     }
 }

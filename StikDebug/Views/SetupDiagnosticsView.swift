@@ -29,18 +29,18 @@ struct SetupDiagnosticsView: View {
         NavigationStack {
             List {
                 Section(L10n.text("設定狀態")) {
-                    status("配對檔案", pairingState.label, pairingState == .present ? .green : .orange, info: "這是目前裝置與受信任電腦之間的敏感信任憑證。RouteLocation 使用它建立裝置服務連線；它不是 IPA 簽名檔，也不會上傳。")
-                    status("LocalDevVPN 介面", localVPNStatus, effectiveTunnelHealthy ? .green : .orange, info: "LocalDevVPN 提供本機裝置服務路徑；它與行動網路的 Internet 狀態彼此獨立。")
-                    status("裝置 Bootstrap", tunnel.bootstrapAvailable ? "可用" : "目前傳輸不可用", tunnel.bootstrapAvailable ? .green : .orange, info: "表示能否開啟新的裝置連線。新連線被拒絕不代表既有 DVT 定位工作階段已失效。")
-                    status("裝置通道", tunnelStatus, effectiveTunnelHealthy ? .green : .orange, info: "顯示既有裝置通道狀態；真實定位指令成功時，不會因輔助 Bootstrap 探測失敗而拆除工作階段。")
-                    status("RSD", rsdStatus, effectiveTunnelHealthy ? .green : .orange, info: "RSD 是 DVT 服務發現層。既有 DVT 工作階段可在新的 RSD 探測暫時失敗時繼續工作。")
-                    status("開發者磁碟映像", ddiStatus, mounting.coolisMounted ? .green : .orange, info: "DDI 提供 Apple 開發者裝置服務。位置模擬前必須準備並掛載；首次下載需要網際網路。")
-                    status("位置模擬", simulationStatus, simulationIsActive ? .green : .gray, info: "顯示目前是否正在傳送單點或路線位置。按下「恢復真實位置」可停止模擬並清除開發者位置。")
-                    status("DVT 工作階段", model.connectionMonitor.deviceSession.label, dvtColor, info: "DVT 是實際傳送開發者位置指令的工作階段。若中斷，路線會保留單調時鐘的經過時間並進行有限次重新連線。")
-                    status("定位更新", dataPath.status.label, dataPath.status == .healthy ? .green : .orange, info: "真實 setLocation 指令的結果是最高優先健康訊號；連續三次真實失敗後才會開始恢復。")
-                    status("傳輸方式", model.connectionMonitor.currentTransport.label, model.connectionMonitor.currentTransport == .offline ? .orange : .green, info: "顯示目前使用 Wi-Fi、行動網路或其他傳輸。RouteLocation 不要求 Wi-Fi；行動網路搭配 LocalDevVPN 是有效啟動方式。")
-                    status("網際網路連線", model.connectionMonitor.internetReachable ? "可連線" : "離線", model.connectionMonitor.internetReachable ? .green : .orange, info: "Apple 地圖搜尋、新導航路線計算與首次 DDI 下載需要網際網路；直線及已儲存路線不需要。")
-                    status("VPN 介面", model.connectionMonitor.usesVPNInterface ? "已偵測" : "未偵測", .gray, info: "顯示系統是否偵測到 VPN 介面。這只能作為提示，不等同於 DVT 工作階段已成功連線。")
+                    status(L10n.text("配對檔案"), pairingState.label, pairingState == .present ? .green : .orange, info: L10n.text("這是目前裝置與受信任電腦之間的敏感信任憑證。RouteLocation 使用它建立裝置服務連線；它不是 IPA 簽名檔，也不會上傳。"))
+                    status(L10n.text("LocalDevVPN 介面"), localVPNStatus, effectiveTunnelHealthy ? .green : .orange, info: L10n.text("LocalDevVPN 提供本機裝置服務路徑；它與行動網路的 Internet 狀態彼此獨立。"))
+                    status(L10n.text("裝置 Bootstrap"), tunnel.bootstrapAvailable ? L10n.text("可用") : L10n.text("目前傳輸不可用"), tunnel.bootstrapAvailable ? .green : .orange, info: L10n.text("表示能否開啟新的裝置連線。新連線被拒絕不代表既有 DVT 定位工作階段已失效。"))
+                    status(L10n.text("裝置通道"), tunnelStatus, effectiveTunnelHealthy ? .green : .orange, info: L10n.text("顯示既有裝置通道狀態；真實定位指令成功時，不會因輔助 Bootstrap 探測失敗而拆除工作階段。"))
+                    status(L10n.text("RSD"), rsdStatus, effectiveTunnelHealthy ? .green : .orange, info: L10n.text("RSD 是 DVT 服務發現層。既有 DVT 工作階段可在新的 RSD 探測暫時失敗時繼續工作。"))
+                    status(L10n.text("開發者磁碟映像"), ddiStatus, mounting.coolisMounted ? .green : .orange, info: L10n.text("DDI 提供 Apple 開發者裝置服務。位置模擬前必須準備並掛載；首次下載需要網際網路。"))
+                    status(L10n.text("位置模擬"), simulationStatus, simulationIsActive ? .green : .gray, info: L10n.text("顯示目前是否正在傳送單點或路線位置。按下「恢復真實位置」可停止模擬並清除開發者位置。"))
+                    status(L10n.text("DVT 工作階段"), model.connectionMonitor.deviceSession.label, dvtColor, info: L10n.text("DVT 是實際傳送開發者位置指令的工作階段。若中斷，路線會保留單調時鐘的經過時間並進行有限次重新連線。"))
+                    status(L10n.text("定位更新"), dataPath.status.label, dataPath.status == .healthy ? .green : .orange, info: L10n.text("真實 setLocation 指令的結果是最高優先健康訊號；連續三次真實失敗後才會開始恢復。"))
+                    status(L10n.text("傳輸方式"), model.connectionMonitor.currentTransport.label, model.connectionMonitor.currentTransport == .offline ? .orange : .green, info: L10n.text("顯示目前使用 Wi-Fi、行動網路或其他傳輸。RouteLocation 不要求 Wi-Fi；行動網路搭配 LocalDevVPN 是有效啟動方式。"))
+                    status(L10n.text("網際網路連線"), model.connectionMonitor.internetReachable ? L10n.text("可連線") : L10n.text("離線"), model.connectionMonitor.internetReachable ? .green : .orange, info: L10n.text("Apple 地圖搜尋、新導航路線計算與首次 DDI 下載需要網際網路；直線及已儲存路線不需要。"))
+                    status(L10n.text("VPN 介面"), model.connectionMonitor.usesVPNInterface ? L10n.text("已偵測") : L10n.text("未偵測"), .gray, info: L10n.text("顯示系統是否偵測到 VPN 介面。這只能作為提示，不等同於 DVT 工作階段已成功連線。"))
                 }
                 Section(L10n.text("配對檔案")) {
                     HStack {
@@ -124,7 +124,7 @@ struct SetupDiagnosticsView: View {
                     }
                 }
                 Section(L10n.text("健康同步")) {
-                    Toggle("路線播放時同步步數", isOn: $healthSteps.isEnabled)
+                    Toggle(L10n.text("路線播放時同步步數"), isOn: $healthSteps.isEnabled)
                         .onChange(of: healthSteps.isEnabled) { _, enabled in
                             if enabled {
                                 Task { await healthSteps.requestAuthorization() }
@@ -237,12 +237,12 @@ struct SetupDiagnosticsView: View {
                             HStack {
                                 Text(L10n.text("切換穩定等待"))
                                 Spacer()
-                                Text(String(format: "%.1f 秒", shortcutService.cellularBootstrapStabilizationDelay))
+                                Text(L10n.format("%.1f 秒", shortcutService.cellularBootstrapStabilizationDelay))
                                     .foregroundStyle(.secondary)
                             }
                             Picker(L10n.text("切換穩定等待時間"), selection: $shortcutService.cellularBootstrapStabilizationDelay) {
                                 ForEach([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0], id: \.self) { delay in
-                                    Text(String(format: "%.1f 秒", delay)).tag(delay)
+                                    Text(L10n.format("%.1f 秒", delay)).tag(delay)
                                 }
                             }
                             .pickerStyle(.segmented)
@@ -282,13 +282,13 @@ struct SetupDiagnosticsView: View {
                         NavigationLink {
                             DeveloperDiagnosticsView()
                         } label: {
-                            Label("開發者診斷 (Developer Diagnostics)", systemImage: "stethoscope")
+                            Label(L10n.text("開發者診斷 (Developer Diagnostics)"), systemImage: "stethoscope")
                         }
 
                         NavigationLink {
                             CellularBootstrapLabView()
                         } label: {
-                            Label("行動網路實驗室 (Cellular Lab)", systemImage: "antenna.radiowaves.left.and.right")
+                            Label(L10n.text("行動網路實驗室 (Cellular Lab)"), systemImage: "antenna.radiowaves.left.and.right")
                         }
 
                         Button(role: .destructive) {
@@ -395,7 +395,7 @@ struct SetupDiagnosticsView: View {
         }
         .task { refreshPairingState() }
         .alert(item: $diagnosticInfo) { item in
-            Alert(title: Text(item.title), message: Text(item.message), dismissButton: .default(Text("好")))
+            Alert(title: Text(item.title), message: Text(item.message), dismissButton: .default(Text(L10n.text("好"))))
         }
         .alert(L10n.text("手動新增 RouteLocation 步數"), isPresented: $showManualStepEntry) {
             TextField("500", text: $manualStepText)
@@ -448,10 +448,10 @@ struct SetupDiagnosticsView: View {
         } message: {
             Text(L10n.text("重新整理簽名前必須先停止目前模擬並恢復裝置真實位置。"))
         }
-        .alert(L10n.text("目前需要 Wi-Fi"), isPresented: $selfRefresh.showCellularBlockedAlert) {
+        .alert(L10n.text("App 內重新整理限制"), isPresented: $selfRefresh.showCellularBlockedAlert) {
             Button(L10n.text("好"), role: .cancel) {}
         } message: {
-            Text(L10n.text("重新整理簽名目前僅支援 Wi-Fi + LocalDevVPN 連線，不支援行動網路單獨重新整理。請連線至 Wi-Fi 後再試。"))
+            Text(L10n.text("App 內簽名重新整理目前僅支援 Wi-Fi + LocalDevVPN；這不影響行動網路 + LocalDevVPN 的定位模擬。請使用 SideStore 重新整理。"))
         }
         .alert(L10n.text("需要 LocalDevVPN"), isPresented: $selfRefresh.showMissingVPNAlert) {
             Button(L10n.text("好"), role: .cancel) {}
@@ -618,23 +618,23 @@ private struct SigningAndRefreshSectionView: View {
     let openSideStoreApp: () -> Void
 
     var body: some View {
-        Section("簽名狀態與重新整理") {
+        Section(L10n.text("簽名狀態與重新整理")) {
             HStack {
-                Text("簽名狀態")
+                Text(L10n.text("簽名狀態"))
                 Spacer()
                 let status = signingService.currentStatus
                 Text(status.label)
                     .foregroundStyle(status.color)
             }
             HStack {
-                Text("剩餘有效時間")
+                Text(L10n.text("剩餘有效時間"))
                 Spacer()
                 Text(signingService.remainingTimeFormatted)
                     .foregroundStyle(.secondary)
             }
             if signingService.expirationFormatted != "無" {
                 HStack {
-                    Text("到期時間")
+                    Text(L10n.text("到期時間"))
                     Spacer()
                     Text(signingService.expirationFormatted)
                         .font(.caption)
@@ -643,7 +643,7 @@ private struct SigningAndRefreshSectionView: View {
             }
             if let team = signingService.profileInfo?.teamIdentifier.first {
                 HStack {
-                    Text("開發者團隊 ID")
+                    Text(L10n.text("開發者團隊 ID"))
                     Spacer()
                     Text(team)
                         .font(.caption.monospaced())
@@ -651,7 +651,7 @@ private struct SigningAndRefreshSectionView: View {
                 }
             }
             HStack {
-                Text("容器識別雜湊")
+                Text(L10n.text("容器識別雜湊"))
                 Spacer()
                 Text(diagnosticsStore.installationIdentity.containerIdentityHash)
                     .font(.caption.monospaced().bold())
@@ -678,17 +678,17 @@ private struct SigningAndRefreshSectionView: View {
             Button {
                 selfRefresh.startSelfRefresh(model: model)
             } label: {
-                Label("重新整理 RouteLocation", systemImage: "arrow.clockwise")
+                Label(L10n.text("重新整理 RouteLocation"), systemImage: "arrow.clockwise")
             }
             .disabled(selfRefresh.state.isBusy)
 
             Button {
                 openSideStoreApp()
             } label: {
-                Label("在 SideStore 中重新整理", systemImage: "arrow.up.forward.app")
+                Label(L10n.text("在 SideStore 中重新整理"), systemImage: "arrow.up.forward.app")
             }
 
-            Text("手動重新整理僅續期目前安裝的 RouteLocation 簽名，不跨版本升級，也不會重新整理其他 App。建議在 Wi-Fi 並啟動 LocalDevVPN 的環境下執行。")
+            Text(L10n.text("手動重新整理僅續期目前安裝的 RouteLocation 簽名，不跨版本升級，也不會重新整理其他 App。建議在 Wi-Fi 並啟動 LocalDevVPN 的環境下執行。"))
                 .font(.footnote).foregroundStyle(.secondary)
         }
     }

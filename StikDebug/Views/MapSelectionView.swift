@@ -31,10 +31,10 @@ struct RouteMapView: View {
                 Map(position: $camera) {
                     UserAnnotation()
                     if let selected = model.selectedCoordinate {
-                        Marker("已選位置", coordinate: selected.clCoordinate).tint(.blue)
+                        Marker(L10n.text("已選位置"), coordinate: selected.clCoordinate).tint(.blue)
                     }
                     ForEach(Array(model.waypoints.enumerated()), id: \.offset) { index, waypoint in
-                        Annotation("航點 \(index + 1)", coordinate: waypoint.clCoordinate) {
+                        Annotation(L10n.format("航點 %d", index + 1), coordinate: waypoint.clCoordinate) {
                             ZStack {
                                 Circle().fill(.orange).frame(width: 28, height: 28)
                                 Text("\(index + 1)").font(.caption.bold()).foregroundStyle(.white)
@@ -46,7 +46,7 @@ struct RouteMapView: View {
                             .stroke(.blue, lineWidth: 5)
                     }
                     if let current = playback.currentCoordinate {
-                        Annotation("目前模擬位置", coordinate: current.clCoordinate) {
+                        Annotation(L10n.text("目前模擬位置"), coordinate: current.clCoordinate) {
                             Image(systemName: "location.circle.fill")
                                 .font(.title).foregroundStyle(.green).background(.white, in: Circle())
                         }
@@ -62,13 +62,13 @@ struct RouteMapView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
-                        .accessibilityLabel("我的路線")
+                        .accessibilityLabel(L10n.text("我的路線"))
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
-                        .accessibilityLabel("搜尋地點")
+                        .accessibilityLabel(L10n.text("搜尋地點"))
                     Button { showCoordinateEntry = true } label: { Image(systemName: "number") }
-                        .accessibilityLabel("輸入座標")
+                        .accessibilityLabel(L10n.text("輸入座標"))
                     Button { fitRoute() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                        .accessibilityLabel("顯示完整路線")
+                        .accessibilityLabel(L10n.text("顯示完整路線"))
                         .disabled(model.geometry.coordinates.isEmpty)
                 }
             }
@@ -139,7 +139,7 @@ struct RouteMapView: View {
                                 .foregroundStyle(.blue)
                         }
                         HStack {
-                            Text("\(previewing.waypoints.count) 航點 · \(previewing.totalDistance.formattedDistance) · \(previewing.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
+                            Text(L10n.format("路線資訊：%lld 航點 · %@ · %@ km/h", Int64(previewing.waypoints.count), previewing.totalDistance.formattedDistance, previewing.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))))
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
                         HStack {
@@ -171,17 +171,17 @@ struct RouteMapView: View {
                         Spacer()
                         Text("\(model.speedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
                         if playback.state == .running || playback.state == .reconnecting {
-                            Text("第 \(playback.lapNumber) 圈").fontWeight(.semibold)
+                            Text(L10n.format("第 %d 圈", playback.lapNumber)).fontWeight(.semibold)
                         }
                     }.font(.footnote)
                     HStack {
-                        Button("開始路線") { Task { await model.startPlayback() } }.buttonStyle(.borderedProminent)
-                        Button("停止") { playback.stop(clearMarker: true) }.buttonStyle(.bordered).tint(.red)
+                        Button(L10n.text("開始路線")) { Task { await model.startPlayback() } }.buttonStyle(.borderedProminent)
+                        Button(L10n.text("停止")) { playback.stop(clearMarker: true) }.buttonStyle(.bordered).tint(.red)
                             .disabled(playback.state != .running && playback.state != .reconnecting)
-                        Button("清除路線", role: .destructive) { model.clearCurrentRoute() }.buttonStyle(.bordered)
+                        Button(L10n.text("清除路線"), role: .destructive) { model.clearCurrentRoute() }.buttonStyle(.bordered)
                     }
                 }
-                Button("恢復真實位置", role: .destructive) { Task { await model.returnToRealLocation() } }
+                Button(L10n.text("恢復真實位置"), role: .destructive) { Task { await model.returnToRealLocation() } }
                     .font(.footnote)
             }
         }
@@ -260,7 +260,7 @@ struct QuickRouteMapView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Picker("模式", selection: $model.quickRouteMode) {
+                    Picker(L10n.text("模式"), selection: $model.quickRouteMode) {
                         ForEach(QuickRouteInteractionMode.allCases) { mode in
                             Text(mode.title).tag(mode)
                         }
@@ -271,14 +271,14 @@ struct QuickRouteMapView: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if model.quickRouteMode == .route {
                         Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
-                            .accessibilityLabel("我的路線")
+                            .accessibilityLabel(L10n.text("我的路線"))
                     }
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
-                        .accessibilityLabel("搜尋地點")
+                        .accessibilityLabel(L10n.text("搜尋地點"))
                     Button { showCoordinateEntry = true } label: { Image(systemName: "number") }
-                        .accessibilityLabel("輸入座標")
+                        .accessibilityLabel(L10n.text("輸入座標"))
                     Button { fitRoute() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                        .accessibilityLabel("顯示完整路線")
+                        .accessibilityLabel(L10n.text("顯示完整路線"))
                         .disabled(model.geometry.coordinates.isEmpty)
                 }
             }
@@ -361,7 +361,7 @@ struct QuickRouteMapView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                .accessibilityLabel(isCardExpanded ? "收合卡片" : "展開卡片")
+                .accessibilityLabel(L10n.text(isCardExpanded ? "收合卡片" : "展開卡片"))
             }
 
             if let previewing = model.previewingRoute {
@@ -394,7 +394,7 @@ struct QuickRouteMapView: View {
                     .font(.subheadline.bold())
                     .lineLimit(1)
                 Spacer()
-                Text("預覽中")
+                Text(L10n.text("預覽中"))
                     .font(.caption2.bold())
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -403,20 +403,20 @@ struct QuickRouteMapView: View {
             }
 
             HStack {
-                Text("\(route.waypoints.count) 點 · \(route.totalDistance.formattedDistance) · \(route.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
+                Text(L10n.format("路線資訊：%lld 航點 · %@ · %@ km/h", Int64(route.waypoints.count), route.totalDistance.formattedDistance, route.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
             }
 
             HStack(spacing: 8) {
-                Button("開始路線") {
+                Button(L10n.text("開始路線")) {
                     model.requestStartRoute(route)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
 
-                Button("編輯") {
+                Button(L10n.text("編輯")) {
                     NotificationCenter.default.post(name: .switchToRoutesTab, object: nil)
                 }
                 .buttonStyle(.bordered)
@@ -424,7 +424,7 @@ struct QuickRouteMapView: View {
 
                 Spacer()
 
-                Button("取消預覽", role: .cancel) {
+                Button(L10n.text("取消預覽"), role: .cancel) {
                     model.cancelRoutePreview()
                 }
                 .buttonStyle(.bordered)
@@ -444,7 +444,7 @@ struct QuickRouteMapView: View {
             Spacer()
             Text(L10n.format("第 %d 圈", playback.lapNumber))
                 .font(.caption.bold())
-            Button("停止") {
+            Button(L10n.text("停止")) {
                 playback.stop(clearMarker: true)
             }
             .buttonStyle(.bordered)
@@ -466,7 +466,7 @@ struct QuickRouteMapView: View {
                 .foregroundStyle(.secondary)
 
                 if model.simulationMode.isSimulating {
-                    Button("恢復真實位置", role: .destructive) {
+                    Button(L10n.text("恢復真實位置"), role: .destructive) {
                         Task { await model.returnToRealLocation() }
                     }
                     .font(.footnote)
@@ -486,12 +486,12 @@ struct QuickRouteMapView: View {
                         .textSelection(.enabled)
 
                     HStack {
-                        Button("在此模擬") {
+                        Button(L10n.text("在此模擬")) {
                             model.requestSinglePointSimulation()
                         }
                         .buttonStyle(.borderedProminent)
 
-                        Button("加入航點") {
+                        Button(L10n.text("加入航點")) {
                             model.addSelectedWaypoint()
                         }
                         .buttonStyle(.bordered)
@@ -507,7 +507,7 @@ struct QuickRouteMapView: View {
                     }
 
                     if model.simulationMode.isSimulating {
-                        Button("恢復真實位置", role: .destructive) {
+                        Button(L10n.text("恢復真實位置"), role: .destructive) {
                             Task { await model.returnToRealLocation() }
                         }
                         .font(.footnote)
@@ -519,7 +519,7 @@ struct QuickRouteMapView: View {
                         .font(.caption.monospaced())
                         .lineLimit(1)
                     Spacer()
-                    Button("在此模擬") {
+                    Button(L10n.text("在此模擬")) {
                         model.requestSinglePointSimulation()
                     }
                     .buttonStyle(.borderedProminent)
@@ -529,24 +529,24 @@ struct QuickRouteMapView: View {
         } else {
             if isCardExpanded {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("在單點模式下點選地圖或搜尋以選擇模擬位置。")
+                    Text(L10n.text("在單點模式下點選地圖或搜尋以選擇模擬位置。"))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                    Button("輸入精確座標") {
+                    Button(L10n.text("輸入精確座標")) {
                         showCoordinateEntry = true
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
 
                     if model.simulationMode.isSimulating {
-                        Button("恢復真實位置", role: .destructive) {
+                        Button(L10n.text("恢復真實位置"), role: .destructive) {
                             Task { await model.returnToRealLocation() }
                         }
                         .font(.footnote)
                     }
                 }
             } else {
-                Text("點選地圖以選擇模擬位置")
+                Text(L10n.text("點選地圖以選擇模擬位置"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -558,21 +558,21 @@ struct QuickRouteMapView: View {
         if model.waypoints.isEmpty {
             if isCardExpanded {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("在路線模式下點選地圖或使用搜尋以依序新增航點。")
+                    Text(L10n.text("在路線模式下點選地圖或使用搜尋以依序新增航點。"))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     HStack {
                         Button {
                             showMyRoutes = true
                         } label: {
-                            Label("我的路線", systemImage: "star.circle.fill")
+                            Label(L10n.text("我的路線"), systemImage: "star.circle.fill")
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         Spacer()
                     }
                     if model.simulationMode.isSimulating {
-                        Button("恢復真實位置", role: .destructive) {
+                        Button(L10n.text("恢復真實位置"), role: .destructive) {
                             Task { await model.returnToRealLocation() }
                         }
                         .font(.footnote)
@@ -580,14 +580,14 @@ struct QuickRouteMapView: View {
                 }
             } else {
                 HStack {
-                    Text("點選地圖以新增航點")
+                    Text(L10n.text("點選地圖以新增航點"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button {
                         showMyRoutes = true
                     } label: {
-                        Label("我的路線", systemImage: "star.circle.fill")
+                        Label(L10n.text("我的路線"), systemImage: "star.circle.fill")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -595,11 +595,11 @@ struct QuickRouteMapView: View {
             }
         } else if model.waypoints.count == 1 {
             HStack {
-                Text("已新增 1 個航點，請點選下一個航點")
+                Text(L10n.text("已新增 1 個航點，請點選下一個航點"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("復原") { model.undoLastWaypoint() }
+                Button(L10n.text("復原")) { model.undoLastWaypoint() }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
             }
@@ -607,15 +607,15 @@ struct QuickRouteMapView: View {
             if isCardExpanded {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("建立路線").font(.subheadline.bold())
+                        Text(L10n.text("建立路線")).font(.subheadline.bold())
                         Spacer()
-                        Text("航點：\(model.waypoints.count)").font(.footnote)
-                        Text("距離：\(model.geometry.totalDistance.formattedDistance)").font(.footnote)
+                        Text(L10n.format("航點：%d", model.waypoints.count)).font(.footnote)
+                        Text(L10n.format("距離：%@", model.geometry.totalDistance.formattedDistance)).font(.footnote)
                     }
 
                     HStack {
-                        Text("路線方式").font(.caption).foregroundStyle(.secondary)
-                        Picker("路線方式", selection: $model.routeMode) {
+                        Text(L10n.text("路線方式")).font(.caption).foregroundStyle(.secondary)
+                        Picker(L10n.text("路線方式"), selection: $model.routeMode) {
                             ForEach(RouteMode.allCases) { Text($0.title).tag($0) }
                         }
                         .pickerStyle(.segmented)
@@ -623,12 +623,12 @@ struct QuickRouteMapView: View {
 
                     if model.routeMode == .navigation {
                         HStack {
-                            Picker("交通方式", selection: $model.navigationTransport) {
+                            Picker(L10n.text("交通方式"), selection: $model.navigationTransport) {
                                 ForEach(NavigationTransportMode.allCases) { Text($0.title).tag($0) }
                             }
                             .pickerStyle(.segmented)
                             if model.navigationGeometryNeedsRecalculation {
-                                Button(model.isResolvingNavigation ? "計算中…" : "計算導航") {
+                                Button(L10n.text(model.isResolvingNavigation ? "計算中…" : "計算導航")) {
                                     Task { await model.recalculateNavigation() }
                                 }
                                 .buttonStyle(.bordered)
@@ -638,7 +638,7 @@ struct QuickRouteMapView: View {
                     }
 
                     HStack(spacing: 8) {
-                        Text("速度").font(.caption).foregroundStyle(.secondary)
+                        Text(L10n.text("速度")).font(.caption).foregroundStyle(.secondary)
                         TextField("18.6", value: $model.speedKmh, format: .number)
                             .keyboardType(.decimalPad)
                             .focused($isSpeedFieldFocused)
@@ -647,29 +647,29 @@ struct QuickRouteMapView: View {
                         Text("km/h").font(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Toggle(isOn: $model.isClosedLoop) {
-                            Text("無限循環").font(.caption)
+                            Text(L10n.text("無限循環")).font(.caption)
                         }
                         .toggleStyle(.button)
                     }
 
                     HStack {
-                        Button("復原") { model.undoLastWaypoint() }
+                        Button(L10n.text("復原")) { model.undoLastWaypoint() }
                             .buttonStyle(.bordered)
-                        Button("清除", role: .destructive) { showClearDraftAlert = true }
+                        Button(L10n.text("清除"), role: .destructive) { showClearDraftAlert = true }
                             .buttonStyle(.bordered)
                         Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
                             .buttonStyle(.bordered)
                         Spacer()
-                        Button("儲存路線") { showSaveSheet = true }
+                        Button(L10n.text("儲存路線")) { showSaveSheet = true }
                             .buttonStyle(.bordered)
                             .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
-                        Button("開始路線") { Task { await model.startPlayback() } }
+                        Button(L10n.text("開始路線")) { Task { await model.startPlayback() } }
                             .buttonStyle(.borderedProminent)
                             .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
                     }
 
                     if model.simulationMode.isSimulating {
-                        Button("恢復真實位置", role: .destructive) {
+                        Button(L10n.text("恢復真實位置"), role: .destructive) {
                             Task { await model.returnToRealLocation() }
                         }
                         .font(.footnote)
@@ -677,14 +677,14 @@ struct QuickRouteMapView: View {
                 }
             } else {
                 HStack {
-                    Text("\(model.waypoints.count) 點 · \(model.geometry.totalDistance.formattedDistance) · \(model.speedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
+                    Text(L10n.format("路線資訊：%lld 航點 · %@ · %@ km/h", Int64(model.waypoints.count), model.geometry.totalDistance.formattedDistance, model.speedKmh.formatted(.number.precision(.fractionLength(1)))))
                         .font(.caption)
                         .lineLimit(1)
                     Spacer()
                     Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                    Button("開始路線") { Task { await model.startPlayback() } }
+                    Button(L10n.text("開始路線")) { Task { await model.startPlayback() } }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                         .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
@@ -725,26 +725,26 @@ struct CoordinateTeleportView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("座標") {
+                Section(L10n.text("座標")) {
                     TextField("25.033964,121.564468", text: $coordinateText)
                         .keyboardType(.numbersAndPunctuation)
                         .textInputAutocapitalization(.never)
-                    Text("依序輸入緯度與經度，使用逗號、分號或 Tab 分隔。")
+                    Text(L10n.text("依序輸入緯度與經度，使用逗號、分號或 Tab 分隔。"))
                         .font(.footnote).foregroundStyle(.secondary)
                     if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
                 }
-                Section("操作") {
-                    Button("在地圖預覽") { submit(simulateImmediately: false) }
-                    Button("立即模擬此座標") { submit(simulateImmediately: true) }
+                Section(L10n.text("操作")) {
+                    Button(L10n.text("在地圖預覽")) { submit(simulateImmediately: false) }
+                    Button(L10n.text("立即模擬此座標")) { submit(simulateImmediately: true) }
                         .buttonStyle(.borderedProminent)
                 }
             }
-            .navigationTitle("輸入精確座標")
+            .navigationTitle(L10n.text("輸入精確座標"))
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(L10n.text("取消")) { dismiss() } }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("完成") {
+                    Button(L10n.text("完成")) {
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                     }
                 }
@@ -797,11 +797,11 @@ struct LocationSearchPicker: View {
                     }
                 }
             }
-            .overlay { if completer.results.isEmpty { ContentUnavailableView("搜尋 Apple 地圖", systemImage: "magnifyingglass", description: Text(errorMessage ?? "輸入地點或地址。")) } }
-            .searchable(text: $query, prompt: "地點或地址")
+            .overlay { if completer.results.isEmpty { ContentUnavailableView(L10n.text("搜尋 Apple 地圖"), systemImage: "magnifyingglass", description: Text(errorMessage ?? L10n.text("輸入地點或地址。"))) } }
+            .searchable(text: $query, prompt: L10n.text("地點或地址"))
             .onChange(of: query) { _, value in completer.update(value) }
-            .navigationTitle("搜尋")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+            .navigationTitle(L10n.text("搜尋"))
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L10n.text("取消")) { dismiss() } } }
         }
     }
 

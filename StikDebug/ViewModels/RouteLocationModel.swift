@@ -411,11 +411,14 @@ final class RouteLocationModel: ObservableObject {
     }
 
     var isCellularBootstrapPreparationNeeded: Bool {
-        let policy = ShortcutBootstrapService.shared.cellularBootstrapPolicy
-        if policy == .directOnly { return false }
         let hasActiveDVT = connectionMonitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess
+            || LocationSimulationCommandQueue.shared.sync { location_simulation_session_snapshot().isPrepared }
         guard !hasActiveDVT else { return false }
         guard connectionMonitor.currentTransport != .wifi else { return false }
+        // directOnly still needs a real production preparation attempt; it
+        // simply refuses the assisted DataOff/DataOn fallback. assistedFirst
+        // retains the existing preflight behavior and auto uses localhost
+        // production preparation before falling back exactly once.
         return connectionMonitor.currentTransport == .cellular || connectionMonitor.isCellularAvailable
     }
 

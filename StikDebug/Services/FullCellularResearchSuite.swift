@@ -36,6 +36,11 @@ struct FullCellularResearchReport: Codable, Equatable, Identifiable, Sendable {
     let vpnCandidate: String
     let pathStatus: String
     let utunSummary: String
+    let networkSnapshot: NetworkEnvironmentSnapshot
+    let utunInterfaces: [UtunInterfaceEntry]
+    let bonjourServices: [RemotePairingDiscoveredService]
+    let pathProbes: [CellularPathProbeResult]
+    let tcpMatrix: [EndpointMatrixProbeResult]
     let bonjourSummary: String
     let endpointMode: String
     let effectiveProductionEndpoint: String
@@ -79,7 +84,33 @@ struct FullCellularResearchReport: Codable, Equatable, Identifiable, Sendable {
             "Production behavior modified: \(productionBehaviorModified ? "YES" : "NO")",
             "Location write occurred: \(locationWriteOccurred ? "YES" : "NO")"
         ]
-        return lines.joined(separator: "\n")
+        var details = lines
+        details.append("")
+        details.append("UTUN interfaces:")
+        if utunInterfaces.isEmpty {
+            details.append("  (none)")
+        } else {
+            for entry in utunInterfaces {
+                details.append("  \(entry.interfaceName) family=\(entry.addressFamily) flags=\(entry.ifaFlags) p2p=\(entry.isPointToPoint) up=\(entry.isUp) running=\(entry.isRunning) address=\(entry.observedInterfaceAddress ?? "-") local=\(entry.observedP2PLocalAddress ?? "-") dst=\(entry.observedP2PDestination ?? "-") netmask=\(entry.observedNetmask ?? "-")")
+            }
+        }
+        details.append("Path probes:")
+        for probe in pathProbes {
+            details.append("  \(probe.probeType.rawValue) target=\(probe.targetIP):\(probe.targetPort) policy=\(probe.interfacePolicy.rawValue) requested=\(probe.requestedInterfaceName ?? "-") requiredApplied=\(probe.requiredInterfaceApplied) status=\(probe.status.rawValue) local=\(probe.localEndpoint ?? "-") remote=\(probe.remoteEndpoint ?? "-") elapsedMs=\(probe.elapsedMs) nw=\(probe.nwErrorDomain ?? "-")/\(probe.nwErrorCode.map { String($0) } ?? "-") errno=\(probe.posixErrno.map { String($0) } ?? "-") error=\(probe.errorDescription ?? "-")")
+        }
+        details.append("TCP endpoint matrix:")
+        for item in tcpMatrix {
+            details.append("  target=\(item.target) policy=\(item.policy.rawValue) status=\(item.status.rawValue) local=\(item.localEndpoint ?? "-") remote=\(item.remoteEndpoint ?? "-") elapsedMs=\(item.elapsedMs) nw=\(item.nwErrorDomain ?? "-")/\(item.nwErrorCode.map { String($0) } ?? "-") errno=\(item.posixErrno.map { String($0) } ?? "-") error=\(item.errorDescription ?? "-")")
+        }
+        details.append("Bonjour services:")
+        if bonjourServices.isEmpty {
+            details.append("  (none)")
+        } else {
+            for service in bonjourServices {
+                details.append("  \(service.serviceName) type=\(service.serviceType) domain=\(service.domain) port=\(service.port.map { String($0) } ?? "-") addresses=\(service.resolvedAddresses.joined(separator: ",")) interface=\(service.interfaceName ?? "-")")
+            }
+        }
+        return details.joined(separator: "\n")
     }
 }
 
@@ -100,7 +131,13 @@ final class FullCellularResearchSuite: ObservableObject {
         let probe = CellularBootstrapTransportProbe.shared
         let snapshot = probe.captureSnapshot()
         let topology = UtunTopologyCollector.collectTopology()
-        let previousSession = snapshot.activeDVTSession || snapshot.recentLocationSuccess
+        // A prepared LocationSimulation handle is valid production-session
+        // evidence even when no location write has happened yet. Read it on
+        // the owner queue so the research report does not race FFI state.
+        let preparedSession = LocationSimulationCommandQueue.shared.sync {
+            location_simulation_session_snapshot().isPrepared
+        }
+        let previousSession = snapshot.activeDVTSession || snapshot.recentLocationSuccess || preparedSession
 
         // Discovery is deliberately bounded by the existing five-second browser timeout.
         BonjourRemotePairingDiscovery.shared.startDiscovery()
@@ -114,6 +151,7 @@ final class FullCellularResearchSuite: ObservableObject {
         let loopbackTrial = await runTrial(address: BootstrapEndpointStrategy.loopbackAddress, pairingPath: pairingPath)
         let finalSnapshot = probe.latestSnapshot ?? snapshot
 
+        let detailedPathProbes = [probe.probeAResult, probe.probeBResult, probe.probeCResult, probe.candidatePeerProbeResult].compactMap { $0 }
         let report = FullCellularResearchReport(
             id: UUID(), startedAt: started, completedAt: Date(),
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
@@ -125,11 +163,16 @@ final class FullCellularResearchSuite: ObservableObject {
             vpnCandidate: finalSnapshot.vpnCandidate.interface?.name ?? "none",
             pathStatus: finalSnapshot.isInternetSatisfied ? "satisfied" : "not satisfied",
             utunSummary: topology.summary,
+            networkSnapshot: finalSnapshot,
+            utunInterfaces: topology.interfaces,
+            bonjourServices: BonjourRemotePairingDiscovery.shared.discoveredServices,
+            pathProbes: detailedPathProbes,
+            tcpMatrix: matrix,
             bonjourSummary: BonjourRemotePairingDiscovery.shared.summaryForTrace(),
             endpointMode: BootstrapEndpointStrategy.storedMode().rawValue,
             effectiveProductionEndpoint: "\(BootstrapEndpointStrategy.resolvedAddress(transport: ConnectionMonitor.shared.currentTransport) ?? DeviceConnectionContext.targetIPAddress):49152",
             tcpMatrixSummary: matrix.map { "\($0.target) \($0.policy.rawValue)=\($0.status.rawValue)" }.joined(separator: "; "),
-            pathProbeSummary: [probe.probeAResult, probe.probeBResult, probe.probeCResult, probe.candidatePeerProbeResult].compactMap { $0 }.map { "\($0.probeType.rawValue)=\($0.status.rawValue)" }.joined(separator: "; "),
+            pathProbeSummary: detailedPathProbes.map { "\($0.probeType.rawValue)=\($0.status.rawValue)" }.joined(separator: "; "),
             trialLocalDevVPN: FullCellularFFITrial(localDevVPNTrial),
             trialLoopback: FullCellularFFITrial(loopbackTrial),
             productionSessionHealth: previousSession ? "healthy/recent success" : "no active session",

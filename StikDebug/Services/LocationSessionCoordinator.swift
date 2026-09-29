@@ -145,14 +145,17 @@ final class LocationSessionCoordinator: ObservableObject {
             return
         }
 
-        if activeSessionAvailable || isPrewarming || has_prepared_location_simulation_session() {
+        let preparedSession = LocationSimulationCommandQueue.shared.sync {
+            location_simulation_session_snapshot().isPrepared
+        }
+        if activeSessionAvailable || isPrewarming || preparedSession {
             DeveloperDiagnosticsStore.shared.logDecision(
                 action: "PREWARM_DECISION",
                 reason: "Session already active or pre-warm currently in progress",
                 context: [
                     "activeSessionAvailable": String(activeSessionAvailable),
                     "isPrewarming": String(isPrewarming),
-                    "preparedSession": String(has_prepared_location_simulation_session())
+                    "preparedSession": String(preparedSession)
                 ]
             )
             return

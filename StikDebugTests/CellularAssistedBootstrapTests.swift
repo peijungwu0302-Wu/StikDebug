@@ -1063,13 +1063,16 @@ struct CellularAssistedBootstrapTests {
         service.discardActiveTransactionForTesting()
     }
 
-    @Test func test_v1211_directCellularResearchBeta_disabled_proceedsToAssistedDirectly() {
+    @Test func test_v1212_directCellularAuto_disabledResearchBeta_preparesProductionBeforeAssisted() {
         let coordinator = BootstrapCoordinator.shared
         ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
         LocationDataPathHealth.shared.resetForTesting()
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
         DirectCellularResearchService.shared.isBetaEnabled = false
+        ProductionLocationSessionPreparer.shared.mockPreparationResult = { _, _ in
+            LocationSimulationPreparationResult(target: "127.0.0.1:49152", stage: .rsd, statusCode: 9, ffiCode: 16, ffiSubCode: nil, message: "Connection refused", durationMs: 1)
+        }
 
         coordinator.coordinateSimulation(
             targetCoordinate: RouteCoordinate(latitude: 25.0, longitude: 121.0),
@@ -1078,9 +1081,10 @@ struct CellularAssistedBootstrapTests {
             onError: { _ in }
         )
 
-        #expect(coordinator.lastCoordinationPath == "auto_one_tap_assisted")
+        #expect(coordinator.lastCoordinationPath == "production_direct_failed_assisted_fallback")
         CellularAssistedBootstrapStateMachine.shared.resetForTesting()
         ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
+        ProductionLocationSessionPreparer.shared.resetForTesting()
     }
 
     @Test func test_v1211_directCellularResearchBeta_failedDirect_autoFallbacksWithPreservedTarget() async {
@@ -1297,6 +1301,9 @@ struct CellularAssistedBootstrapTests {
         monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
         LocationDataPathHealth.shared.resetForTesting()
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = .directOnly
+        ProductionLocationSessionPreparer.shared.mockPreparationResult = { _, _ in
+            LocationSimulationPreparationResult(target: "127.0.0.1:49152", stage: .ready, statusCode: 0, ffiCode: nil, ffiSubCode: nil, message: nil, durationMs: 1)
+        }
 
         var observedDisposition: BootstrapProceedDisposition?
         BootstrapCoordinator.shared.coordinateSimulation(
@@ -1307,8 +1314,9 @@ struct CellularAssistedBootstrapTests {
         )
 
         #expect(observedDisposition == .needsLocationWrite)
-        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "policy_direct_only")
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "production_direct_only_success")
 
+        ProductionLocationSessionPreparer.shared.resetForTesting()
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
     }
 
@@ -1431,6 +1439,9 @@ struct CellularAssistedBootstrapTests {
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
         DirectCellularResearchService.shared.isBetaEnabled = false
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = false
+        ProductionLocationSessionPreparer.shared.mockPreparationResult = { _, _ in
+            LocationSimulationPreparationResult(target: "127.0.0.1:49152", stage: .rsd, statusCode: 9, ffiCode: 16, ffiSubCode: nil, message: "Connection refused", durationMs: 1)
+        }
 
         var preflightCalled = false
         BootstrapCoordinator.shared.coordinateSimulation(
@@ -1441,8 +1452,9 @@ struct CellularAssistedBootstrapTests {
         )
 
         #expect(preflightCalled == true)
-        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "auto_shortcut_disabled_preflight")
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "production_direct_failed_assisted_fallback")
 
+        ProductionLocationSessionPreparer.shared.resetForTesting()
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
     }
 

@@ -729,6 +729,9 @@ private enum LocationSimulationState {
     static var handshake: OpaquePointer?
     static var remoteServer: OpaquePointer?
     static var locationSimulation: OpaquePointer?
+    #if DEBUG
+    static var testingPreparedOverride = false
+    #endif
 
     static func cleanup() {
         if let locationSimulation {
@@ -747,9 +750,19 @@ private enum LocationSimulationState {
             adapter_free(adapter)
             self.adapter = nil
         }
+        #if DEBUG
+        testingPreparedOverride = false
+        #endif
     }
 
-    static var isPrepared: Bool { locationSimulation != nil }
+    static var isPrepared: Bool {
+        let handlesReady = adapter != nil && handshake != nil && remoteServer != nil && locationSimulation != nil
+        #if DEBUG
+        return handlesReady || testingPreparedOverride
+        #else
+        return handlesReady
+        #endif
+    }
 }
 
 enum LocationSimulationPreparationStage: String, Codable, Sendable {
@@ -884,6 +897,12 @@ func has_prepared_location_simulation_session() -> Bool { LocationSimulationStat
 
 func cleanup_prepared_location_simulation_session() { LocationSimulationState.cleanup() }
 
+#if DEBUG
+func location_simulation_set_prepared_for_testing(_ prepared: Bool) {
+    LocationSimulationState.testingPreparedOverride = prepared
+}
+#endif
+
 /// Isolated production-equivalent trial. It never touches LocationSimulationState
 /// and never calls location_simulation_set/clear.
 func probe_location_simulation_session(_ deviceIP: String, _ pairingFile: String) -> LocationSimulationPreparationResult {
@@ -921,6 +940,17 @@ func probe_location_simulation_session(_ deviceIP: String, _ pairingFile: String
 
 enum LocationSimulationCommandQueue {
     static let shared = DispatchQueue(label: "com.stik.location-sim", qos: .userInitiated)
+}
+
+/// A queue-owned snapshot of the production location-session handles.  Callers
+/// on MainActor must use this function instead of reading LocationSimulationState
+/// directly; all handle mutations remain serialized on the same queue.
+struct LocationSimulationSessionSnapshot: Sendable, Equatable {
+    let isPrepared: Bool
+}
+
+func location_simulation_session_snapshot() -> LocationSimulationSessionSnapshot {
+    LocationSimulationSessionSnapshot(isPrepared: LocationSimulationState.isPrepared)
 }
 
 func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Double, _ pairingFile: String) -> Int32 {

@@ -38,6 +38,14 @@ enum LocationSimulationCommandQueue {
     static let shared = DispatchQueue(label: "com.routelocation.simulator-location-sim")
 }
 
+#if DEBUG
+private var simulatorPreparedOverride = false
+#endif
+
+struct LocationSimulationSessionSnapshot: Sendable, Equatable {
+    let isPrepared: Bool
+}
+
 enum LocationSimulationPreparationStage: String, Codable, Sendable {
     case pairingRead = "PAIRING_READ"
     case rpairing = "RPAIRING"
@@ -61,8 +69,27 @@ func prepare_location_simulation_session(_ deviceIP: String, _ pairingFile: Stri
     LocationSimulationPreparationResult(target: "\(deviceIP):49152", stage: .pairingRead, statusCode: -1, ffiCode: nil, ffiSubCode: nil, message: "Device communication is unavailable in the iOS Simulator.", durationMs: 0)
 }
 func set_prepared_location(_ latitude: Double, _ longitude: Double) -> Int32 { -1 }
-func has_prepared_location_simulation_session() -> Bool { false }
-func cleanup_prepared_location_simulation_session() {}
+func has_prepared_location_simulation_session() -> Bool {
+    #if DEBUG
+    return simulatorPreparedOverride
+    #else
+    return false
+    #endif
+}
+func cleanup_prepared_location_simulation_session() {
+    #if DEBUG
+    simulatorPreparedOverride = false
+    #endif
+}
+func location_simulation_session_snapshot() -> LocationSimulationSessionSnapshot {
+    LocationSimulationSessionSnapshot(isPrepared: has_prepared_location_simulation_session())
+}
+
+#if DEBUG
+func location_simulation_set_prepared_for_testing(_ prepared: Bool) {
+    simulatorPreparedOverride = prepared
+}
+#endif
 func probe_location_simulation_session(_ deviceIP: String, _ pairingFile: String) -> LocationSimulationPreparationResult {
     prepare_location_simulation_session(deviceIP, pairingFile)
 }

@@ -166,11 +166,11 @@ struct CellularBootstrapLabView: View {
                         .buttonStyle(.bordered)
 
                         if let coord = model.selectedCoordinate ?? model.pendingSinglePointCoordinate {
-                            Text("驗證目標座標：\(String(format: "%.4f, %.4f", coord.latitude, coord.longitude))")
+                            Text(L10n.format("驗證目標座標：%@", String(format: "%.4f, %.4f", coord.latitude, coord.longitude)))
                                 .font(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
                         } else {
-                            Text("（未指定地圖座標，啟動時將僅驗證通道建立，不寫入偽造位置）")
+                            Text(L10n.text("（未指定地圖座標，啟動時將僅驗證通道建立，不寫入偽造位置）"))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -196,14 +196,14 @@ struct CellularBootstrapLabView: View {
                             HStack {
                                 Text(L10n.text("額外穩定等待"))
                                 Spacer()
-                                Text(String(format: "%.1f 秒", shortcutService.cellularBootstrapStabilizationDelay))
+                                Text(L10n.format("%.1f 秒", shortcutService.cellularBootstrapStabilizationDelay))
                                     .font(.subheadline.bold())
                                     .foregroundStyle(.secondary)
                             }
 
                             Picker(L10n.text("額外穩定等待時間"), selection: $shortcutService.cellularBootstrapStabilizationDelay) {
                                 ForEach([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0], id: \.self) { delay in
-                                    Text(String(format: "%.1f 秒", delay)).tag(delay)
+                                    Text(L10n.format("%.1f 秒", delay)).tag(delay)
                                 }
                             }
                             .pickerStyle(.segmented)
@@ -388,21 +388,21 @@ struct CellularBootstrapLabView: View {
                     HStack {
                         Text(L10n.text("來源 IP 綁定 (Source IP Bind)"))
                         Spacer()
-                        Text("NO (由 OS 核心路由決定)")
+                        Text(L10n.text("NO (由 OS 核心路由決定)"))
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                     }
                     HStack {
                         Text(L10n.text("介面綁定 (Interface Bind)"))
                         Spacer()
-                        Text("NO (底層 C 庫無 SO_BINDTODEVICE)")
+                        Text(L10n.text("NO (底層 C 庫無 SO_BINDTODEVICE)"))
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                     }
                     HStack {
                         Text(L10n.text("路由表操控 (Routing Sockets)"))
                         Spacer()
-                        Text("UNAVAILABLE (iOS Sandbox 禁止)")
+                        Text(L10n.text("UNAVAILABLE (iOS Sandbox 禁止)"))
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                     }
@@ -468,12 +468,12 @@ struct CellularBootstrapLabView: View {
                         }
 
                         if let state = trace.observedState {
-                            Text("觀測狀態分類：\(state)")
+                            Text(L10n.format("觀測狀態分類：%@", state))
                                 .font(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
                         }
                         if let utunSummary = trace.utunTopologySummary {
-                            Text("utun 拓撲：\(utunSummary)")
+                            Text(L10n.format("utun 拓撲：%@", utunSummary))
                                 .font(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
                         }
@@ -665,26 +665,26 @@ struct CellularBootstrapLabView: View {
 
                 // Probe A
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("PROBE A — Baseline (目前預設路徑)").font(.caption.bold())
+                    Text(L10n.text("PROBE A — Baseline (目前預設路徑)")).font(.caption.bold())
                     probeResultView(result: probeService.latestCompletedRun?.probeA)
                 }
 
                 // Probe B
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("PROBE B — Cellular-Prohibited TCP (僅診斷)").font(.caption.bold())
+                    Text(L10n.text("PROBE B — Cellular-Prohibited TCP (僅診斷)")).font(.caption.bold())
                     probeResultView(result: probeService.latestCompletedRun?.probeB)
                 }
 
                 // Probe C
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("PROBE C — Required VPN Interface (僅診斷)").font(.caption.bold())
+                    Text(L10n.text("PROBE C — Required VPN Interface (僅診斷)")).font(.caption.bold())
                     probeResultView(result: probeService.latestCompletedRun?.probeC)
                 }
 
                 // Candidate Peer Probe
                 if let peerResult = probeService.latestCompletedRun?.candidatePeerProbe {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("PEER PROBE — Candidate Peer 驗證探測").font(.caption.bold())
+                        Text(L10n.text("PEER PROBE — Candidate Peer 驗證探測")).font(.caption.bold())
                         probeResultView(result: peerResult)
                     }
                 }
@@ -754,10 +754,10 @@ struct CellularBootstrapLabView: View {
                     .background(result.productionRPairingResult == "SUCCESS" ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
                     .cornerRadius(4)
             }
-            Text("狀態：\(result.stateClassification.rawValue) | 目標：\(result.productionTarget)")
+            Text(L10n.format("狀態：%@ | 目標：%@", result.stateClassification.rawValue, result.productionTarget))
                 .font(.caption2.monospaced())
                 .foregroundStyle(.secondary)
-            Text("耗時：\(String(format: "%.1f ms", result.durationMs))")
+            Text(L10n.format("耗時：%@", String(format: "%.1f ms", result.durationMs)))
                 .font(.caption2.monospaced())
             if let ffi = result.ffiCode {
                 Text("FFI Code: \(ffi)").font(.caption2.monospaced()).foregroundStyle(.red)
@@ -766,7 +766,7 @@ struct CellularBootstrapLabView: View {
                 Text("POSIX Errno: \(errno)").font(.caption2.monospaced()).foregroundStyle(.red)
             }
             if result.fallbackOccurred {
-                Text("自動 Fallback 至輔助啟動：是")
+                Text(L10n.text("自動 Fallback 至輔助啟動：是"))
                     .font(.caption2)
                     .foregroundStyle(.orange)
             }
@@ -794,7 +794,7 @@ struct CellularBootstrapLabView: View {
                     .foregroundStyle(.secondary)
             }
             if let err = result.errorDescription {
-                Text("錯誤：\(err)")
+                Text(L10n.format("錯誤：%@", err))
                     .font(.caption2)
                     .foregroundStyle(.red)
             }
@@ -826,20 +826,20 @@ struct CellularBootstrapLabView: View {
                 }
             }
             if let ifAddr = entry.observedInterfaceAddress {
-                Text("位址: \(ifAddr)")
+                Text(L10n.format("位址：%@", ifAddr))
                     .font(.caption2.monospaced())
             }
             if let p2pLocal = entry.observedP2PLocalAddress {
-                Text("本機: \(p2pLocal)")
+                Text(L10n.format("本機：%@", p2pLocal))
                     .font(.caption2.monospaced())
             }
             if let p2pDst = entry.observedP2PDestination {
-                Text("對端 (DST): \(p2pDst)")
+                Text(L10n.format("對端 (DST)：%@", p2pDst))
                     .font(.caption2.monospaced())
                     .foregroundStyle(.purple)
             }
             if let mask = entry.observedNetmask {
-                Text("遮罩: \(mask)")
+                Text(L10n.format("遮罩：%@", mask))
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
             }
@@ -863,17 +863,18 @@ struct CellularBootstrapLabView: View {
                         .foregroundStyle(.secondary)
                 }
                 if let local = result.localEndpoint {
-                    Text("本機：\(local)")
+                    Text(L10n.format("本機：%@", local))
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                 }
                 if let remote = result.remoteEndpoint {
-                    Text("遠端：\(remote)")
+                    Text(L10n.format("遠端：%@", remote))
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                 }
                 if let err = result.errorDescription {
-                    Text("錯誤：\(err)\(result.posixErrno.map { " (errno \($0))" } ?? "")")
+                    let errnoSuffix = result.posixErrno.map { " (errno \($0))" } ?? ""
+                    Text(L10n.format("錯誤：%@%@", err, errnoSuffix))
                         .font(.caption2)
                         .foregroundStyle(.red)
                 }

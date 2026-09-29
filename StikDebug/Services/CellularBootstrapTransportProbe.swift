@@ -11,7 +11,7 @@ import Network
 import Darwin
 #endif
 
-public struct NetworkInterfaceInfo: Identifiable, Equatable {
+public struct NetworkInterfaceInfo: Identifiable, Codable, Equatable {
     public let id: String
     public let name: String
     public let index: Int
@@ -53,19 +53,19 @@ public struct NetworkInterfaceInfo: Identifiable, Equatable {
     }
 }
 
-public enum VPNInterfaceConfidence: String, Equatable {
+public enum VPNInterfaceConfidence: String, Codable, Equatable {
     case confident = "Confident"
     case ambiguous = "Ambiguous"
     case none = "None"
 }
 
-public enum PeerSource: String, CaseIterable, Equatable {
+public enum PeerSource: String, CaseIterable, Codable, Equatable {
     case P2P_DSTADDR
     case HEURISTIC_10_7
     case UNKNOWN
 }
 
-public struct VPNInterfaceCandidate: Equatable {
+public struct VPNInterfaceCandidate: Codable, Equatable {
     public let interface: NetworkInterfaceInfo?
     public let confidence: VPNInterfaceConfidence
     public let detectedPeer: String?
@@ -87,26 +87,26 @@ public struct VPNInterfaceCandidate: Equatable {
     }
 }
 
-public enum CellularProbeType: String, CaseIterable, Equatable {
+public enum CellularProbeType: String, CaseIterable, Codable, Equatable {
     case baseline = "PROBE A — Baseline"
     case cellularProhibited = "PROBE B — Cellular-Prohibited TCP"
     case requiredInterface = "PROBE C — Required VPN Interface"
     case candidatePeerRequiredInterface = "PROBE PEER — Candidate Peer Required VPN Interface"
 }
 
-public enum InterfacePolicy: String, CaseIterable, Equatable {
+public enum InterfacePolicy: String, CaseIterable, Codable, Equatable {
     case DEFAULT
     case CELLULAR_PROHIBITED
     case REQUIRED_INTERFACE
 }
 
-public enum ProbeStatus: String, Equatable {
+public enum ProbeStatus: String, Codable, Equatable {
     case success = "SUCCESS"
     case failure = "FAIL"
     case notRun = "NOT RUN"
 }
 
-public struct EndpointMatrixProbeResult: Identifiable, Equatable {
+public struct EndpointMatrixProbeResult: Identifiable, Codable, Equatable {
     public let id: UUID
     public let target: String
     public let policy: InterfacePolicy
@@ -114,6 +114,9 @@ public struct EndpointMatrixProbeResult: Identifiable, Equatable {
     public let elapsedMs: Int
     public let localEndpoint: String?
     public let remoteEndpoint: String?
+    public let nwErrorDomain: String?
+    public let nwErrorCode: Int?
+    public let posixErrno: Int32?
     public let errorDescription: String?
 
     public init(
@@ -124,6 +127,9 @@ public struct EndpointMatrixProbeResult: Identifiable, Equatable {
         elapsedMs: Int,
         localEndpoint: String? = nil,
         remoteEndpoint: String? = nil,
+        nwErrorDomain: String? = nil,
+        nwErrorCode: Int? = nil,
+        posixErrno: Int32? = nil,
         errorDescription: String? = nil
     ) {
         self.id = id
@@ -133,11 +139,14 @@ public struct EndpointMatrixProbeResult: Identifiable, Equatable {
         self.elapsedMs = elapsedMs
         self.localEndpoint = localEndpoint
         self.remoteEndpoint = remoteEndpoint
+        self.nwErrorDomain = nwErrorDomain
+        self.nwErrorCode = nwErrorCode
+        self.posixErrno = posixErrno
         self.errorDescription = errorDescription
     }
 }
 
-public struct CellularPathProbeResult: Identifiable, Equatable {
+public struct CellularPathProbeResult: Identifiable, Codable, Equatable {
     public let id: UUID
     public let probeType: CellularProbeType
     public let status: ProbeStatus
@@ -192,7 +201,7 @@ public struct CellularPathProbeResult: Identifiable, Equatable {
     }
 }
 
-public struct NetworkEnvironmentSnapshot: Equatable {
+public struct NetworkEnvironmentSnapshot: Codable, Equatable {
     public let timestamp: Date
     public let primaryTransport: String
     public let isWifiAvailable: Bool
@@ -308,7 +317,13 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
         let monitor = ConnectionMonitor.shared
         let interfaces = Self.querySystemInterfaces()
         let vpnCandidate = Self.deriveVPNCandidate(interfaces: interfaces)
-        let targetIP = DeviceConnectionContext.targetIPAddress
+        // Keep the diagnostic snapshot aligned with the endpoint that the
+        // production bootstrap strategy would actually attempt. This is
+        // intentionally observational; it does not mutate the global device
+        // target or any active DVT session.
+        let targetIP = BootstrapEndpointStrategy.resolvedAddress(
+            transport: monitor.currentTransport
+        ) ?? DeviceConnectionContext.targetIPAddress
 
         let snapshot = NetworkEnvironmentSnapshot(
             primaryTransport: monitor.currentTransport.rawValue,
@@ -467,6 +482,9 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
                     elapsedMs: probeRes.elapsedMs,
                     localEndpoint: probeRes.localEndpoint,
                     remoteEndpoint: probeRes.remoteEndpoint,
+                    nwErrorDomain: probeRes.nwErrorDomain,
+                    nwErrorCode: probeRes.nwErrorCode,
+                    posixErrno: probeRes.posixErrno,
                     errorDescription: probeRes.errorDescription
                 )
                 results.append(item)

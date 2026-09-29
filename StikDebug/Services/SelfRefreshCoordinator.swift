@@ -107,7 +107,7 @@ final class SelfRefreshCoordinator: ObservableObject {
                 action: "self_refresh_preflight_result",
                 details: ["decision": "BLOCKED_CELLULAR_ONLY"]
             )
-            state = .failed(reason: L10n.text("目前需要 Wi-Fi。行動網路單獨重新整理尚未支援。"))
+            state = .failed(reason: L10n.text("App 內重新整理目前僅支援 Wi-Fi；這不影響行動網路 + LocalDevVPN 的定位模擬。請使用 SideStore 重新整理。"))
             showCellularBlockedAlert = true
             return
         }

@@ -34,11 +34,19 @@ final class BootstrapCoordinator: ObservableObject {
         let monitor = ConnectionMonitor.shared
         let health = LocationDataPathHealth.shared
 
-        // 1. Evidence Hierarchy Rule #1: Existing healthy DVT / recent success has absolute priority
-        let hasHealthySession = monitor.activeDVTSessionAvailable || health.hasRecentSuccess
+        // 1. Evidence Hierarchy Rule #1: Existing healthy DVT / recent success /
+        // a queue-owned prepared LocationSimulation handle have absolute priority.
+        // The snapshot is read through the same serial queue that owns the FFI
+        // handles; never inspect LocationSimulationState directly on MainActor.
+        let preparedSnapshot = LocationSimulationCommandQueue.shared.sync {
+            location_simulation_session_snapshot()
+        }
+        let hasHealthySession = monitor.activeDVTSessionAvailable || health.hasRecentSuccess || preparedSnapshot.isPrepared
         if hasHealthySession {
-            lastCoordinationPath = "healthy_session_direct"
-            LogManager.shared.addInfoLog("BootstrapCoordinator: Healthy DVT session active. Proceeding with needsLocationWrite.")
+            lastCoordinationPath = preparedSnapshot.isPrepared && !monitor.activeDVTSessionAvailable && !health.hasRecentSuccess
+                ? "prepared_session_direct"
+                : "healthy_session_direct"
+            LogManager.shared.addInfoLog("BootstrapCoordinator: Existing DVT/location session evidence is healthy. Proceeding with needsLocationWrite.")
             onProceed(.needsLocationWrite)
             return
         }
@@ -55,9 +63,13 @@ final class BootstrapCoordinator: ObservableObject {
         let policy = ShortcutBootstrapService.shared.cellularBootstrapPolicy
         switch policy {
         case .directOnly:
-            lastCoordinationPath = "policy_direct_only"
-            LogManager.shared.addInfoLog("BootstrapCoordinator: Policy is directOnly. Proceeding to direct connection with needsLocationWrite.")
-            onProceed(.needsLocationWrite)
+            attemptProductionDirect(
+                targetCoordinate: targetCoordinate,
+                policy: .directOnly,
+                onRequestPreflight: onRequestPreflight,
+                onProceed: onProceed,
+                onError: onError
+            )
 
         case .assistedFirst:
             // "每次詢問" (Always Ask) mode
@@ -73,8 +85,11 @@ final class BootstrapCoordinator: ObservableObject {
                 return
             }
 
-            // Check Direct Cellular Research Beta
-            if DirectCellularResearchService.shared.isBetaEnabled {
+            #if DEBUG
+            // Compatibility for historical unit-test seams only. The real
+            // application never gates Auto on the Research Beta toggle.
+            if DirectCellularResearchService.shared.isBetaEnabled,
+               testMockResearchRunner != nil || DirectCellularResearchService.shared.testMockDirectAttempt != nil {
                 lastCoordinationPath = "research_beta_direct_attempt"
                 attemptResearchBetaWithFallback(
                     targetCoordinate: targetCoordinate,
@@ -82,21 +97,78 @@ final class BootstrapCoordinator: ObservableObject {
                     onProceed: onProceed,
                     onError: onError
                 )
+                return
+            }
+            #endif
+
+            attemptProductionDirect(
+                targetCoordinate: targetCoordinate,
+                policy: .auto,
+                onRequestPreflight: onRequestPreflight,
+                onProceed: onProceed,
+                onError: onError
+            )
+        }
+    }
+
+    // MARK: - Production Direct Preparation
+
+    private func attemptProductionDirect(
+        targetCoordinate: RouteCoordinate?,
+        policy: CellularBootstrapPolicy,
+        onRequestPreflight: @escaping @MainActor () -> Void,
+        onProceed: @escaping @MainActor (BootstrapProceedDisposition) -> Void,
+        onError: @escaping @MainActor (Error) -> Void
+    ) {
+        isCoordinating = true
+        lastFallbackOccurred = false
+
+        let monitor = ConnectionMonitor.shared
+        let mode = BootstrapEndpointStrategy.storedMode()
+        guard let endpoint = BootstrapEndpointStrategy.resolvedAddress(mode: mode, transport: monitor.currentTransport) else {
+            isCoordinating = false
+            lastCoordinationPath = "production_direct_invalid_endpoint"
+            onError(NSError(domain: "RouteLocation.Bootstrap", code: -301, userInfo: [
+                NSLocalizedDescriptionKey: L10n.text("設定的 Bootstrap IPv4 位址無效。")
+            ]))
+            return
+        }
+
+        let pairingPath = PairingFileStore.prepareURL().path
+        let endpointLabel = "\(endpoint):\(BootstrapEndpointStrategy.port)"
+        lastCoordinationPath = policy == .auto ? "production_auto_direct_attempt" : "production_direct_only_attempt"
+        LogManager.shared.addInfoLog("BootstrapCoordinator: Preparing production location session at \(endpointLabel) (policy=\(policy.rawValue)).")
+
+        ProductionLocationSessionPreparer.shared.prepare(endpointAddress: endpoint, pairingFile: pairingPath) { [weak self] result in
+            guard let self else { return }
+            if result.isSuccess {
+                self.isCoordinating = false
+                self.lastCoordinationPath = policy == .auto ? "production_auto_direct_success" : "production_direct_only_success"
+                LogManager.shared.addInfoLog("BootstrapCoordinator: Production location session retained at \(endpointLabel).")
+                onProceed(.needsLocationWrite)
+                return
+            }
+
+            let description = result.message ?? "\(result.stage.rawValue) preparation failed"
+            LogManager.shared.addWarningLog("BootstrapCoordinator: Production preparation failed at \(result.stage.rawValue): \(description)")
+            guard policy == .auto else {
+                self.isCoordinating = false
+                self.lastCoordinationPath = "production_direct_only_failed"
+                onError(NSError(domain: "RouteLocation.Bootstrap", code: Int(result.statusCode), userInfo: [
+                    NSLocalizedDescriptionKey: description
+                ]))
+                return
+            }
+
+            // Auto fallback is deliberately one-shot. The existing assisted
+            // state machine owns DataOff/DataOn and coordinate verification.
+            self.lastFallbackOccurred = true
+            self.lastCoordinationPath = "production_direct_failed_assisted_fallback"
+            if ShortcutBootstrapService.shared.isShortcutAssistedEnabled {
+                self.executeAssistedBootstrap(targetCoordinate: targetCoordinate, onProceed: onProceed, onError: onError)
             } else {
-                // If shortcut assisted is enabled, run One-Tap Assisted
-                if ShortcutBootstrapService.shared.isShortcutAssistedEnabled {
-                    lastCoordinationPath = "auto_one_tap_assisted"
-                    executeAssistedBootstrap(
-                        targetCoordinate: targetCoordinate,
-                        onProceed: onProceed,
-                        onError: onError
-                    )
-                } else {
-                    // Shortcut automation unavailable -> fallback to preflight sheet!
-                    lastCoordinationPath = "auto_shortcut_disabled_preflight"
-                    LogManager.shared.addInfoLog("BootstrapCoordinator: Shortcut assisted disabled in auto mode. Prompting preflight sheet.")
-                    onRequestPreflight()
-                }
+                self.isCoordinating = false
+                onRequestPreflight()
             }
         }
     }
@@ -230,6 +302,7 @@ final class BootstrapCoordinator: ObservableObject {
         lastCoordinationPath = "idle"
         testMockResearchRunner = nil
         testMockAssistedRunner = nil
+        ProductionLocationSessionPreparer.shared.resetForTesting()
     }
     #endif
 }

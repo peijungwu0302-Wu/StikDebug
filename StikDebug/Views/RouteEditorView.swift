@@ -93,18 +93,18 @@ struct RouteEditorView: View {
                         .buttonStyle(.plain)
                         .swipeActions(edge: .leading) {
                             Button { Task { await model.toggleFavoriteRoute(route) } } label: {
-                                Label(route.isFavorite ? "取消喜愛" : "加入喜愛", systemImage: route.isFavorite ? "star.slash" : "star")
+                                Label(L10n.text(route.isFavorite ? "取消喜愛" : "加入喜愛"), systemImage: route.isFavorite ? "star.slash" : "star")
                             }.tint(.yellow)
                         }
                         .swipeActions {
-                            Button("刪除", role: .destructive) { Task { await model.deleteRoute(route) } }
-                            Button("重新命名") { renamingRoute = route }.tint(.blue)
+                            Button(L10n.text("刪除"), role: .destructive) { Task { await model.deleteRoute(route) } }
+                            Button(L10n.text("重新命名")) { renamingRoute = route }.tint(.blue)
                         }
                         .contextMenu {
                             Button { Task { await model.toggleFavoriteRoute(route) } } label: {
-                                Label(route.isFavorite ? "取消喜愛" : "加入喜愛", systemImage: route.isFavorite ? "star.slash" : "star")
+                                Label(L10n.text(route.isFavorite ? "取消喜愛" : "加入喜愛"), systemImage: route.isFavorite ? "star.slash" : "star")
                             }
-                            Button("重新命名") { renamingRoute = route }
+                            Button(L10n.text("重新命名")) { renamingRoute = route }
                         }
                     }
                 }
@@ -121,7 +121,7 @@ struct RouteEditorView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("完成") {
+                    Button(L10n.text("完成")) {
                         speedFieldFocused = false
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                     }
@@ -181,18 +181,18 @@ struct RouteSaveView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("路線名稱", text: $name)
+                TextField(L10n.text("路線名稱"), text: $name)
                 if updatingExisting {
-                    Text("你可以更新目前路線，或保留原路線並另存一份。")
+                    Text(L10n.text("你可以更新目前路線，或保留原路線並另存一份。"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("儲存路線")
+            .navigationTitle(L10n.text("儲存路線"))
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(L10n.text("取消")) { dismiss() } }
                 ToolbarItemGroup(placement: .confirmationAction) {
                     if updatingExisting {
-                        Button("另存新路線") { save(asCopy: true) }
+                        Button(L10n.text("另存新路線")) { save(asCopy: true) }
                             .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     Button(L10n.text(updatingExisting ? "更新" : "儲存")) { save(asCopy: false) }
@@ -222,12 +222,12 @@ private struct RouteRenameView: View {
 
     var body: some View {
         NavigationStack {
-            Form { TextField("路線名稱", text: $name) }
-                .navigationTitle("重新命名路線")
+            Form { TextField(L10n.text("路線名稱"), text: $name) }
+                .navigationTitle(L10n.text("重新命名路線"))
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                    ToolbarItem(placement: .cancellationAction) { Button(L10n.text("取消")) { dismiss() } }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("儲存") { onSave(name); dismiss() }
+                        Button(L10n.text("儲存")) { onSave(name); dismiss() }
                             .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
@@ -244,11 +244,11 @@ private struct WaypointRow: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text("航點 \(index + 1)").font(.caption).foregroundStyle(.secondary)
+            Text(L10n.format("航點 %d", index + 1)).font(.caption).foregroundStyle(.secondary)
             HStack {
-                TextField("緯度", text: $latitude).keyboardType(.numbersAndPunctuation)
-                TextField("經度", text: $longitude).keyboardType(.numbersAndPunctuation)
-                Button("更新") { if let lat = Double(latitude), let lon = Double(longitude) { onSave(lat, lon) } }
+                TextField(L10n.text("緯度"), text: $latitude).keyboardType(.numbersAndPunctuation)
+                TextField(L10n.text("經度"), text: $longitude).keyboardType(.numbersAndPunctuation)
+                Button(L10n.text("更新")) { if let lat = Double(latitude), let lon = Double(longitude) { onSave(lat, lon) } }
                     .font(.caption)
             }
         }
@@ -270,13 +270,13 @@ struct CoordinatePasteView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading) {
-                Text("每行輸入一組緯度,經度；支援 CSV 標題、分號與 Tab 分隔。").font(.footnote).foregroundStyle(.secondary)
+                Text(L10n.text("每行輸入一組緯度,經度；支援 CSV 標題、分號與 Tab 分隔。")).font(.footnote).foregroundStyle(.secondary)
                 TextEditor(text: $text).font(.body.monospaced()).border(.quaternary)
                 if let error { Text(error).font(.footnote).foregroundStyle(.red) }
-            }.padding().navigationTitle("貼上座標")
+            }.padding().navigationTitle(L10n.text("貼上座標"))
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) { Button("匯入") { parse() } }
+                    ToolbarItem(placement: .cancellationAction) { Button(L10n.text("取消")) { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) { Button(L10n.text("匯入")) { parse() } }
                 }
         }
     }
