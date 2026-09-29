@@ -80,7 +80,7 @@ jobs:
       - name: Run BootstrapSessionTests (diagnostic)
         if: always()
         run: |
-          set -euo pipefail
+          set +e
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
           xcodebuild test \
             -project StikDebug.xcodeproj \
@@ -88,12 +88,18 @@ jobs:
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:StikDebugTests/BootstrapSessionTests \
             -parallel-testing-enabled NO \
+            -resultBundlePath "$RUNNER_TEMP/BootstrapSession.xcresult" \
             CODE_SIGNING_ALLOWED=NO
+          rc=$?
+          echo '### BootstrapSessionTests result summary' >> "$GITHUB_STEP_SUMMARY"
+          xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/BootstrapSession.xcresult" >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/BootstrapSession.xcresult" >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          exit $rc
 
       - name: Run CellularAssistedBootstrapTests (diagnostic)
         if: always()
         run: |
-          set -euo pipefail
+          set +e
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
           xcodebuild test \
             -project StikDebug.xcodeproj \
@@ -101,7 +107,13 @@ jobs:
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:StikDebugTests/CellularAssistedBootstrapTests \
             -parallel-testing-enabled NO \
+            -resultBundlePath "$RUNNER_TEMP/CellularAssistedBootstrap.xcresult" \
             CODE_SIGNING_ALLOWED=NO
+          rc=$?
+          echo '### CellularAssistedBootstrapTests result summary' >> "$GITHUB_STEP_SUMMARY"
+          xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/CellularAssistedBootstrap.xcresult" >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/CellularAssistedBootstrap.xcresult" >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          exit $rc
 
       - name: Archive unsigned app
         run: |
