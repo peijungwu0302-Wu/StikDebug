@@ -32,6 +32,16 @@ final class LocationSessionCoordinator: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // VPN readiness may arrive after the initial NWPath callback. Retry
+        // the quiet Wi-Fi warm-up when LocalDevVPN becomes visible rather than
+        // treating the first offline/unsatisfied sample as final.
+        ConnectionMonitor.shared.$usesVPNInterface
+            .removeDuplicates()
+            .filter { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.prewarmIfAppropriate() }
+            .store(in: &cancellables)
+
         // Observe DataPathHealth
         LocationDataPathHealth.shared.$status
             .receive(on: DispatchQueue.main)
