@@ -1582,12 +1582,13 @@ struct CellularAssistedBootstrapTests {
         #expect(model.showBootstrapPreflightSheet == true)
         #expect(model.pendingBootstrapTargetCoordinate == points[0])
 
-        // User confirms preflight force
-        await withCheckedContinuation { continuation in
-            model.testPlaybackAfterBootstrapCompletion = {
-                continuation.resume()
-            }
-            model.confirmBootstrapPreflightForce()
+        // User confirms preflight force. Use a bounded cooperative wait so a
+        // regression cannot leave the CI process suspended forever if the
+        // asynchronous playback completion callback is not delivered.
+        model.testPlaybackAfterBootstrapCompletion = { }
+        model.confirmBootstrapPreflightForce()
+        for _ in 0..<200 where model.testPlaybackStartInvocationCount == 0 {
+            await Task.yield()
         }
 
         // Verify preflight sheet does NOT re-appear recursively and playback started exactly once
