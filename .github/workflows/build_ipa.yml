@@ -58,15 +58,15 @@ jobs:
           STATUS=$?
           if [ "$STATUS" -ne 0 ]; then
             python3 - "$LOG_PATH" <<'PY'
-import re
-import sys
-path = sys.argv[1]
-lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
-patterns = re.compile(r"failed|error:|expectation|issue recorded|test case|testing failed|xctassert|✘", re.IGNORECASE)
-selected = [line for line in lines if patterns.search(line)]
-for line in selected[-120:]:
-    print("::error::" + line[:900])
-PY
+          import re
+          import sys
+          path = sys.argv[1]
+          lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+          patterns = re.compile(r"failed|error:|expectation|issue recorded|test case|testing failed|xctassert|✘", re.IGNORECASE)
+          selected = [line for line in lines if patterns.search(line)]
+          for line in selected[-120:]:
+              print("::error::" + line[:900])
+          PY
           fi
           exit "$STATUS"
 
