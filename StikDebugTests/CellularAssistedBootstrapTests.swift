@@ -1483,10 +1483,6 @@ struct CellularAssistedBootstrapTests {
         DirectCellularResearchService.shared.isBetaEnabled = true
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = false
 
-        BootstrapCoordinator.shared.testMockResearchRunner = { _, completion in
-            completion(false)
-        }
-
         var preflightCalled = false
         BootstrapCoordinator.shared.coordinateSimulation(
             targetCoordinate: RouteCoordinate(latitude: 25.07, longitude: 121.57),
@@ -1496,7 +1492,10 @@ struct CellularAssistedBootstrapTests {
         )
 
         #expect(preflightCalled == true)
-        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "research_fail_shortcut_disabled_preflight")
+        // v1.2.13 automatic cellular cold start no longer enters the
+        // research-direct path. With Assisted disabled it reports the
+        // automatic assisted decision and asks the UI to present preflight.
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "auto_cellular_assisted")
 
         BootstrapCoordinator.shared.resetForTesting()
         DirectCellularResearchService.shared.isBetaEnabled = false

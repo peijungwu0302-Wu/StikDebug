@@ -11,6 +11,7 @@ private actor ProbeCounter {
     func snapshot() -> (Int, Int) { (maximum, calls) }
 }
 
+@Suite(.serialized)
 struct BootstrapSessionTests {
     @Test func endpointStrategyUsesExpectedProductionAddresses() {
         #expect(BootstrapEndpointStrategy.resolvedAddress(mode: .localDevVPN, transport: .wifi) == "10.7.0.1")
