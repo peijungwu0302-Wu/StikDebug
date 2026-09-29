@@ -1832,7 +1832,7 @@ struct InstallationIdentityTests {
     @Test func i1_installationIdentityHasCorrectVersionAndBuild() {
         let identity = DeveloperDiagnosticsStore.shared.installationIdentity
         let expectedVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.13"
-        let expectedBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "7"
+        let expectedBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "9"
         #expect(identity.version == expectedVersion)
         #expect(identity.build == expectedBuild)
         #expect(identity.bundleIdentifier == "com.routelocation.app")
