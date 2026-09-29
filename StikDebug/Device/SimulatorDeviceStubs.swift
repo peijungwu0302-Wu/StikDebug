@@ -54,7 +54,7 @@ struct LocationSimulationPreparationResult: Codable, Equatable, Sendable {
     let ffiSubCode: Int32?
     let message: String?
     let durationMs: Double
-    var isSuccess: Bool { false }
+    var isSuccess: Bool { stage == .ready && statusCode == 0 }
 }
 
 func prepare_location_simulation_session(_ deviceIP: String, _ pairingFile: String) -> LocationSimulationPreparationResult {
