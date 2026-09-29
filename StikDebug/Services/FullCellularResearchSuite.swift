@@ -46,7 +46,7 @@ struct FullCellularResearchReport: Codable, Equatable, Identifiable, Sendable {
     let effectiveProductionEndpoint: String
     let tcpMatrixSummary: String
     let pathProbeSummary: String
-    let trialConfigured: FullCellularFFITrial? = nil
+    let trialConfigured: FullCellularFFITrial?
     let trialLocalDevVPN: FullCellularFFITrial
     let trialLoopback: FullCellularFFITrial
     let productionSessionHealth: String

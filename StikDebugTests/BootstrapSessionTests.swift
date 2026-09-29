@@ -162,7 +162,7 @@ struct BootstrapSessionTests {
             bonjourServices: [], pathProbes: [path], tcpMatrix: [matrix],
             bonjourSummary: "none", endpointMode: "automatic",
             effectiveProductionEndpoint: "127.0.0.1:49152", tcpMatrixSummary: "success",
-            pathProbeSummary: "failure", trialLocalDevVPN: ffi, trialLoopback: ffi,
+             pathProbeSummary: "failure", trialConfigured: nil, trialLocalDevVPN: ffi, trialLoopback: ffi,
             productionSessionHealth: "none", productionBehaviorModified: false,
             locationWriteOccurred: false
         )
