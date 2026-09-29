@@ -45,28 +45,15 @@ jobs:
 
       - name: Run unit tests
         run: |
-          set -uo pipefail
+          set -euo pipefail
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
-          LOG_PATH="$RUNNER_TEMP/RouteLocationTests.log"
           xcodebuild test \
             -project StikDebug.xcodeproj \
             -scheme StikDebug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:StikDebugTests \
             -parallel-testing-enabled NO \
-            CODE_SIGNING_ALLOWED=NO >"$LOG_PATH" 2>&1
-          STATUS=$?
-          if [ "$STATUS" -ne 0 ]; then
-            echo "::error::RouteLocation aggregate test command failed (exit $STATUS)"
-            if [ -f "$LOG_PATH" ]; then
-              tail -n 120 "$LOG_PATH" | while IFS= read -r line; do
-                echo "::error::${line:0:900}"
-              done
-            else
-              echo "::error::Test log file was not created: $LOG_PATH"
-            fi
-          fi
-          exit "$STATUS"
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Archive unsigned app
         run: |
