@@ -256,7 +256,7 @@ struct FavoriteLocation: Codable, Identifiable, Equatable {
     }
 }
 
-enum LibrarySortOption: String, Codable, CaseIterable, Identifiable {
+enum LibrarySortOption: String, Codable, CaseIterable, Identifiable, Hashable {
     case newest
     case oldest
     case name
