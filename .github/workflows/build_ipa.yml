@@ -62,16 +62,16 @@ jobs:
             xcrun xcresulttool get test-results summary --path "$RESULT_BUNDLE" --format json > "$SUMMARY_JSON" 2>/dev/null || true
             if [ -s "$SUMMARY_JSON" ]; then
               python3 - "$SUMMARY_JSON" <<'PY'
-import json, sys
-path = sys.argv[1]
-try:
-    data = json.load(open(path, encoding="utf-8"))
-except Exception as exc:
-    print(f"::error::Unable to decode xcresult summary: {exc}")
-    raise SystemExit(0)
-summary = data.get("testResults", data)
-print("::error::XCRESULT_SUMMARY " + json.dumps(summary, ensure_ascii=False, separators=(",", ":"))[:900])
-PY
+          import json, sys
+          path = sys.argv[1]
+          try:
+              data = json.load(open(path, encoding="utf-8"))
+          except Exception as exc:
+              print(f"::error::Unable to decode xcresult summary: {exc}")
+              raise SystemExit(0)
+          summary = data.get("testResults", data)
+          print("::error::XCRESULT_SUMMARY " + json.dumps(summary, ensure_ascii=False, separators=(",", ":"))[:900])
+          PY
             fi
           fi
           exit "$STATUS"
