@@ -195,7 +195,7 @@ struct BootstrapCoordinatorCorrectionTests {
             targetCoordinate: target,
             onRequestPreflight: { Issue.record("Enabled assisted bootstrap should run directly") },
             onProceed: { _ in },
-            onError: { Issue.record("Assisted fallback should handle the failure") }
+            onError: { _ in Issue.record("Assisted fallback should handle the failure") }
         )
 
         #expect(assistedCount == 1)
@@ -239,7 +239,7 @@ struct BootstrapCoordinatorCorrectionTests {
             targetCoordinate: nil,
             onRequestPreflight: { preflight = true },
             onProceed: { _ in Issue.record("assistedFirst should wait for preflight") },
-            onError: { Issue.record("Unexpected assistedFirst error") }
+            onError: { _ in Issue.record("Unexpected assistedFirst error") }
         )
 
         #expect(preflight)
@@ -265,7 +265,7 @@ struct BootstrapCoordinatorCorrectionTests {
             targetCoordinate: nil,
             onRequestPreflight: { Issue.record("Prepared session should bypass preflight") },
             onProceed: { _ in },
-            onError: { Issue.record("Prepared session should not fail") }
+            onError: { _ in Issue.record("Prepared session should not fail") }
         )
 
         #expect(!prepareCalled)
