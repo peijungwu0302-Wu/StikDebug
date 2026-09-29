@@ -1457,7 +1457,10 @@ struct CellularAssistedBootstrapTests {
         #expect(didProceed == true)
         #expect(BootstrapCoordinator.shared.lastFallbackOccurred == false)
 
-        #expect(store.history.first { $0.txId == "tx-research-test" } == nil)
+        let researchTrace = store.history.first { $0.txId == "tx-research-test" }
+        #expect(researchTrace != nil)
+        #expect(researchTrace?.outcome == "RESEARCH_FAILED_FALLBACK")
+        #expect(researchTrace?.failureStage == "ResearchDirect")
 
         BootstrapCoordinator.shared.resetForTesting()
         DirectCellularResearchService.shared.isBetaEnabled = false
