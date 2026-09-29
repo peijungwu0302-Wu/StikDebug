@@ -240,7 +240,7 @@ struct BootstrapCoordinatorCorrectionTests {
             targetCoordinate: target,
             onRequestPreflight: { Issue.record("Auto fallback should not request preflight") },
             onProceed: { _ in },
-            onError: { Issue.record("Assisted fallback should handle loopback failure") }
+            onError: { _ in Issue.record("Assisted fallback should handle loopback failure") }
         )
 
         #expect(directEndpoint == BootstrapEndpointStrategy.loopbackAddress)
@@ -284,7 +284,7 @@ struct BootstrapCoordinatorCorrectionTests {
             targetCoordinate: RouteCoordinate(latitude: 25, longitude: 121),
             onRequestPreflight: { Issue.record("Auto fallback should not request preflight") },
             onProceed: { _ in },
-            onError: { Issue.record("Assisted fallback should handle custom endpoint failure") }
+            onError: { _ in Issue.record("Assisted fallback should handle custom endpoint failure") }
         )
 
         #expect(assistedCount == 1)
