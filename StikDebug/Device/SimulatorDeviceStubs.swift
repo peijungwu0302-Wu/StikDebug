@@ -9,7 +9,7 @@ final class JITEnableContext {
 
     private init() {}
 
-    func startTunnel() throws {
+    func startTunnel(targetIPAddress: String? = nil) throws {
         throw simulatorUnavailableError()
     }
 
