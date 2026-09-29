@@ -75,6 +75,7 @@ struct BootstrapSessionTests {
 
     @MainActor @Test func fullResearchReportCarriesDetailedImmutableEvidence() throws {
         let snapshot = NetworkEnvironmentSnapshot(
+            timestamp: Date(timeIntervalSince1970: 1_700_000_002),
             primaryTransport: "cellular",
             isWifiAvailable: false,
             isCellularAvailable: true,
