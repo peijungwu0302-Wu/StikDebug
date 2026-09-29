@@ -45,50 +45,15 @@ jobs:
 
       - name: Run unit tests
         run: |
-          set +e
+          set -euo pipefail
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
-          RESULT_BUNDLE="$RUNNER_TEMP/RouteLocationTests.xcresult"
           xcodebuild test \
             -project StikDebug.xcodeproj \
             -scheme StikDebug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:StikDebugTests \
             -parallel-testing-enabled NO \
-            -resultBundlePath "$RESULT_BUNDLE" \
             CODE_SIGNING_ALLOWED=NO
-          STATUS=$?
-          if [ -d "$RESULT_BUNDLE" ]; then
-            SUMMARY_JSON="$RUNNER_TEMP/RouteLocationTests-summary.json"
-            xcrun xcresulttool get test-results summary --path "$RESULT_BUNDLE" --format json > "$SUMMARY_JSON" 2>/dev/null || true
-            if [ -s "$SUMMARY_JSON" ]; then
-              python3 - "$SUMMARY_JSON" <<'PY'
-          import json, sys
-          path = sys.argv[1]
-          try:
-              data = json.load(open(path, encoding="utf-8"))
-          except Exception as exc:
-              print(f"::error::Unable to decode xcresult summary: {exc}")
-              raise SystemExit(0)
-          summary = data.get("testResults", data)
-          for failure in summary.get("testFailures", []):
-              identifier = failure.get("testIdentifierString", "unknown-test")
-              message = failure.get("failureText", "unknown failure")
-              print("::error::TEST_FAILURE " + identifier + " :: " + message[:700])
-          print("::error::XCRESULT_SUMMARY " + json.dumps(summary, ensure_ascii=False, separators=(",", ":"))[:900])
-          PY
-            fi
-          fi
-          exit "$STATUS"
-
-      - name: Upload test diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: RouteLocation-test-diagnostics-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/RouteLocationTests.xcresult
-            ${{ runner.temp }}/RouteLocationTests-summary.json
-          if-no-files-found: ignore
 
       - name: Archive unsigned app
         run: |
