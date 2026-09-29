@@ -57,18 +57,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO >"$LOG_PATH" 2>&1
           STATUS=$?
           if [ "$STATUS" -ne 0 ]; then
-            python3 - "$LOG_PATH" <<'PY'
-          import re
-          import sys
-          path = sys.argv[1]
-          lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
-            patterns = re.compile(r"failed|error:|expectation|issue recorded|test case|testing failed|xctassert|✘", re.IGNORECASE)
-            selected = [line for line in lines if patterns.search(line)]
-            if not selected:
-                selected = lines[-120:]
-            for line in selected[-120:]:
-              print("::error::" + line[:900])
-          PY
+            echo "::error::RouteLocation aggregate test command failed (exit $STATUS)"
+            if [ -f "$LOG_PATH" ]; then
+              tail -n 120 "$LOG_PATH" | while IFS= read -r line; do
+                echo "::error::${line:0:900}"
+              done
+            else
+              echo "::error::Test log file was not created: $LOG_PATH"
+            fi
           fi
           exit "$STATUS"
 
