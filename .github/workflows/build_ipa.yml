@@ -45,15 +45,30 @@ jobs:
 
       - name: Run unit tests
         run: |
-          set -euo pipefail
+          set -uo pipefail
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
+          LOG_PATH="$RUNNER_TEMP/RouteLocationTests.log"
           xcodebuild test \
             -project StikDebug.xcodeproj \
             -scheme StikDebug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:StikDebugTests \
             -parallel-testing-enabled NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO >"$LOG_PATH" 2>&1
+          STATUS=$?
+          if [ "$STATUS" -ne 0 ]; then
+            python3 - "$LOG_PATH" <<'PY'
+import re
+import sys
+path = sys.argv[1]
+lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+patterns = re.compile(r"failed|error:|expectation|issue recorded|test case|testing failed|xctassert|✘", re.IGNORECASE)
+selected = [line for line in lines if patterns.search(line)]
+for line in selected[-120:]:
+    print("::error::" + line[:900])
+PY
+          fi
+          exit "$STATUS"
 
       - name: Archive unsigned app
         run: |
