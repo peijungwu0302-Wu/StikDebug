@@ -43,6 +43,28 @@ jobs:
       - name: Resolve Swift packages
         run: xcodebuild -resolvePackageDependencies -project StikDebug.xcodeproj -scheme StikDebug
 
+      - name: Compile app only (diagnostic)
+        run: |
+          set -euo pipefail
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
+          xcodebuild build \
+            -project StikDebug.xcodeproj \
+            -scheme StikDebug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Compile tests only (diagnostic)
+        run: |
+          set -euo pipefail
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
+          xcodebuild build-for-testing \
+            -project StikDebug.xcodeproj \
+            -scheme StikDebug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -only-testing:StikDebugTests \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Run unit tests
         run: |
           set -euo pipefail
