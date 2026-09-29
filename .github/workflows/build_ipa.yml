@@ -77,7 +77,7 @@ jobs:
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Run bootstrap tests (diagnostic)
+      - name: Run BootstrapSessionTests (diagnostic)
         if: always()
         run: |
           set -euo pipefail
@@ -87,6 +87,18 @@ jobs:
             -scheme StikDebug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:StikDebugTests/BootstrapSessionTests \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run CellularAssistedBootstrapTests (diagnostic)
+        if: always()
+        run: |
+          set -euo pipefail
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
+          xcodebuild test \
+            -project StikDebug.xcodeproj \
+            -scheme StikDebug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:StikDebugTests/CellularAssistedBootstrapTests \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO
