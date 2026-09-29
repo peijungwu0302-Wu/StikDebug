@@ -99,7 +99,8 @@ struct BootstrapSessionTests {
         let path = CellularPathProbeResult(
             probeType: .baseline, status: .failure, targetIP: "10.7.0.1",
             elapsedMs: 42, nwErrorDomain: "NSPOSIXErrorDomain", nwErrorCode: 61,
-            posixErrno: 61, errorDescription: "Connection refused"
+            posixErrno: 61, errorDescription: "Connection refused",
+            timestamp: Date(timeIntervalSince1970: 1_700_000_003)
         )
         let matrix = EndpointMatrixProbeResult(
             target: "127.0.0.1:49152", policy: .DEFAULT, status: .success,
