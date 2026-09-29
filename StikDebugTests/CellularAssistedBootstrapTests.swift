@@ -13,6 +13,9 @@ struct CellularAssistedBootstrapTests {
         BootstrapTraceStore.shared.resetForTesting()
         BootstrapCoordinator.shared.resetForTesting()
         DirectCellularResearchService.shared.resetForTesting()
+        LocationSimulationCommandQueue.shared.sync {
+            location_simulation_set_prepared_for_testing(false)
+        }
         ConnectionMonitor.shared.updateForTesting(
             transport: .offline,
             isWifiAvailable: false,
