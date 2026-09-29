@@ -1426,7 +1426,7 @@ struct CellularAssistedBootstrapTests {
         sm.resetForTesting()
     }
 
-    @Test func test_v1211_researchDirectFailure_preservesResearchTraceAcrossAssistedFallback() {
+    @Test func test_v1213_cellularAutoDoesNotInvokeResearchBeta() {
         let store = BootstrapTraceStore.shared
         store.resetForTesting()
 
@@ -1435,14 +1435,14 @@ struct CellularAssistedBootstrapTests {
         DirectCellularResearchService.shared.isBetaEnabled = true
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
 
-        store.startTrace(txId: "tx-research-test", mode: "Direct")
-        store.recordEvent(.researchDirectStart)
-
+        var researchCalled = false
         BootstrapCoordinator.shared.testMockResearchRunner = { _, completion in
+            researchCalled = true
             completion(false)
         }
+        var assistedCalled = false
         BootstrapCoordinator.shared.testMockAssistedRunner = { _, completion in
-            store.startTrace(txId: "tx-assisted-test", mode: "AssistedBeta")
+            assistedCalled = true
             completion(.success(.locationAlreadyWritten))
         }
 
@@ -1456,11 +1456,9 @@ struct CellularAssistedBootstrapTests {
 
         #expect(didProceed == true)
         #expect(BootstrapCoordinator.shared.lastFallbackOccurred == false)
-
-        let researchTrace = store.history.first { $0.txId == "tx-research-test" }
-        #expect(researchTrace != nil)
-        #expect(researchTrace?.outcome == "RESEARCH_FAILED_FALLBACK")
-        #expect(researchTrace?.failureStage == "ResearchDirect")
+        #expect(researchCalled == false)
+        #expect(assistedCalled == true)
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "auto_cellular_assisted")
 
         BootstrapCoordinator.shared.resetForTesting()
         DirectCellularResearchService.shared.isBetaEnabled = false
