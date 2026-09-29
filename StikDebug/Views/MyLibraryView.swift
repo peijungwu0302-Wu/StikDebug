@@ -32,7 +32,7 @@ struct MyLibraryView: View {
     }
 }
 
-private enum MyLibrarySection: String, CaseIterable, Identifiable {
+private enum MyLibrarySection: String, CaseIterable, Identifiable, Hashable {
     case places, routes, recent
     var id: String { rawValue }
     var title: String {
