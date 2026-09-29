@@ -99,6 +99,8 @@ jobs:
 
       - name: Archive unsigned app
         run: |
+          set +e
+          LOG_PATH="$RUNNER_TEMP/RouteLocation-archive.log"
           xcodebuild clean archive \
             -project StikDebug.xcodeproj \
             -scheme StikDebug \
@@ -110,7 +112,13 @@ jobs:
             CODE_SIGN_IDENTITY='' \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            IPHONEOS_DEPLOYMENT_TARGET=17.4
+            IPHONEOS_DEPLOYMENT_TARGET=17.4 >"$LOG_PATH" 2>&1
+          STATUS=$?
+          grep -E "(^| )((fatal )?error:|clang: error:|SwiftCompile failed)" "$LOG_PATH" | head -n 30 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
+          tail -n 40 "$LOG_PATH"
+          exit "$STATUS"
 
       - name: Package unsigned IPA
         run: |
