@@ -17,6 +17,7 @@ actor RoutePersistenceStore {
     private let rootURL: URL
     private let routesURL: URL
     private let favoritesURL: URL
+    private let recentsURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
@@ -26,6 +27,7 @@ actor RoutePersistenceStore {
         self.rootURL = base.appendingPathComponent(ProductIdentity.supportDirectoryName, isDirectory: true)
         routesURL = self.rootURL.appendingPathComponent("routes", isDirectory: true)
         favoritesURL = self.rootURL.appendingPathComponent("locations.json")
+        recentsURL = self.rootURL.appendingPathComponent("recent-locations.json")
         encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -45,6 +47,17 @@ actor RoutePersistenceStore {
         try ensureDirectories()
         guard favorites.allSatisfy({ $0.coordinate.isValid }) else { throw PersistenceError.invalidFavorite }
         try encoder.encode(favorites).write(to: favoritesURL, options: [.atomic, .completeFileProtection])
+    }
+
+    func loadRecentLocations() throws -> [RecentLocation] {
+        try ensureDirectories()
+        guard fileManager.fileExists(atPath: recentsURL.path) else { return [] }
+        return try decoder.decode([RecentLocation].self, from: Data(contentsOf: recentsURL))
+    }
+
+    func saveRecentLocations(_ recents: [RecentLocation]) throws {
+        try ensureDirectories()
+        try encoder.encode(Array(recents.prefix(30))).write(to: recentsURL, options: [.atomic, .completeFileProtection])
     }
 
     func loadRoutes() throws -> [SavedRoute] {

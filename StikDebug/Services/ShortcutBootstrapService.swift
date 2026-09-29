@@ -52,6 +52,7 @@ final class ShortcutBootstrapService: ObservableObject {
     @Published private(set) var activeTransaction: BootstrapTransaction?
     @Published private(set) var activePhase: ShortcutPhase?
     @Published private(set) var lastTransactionStatus: String?
+    @Published private(set) var lastCallbackError: String?
 
     private var pendingCompletion: ((Bool) -> Void)?
     private var timeoutTimer: Task<Void, Never>?
@@ -99,6 +100,12 @@ final class ShortcutBootstrapService: ObservableObject {
 
         let savedDataOn = UserDefaults.standard.string(forKey: Self.dataOnNameKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.shortcutDataOnName = (savedDataOn != nil && !savedDataOn!.isEmpty) ? savedDataOn! : "RouteLocationDataOn"
+        self.lastCallbackError = nil
+    }
+
+    static func isMagicVariablePlaceholder(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "[捷徑輸入]" || normalized == "[shortcut input]" || normalized == "[shortcut input variable]"
     }
 
     func runDataOffShortcut(txId: String, completion: @escaping (Bool) -> Void) -> Bool {
@@ -217,6 +224,22 @@ final class ShortcutBootstrapService: ObservableObject {
             return false
         }
 
+        if Self.isMagicVariablePlaceholder(txId) {
+            let message = L10n.text("捷徑設定錯誤：目前使用的是文字『[捷徑輸入]』。請刪除這段文字，改用 iOS 捷徑中的『捷徑輸入』Magic Variable。")
+            lastCallbackError = message
+            lastTransactionStatus = message
+            DeveloperDiagnosticsStore.shared.record(
+                category: .bootstrap,
+                action: "SHORTCUT_CALLBACK_MAGIC_VARIABLE_ERROR",
+                details: ["receivedTx": txId]
+            )
+            activeTransaction?.status = "failed"
+            let completion = pendingCompletion
+            pendingCompletion = nil
+            completion?(false)
+            return false
+        }
+
         // Strict Contract 2: Phase must be present and non-empty
         guard let phaseStr = queryItems.first(where: { $0.name == "phase" })?.value, !phaseStr.isEmpty else {
             DeveloperDiagnosticsStore.shared.record(
@@ -275,6 +298,7 @@ final class ShortcutBootstrapService: ObservableObject {
 
         timeoutTimer?.cancel()
         timeoutTimer = nil
+        lastCallbackError = nil
 
         let success = (normalizedStatus == "success")
         activeTransaction?.completedAt = Date()
@@ -326,6 +350,7 @@ final class ShortcutBootstrapService: ObservableObject {
 
         activeTransaction = nil
         activePhase = nil
+        lastCallbackError = nil
 
         testMockShortcutRunner = nil
         // Keep test execution hermetic: no unit test should launch a real
@@ -349,6 +374,7 @@ final class ShortcutBootstrapService: ObservableObject {
         testRoundTripSettlementTimeoutSeconds = nil
         testSimulateCellularOffObserved = nil
         testSimulateCellularOnObserved = nil
+        lastCallbackError = nil
     }
 
     func resetConfigurationForTesting() {
@@ -504,6 +530,7 @@ final class ShortcutBootstrapService: ObservableObject {
        (1) 「設定行動數據」-> 設為「關閉」
        (2) 「打開 URL」-> 填入以下網址：
            routelocation://bootstrap-callback?tx=[捷徑輸入]&phase=data-off&status=success
+       注意：[捷徑輸入] 必須從捷徑的 Magic Variable 選單插入，不是要手動輸入的普通文字。
     3. 儲存捷徑。
 
     二、捷徑 2：恢復行動數據（命名：「RouteLocationDataOn」）
@@ -512,6 +539,7 @@ final class ShortcutBootstrapService: ObservableObject {
        (1) 「設定行動數據」-> 設為「開啟」
        (2) 「打開 URL」-> 填入以下網址：
            routelocation://bootstrap-callback?tx=[捷徑輸入]&phase=data-on&status=success
+       注意：[捷徑輸入] 必須從捷徑的 Magic Variable 選單插入，不是要手動輸入的普通文字。
     3. 儲存捷徑。
 
     ※ 系統在完成通道建立並驗證首次定位寫入後，會自動觸發 RouteLocationDataOn 恢復行動數據。若中途失敗亦具備自動 Rollback 機制。

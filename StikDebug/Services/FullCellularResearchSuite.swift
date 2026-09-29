@@ -46,6 +46,7 @@ struct FullCellularResearchReport: Codable, Equatable, Identifiable, Sendable {
     let effectiveProductionEndpoint: String
     let tcpMatrixSummary: String
     let pathProbeSummary: String
+    let trialConfigured: FullCellularFFITrial? = nil
     let trialLocalDevVPN: FullCellularFFITrial
     let trialLoopback: FullCellularFFITrial
     let productionSessionHealth: String
@@ -78,6 +79,7 @@ struct FullCellularResearchReport: Codable, Equatable, Identifiable, Sendable {
             "Effective production endpoint: \(effectiveProductionEndpoint)",
             "Path probes: \(pathProbeSummary)",
             "TCP matrix: \(tcpMatrixSummary)",
+            "Configured endpoint FFI: \(trialConfigured?.stage ?? "SKIPPED") / \(trialConfigured?.message ?? "READY")",
             "10.7.0.1 FFI: \(trialLocalDevVPN.stage) / \(trialLocalDevVPN.message ?? "READY")",
             "127.0.0.1 FFI: \(trialLoopback.stage) / \(trialLoopback.message ?? "READY")",
             "Existing production session: \(productionSessionHealth)",
@@ -147,8 +149,16 @@ final class FullCellularResearchSuite: ObservableObject {
         await probe.runAllProbes()
         let matrix = await probe.runEndpointMatrixProbes()
         let pairingPath = PairingFileStore.prepareURL().path
+        let effectiveAddress = BootstrapEndpointStrategy.resolvedAddress(
+            transport: ConnectionMonitor.shared.currentTransport
+        ) ?? DeviceConnectionContext.targetIPAddress
         let localDevVPNTrial = await runTrial(address: BootstrapEndpointStrategy.localDevVPNAddress, pairingPath: pairingPath)
-        let loopbackTrial = await runTrial(address: BootstrapEndpointStrategy.loopbackAddress, pairingPath: pairingPath)
+        let configuredTrial = effectiveAddress == BootstrapEndpointStrategy.localDevVPNAddress
+            ? localDevVPNTrial
+            : await runTrial(address: effectiveAddress, pairingPath: pairingPath)
+        let loopbackTrial = effectiveAddress == BootstrapEndpointStrategy.loopbackAddress
+            ? configuredTrial
+            : await runTrial(address: BootstrapEndpointStrategy.loopbackAddress, pairingPath: pairingPath)
         let finalSnapshot = probe.latestSnapshot ?? snapshot
 
         let detailedPathProbes = [probe.probeAResult, probe.probeBResult, probe.probeCResult, probe.candidatePeerProbeResult].compactMap { $0 }
@@ -173,6 +183,7 @@ final class FullCellularResearchSuite: ObservableObject {
             effectiveProductionEndpoint: "\(BootstrapEndpointStrategy.resolvedAddress(transport: ConnectionMonitor.shared.currentTransport) ?? DeviceConnectionContext.targetIPAddress):49152",
             tcpMatrixSummary: matrix.map { "\($0.target) \($0.policy.rawValue)=\($0.status.rawValue)" }.joined(separator: "; "),
             pathProbeSummary: detailedPathProbes.map { "\($0.probeType.rawValue)=\($0.status.rawValue)" }.joined(separator: "; "),
+            trialConfigured: FullCellularFFITrial(configuredTrial),
             trialLocalDevVPN: FullCellularFFITrial(localDevVPNTrial),
             trialLoopback: FullCellularFFITrial(loopbackTrial),
             productionSessionHealth: previousSession ? "healthy/recent success" : "no active session",

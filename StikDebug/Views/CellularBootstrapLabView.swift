@@ -245,7 +245,7 @@ struct CellularBootstrapLabView: View {
             Section(L10n.text("3. 直接連線研究測試 (Research Only)")) {
                 Toggle(L10n.text("啟用直接連線研究模式（僅研究）"), isOn: $researchService.isBetaEnabled)
 
-                Text(L10n.text("此模式僅供研究探測。若開啟，在行動網路環境下發起定位時會先嘗試直連一次，失敗自動切換為 One-Tap 輔助啟動，絕不損壞健康連線與目標座標。"))
+                Text(L10n.text("此模式僅供研究探測，不會改變一般 Cellular Auto 行為。研究試驗失敗時不會損壞健康連線與目標座標。"))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
@@ -368,7 +368,7 @@ struct CellularBootstrapLabView: View {
                             ToastManager.shared.show(L10n.text("端點策略已儲存"), kind: .success)
                         }
                     }
-                    Text(L10n.text("自動模式在 Wi-Fi 使用 10.7.0.1；行動網路冷啟動會先嘗試 127.0.0.1。研究模式不會修改此設定。"))
+                    Text(L10n.text("自動模式：Wi-Fi 使用 10.7.0.1；行動網路冷啟動直接使用已驗證的輔助流程（DataOff 後使用 10.7.0.1）。研究模式不會修改此設定。"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -382,7 +382,7 @@ struct CellularBootstrapLabView: View {
                     HStack {
                         Text(L10n.text("生產連線目標 (Target)"))
                         Spacer()
-                        Text("Automatic: Wi-Fi 10.7.0.1 / Cellular 127.0.0.1")
+                        Text("Automatic: Wi-Fi 10.7.0.1 / Cellular Assisted 10.7.0.1")
                             .font(.caption.monospaced().bold())
                     }
                     HStack {
@@ -407,7 +407,7 @@ struct CellularBootstrapLabView: View {
                             .foregroundStyle(.secondary)
                     }
                     Divider()
-                    Text(L10n.text("行為事實說明：\n• Wi-Fi 自動模式使用 10.7.0.1；行動網路冷啟動會先以真實 FFI 嘗試 127.0.0.1。\n• TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功；完整研究套件會分開記錄每個階段。\n• 已建立的 DVT Session 不應因新的輔助探測失敗而被摧毀。"))
+                    Text(L10n.text("行為事實說明：\n• Wi-Fi 自動模式使用 10.7.0.1；行動網路冷啟動使用 DataOff 輔助流程，完成後以 10.7.0.1 建立 DVT。\n• TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功；完整研究套件會分開記錄每個階段。\n• 已建立的 DVT Session 不應因新的輔助探測失敗而被摧毀。"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -554,7 +554,7 @@ struct CellularBootstrapLabView: View {
                 HStack {
                     Text(L10n.text("觀測到的 P2P destination address"))
                     Spacer()
-                    Text("10.7.1.1 (P2P_DSTADDR)")
+                        Text(L10n.text("觀測到的 P2P destination address"))
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
@@ -575,7 +575,7 @@ struct CellularBootstrapLabView: View {
                             .font(.caption2.bold())
                             .foregroundStyle(.orange)
                     }
-                    Text(L10n.text("Bonjour 僅提供觀測證據；TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功。Automatic 會依傳輸使用 Wi-Fi 10.7.0.1:49152，或行動網路冷啟動先嘗試 127.0.0.1:49152；輔助流程使用 10.7.0.1:49152。"))
+                    Text(L10n.text("Bonjour 僅提供觀測證據；TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功。Automatic 在 Wi-Fi 使用 10.7.0.1:49152；行動網路冷啟動使用輔助流程，完成後以 10.7.0.1:49152 建立 DVT。研究端點可另外測試 127.0.0.1:49152。"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
 

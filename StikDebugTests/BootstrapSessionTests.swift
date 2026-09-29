@@ -2,6 +2,15 @@ import Foundation
 import Testing
 @testable import RouteLocation
 
+private actor ProbeCounter {
+    var active = 0
+    var maximum = 0
+    var calls = 0
+    func begin() -> Int { active += 1; maximum = max(maximum, active); calls += 1; return calls }
+    func end() { active -= 1 }
+    func snapshot() -> (Int, Int) { (maximum, calls) }
+}
+
 struct BootstrapSessionTests {
     @Test func endpointStrategyUsesExpectedProductionAddresses() {
         #expect(BootstrapEndpointStrategy.resolvedAddress(mode: .localDevVPN, transport: .wifi) == "10.7.0.1")
@@ -73,6 +82,34 @@ struct BootstrapSessionTests {
         #expect(BootstrapEndpointStrategy.resolvedAddress(mode: .automatic, transport: .cellular) == "127.0.0.1")
     }
 
+    @Test func tcpSettlingRunsSequentialAttemptsUntilReady() async {
+        let counter = ProbeCounter()
+        let result = await CellularDefaultTCPSettler.settle(
+            targetIP: "10.7.0.1",
+            policy: CellularTCPSettlingPolicy(totalBudget: 1, attemptDeadline: 0.01, interAttemptDelay: 0),
+            attempt: { _, _, _ in
+                let call = await counter.begin()
+                try? await Task.sleep(for: .milliseconds(1))
+                await counter.end()
+                return call == 3
+            }
+        )
+        let (maximum, calls) = await counter.snapshot()
+        #expect(result.succeeded)
+        #expect(result.attempts == 3)
+        #expect(maximum == 1)
+    }
+
+    @Test func tcpSettlingStopsAtDeadlineWithoutStartingConcurrentProbes() async {
+        let result = await CellularDefaultTCPSettler.settle(
+            targetIP: "10.7.0.1",
+            policy: CellularTCPSettlingPolicy(totalBudget: 0.03, attemptDeadline: 0.01, interAttemptDelay: 0),
+            attempt: { _, _, _ in false }
+        )
+        #expect(!result.succeeded)
+        #expect(result.attempts >= 1)
+    }
+
     @MainActor @Test func fullResearchReportCarriesDetailedImmutableEvidence() throws {
         let snapshot = NetworkEnvironmentSnapshot(
             timestamp: Date(timeIntervalSince1970: 1_700_000_002),
@@ -117,7 +154,7 @@ struct BootstrapSessionTests {
             // do not depend on Date's sub-millisecond representation.
             startedAt: Date(timeIntervalSince1970: 1_700_000_000),
             completedAt: Date(timeIntervalSince1970: 1_700_000_001),
-            appVersion: "1.2.12", build: "8", transport: "cellular",
+            appVersion: "1.2.13", build: "9", transport: "cellular",
             wifiObservation: "off", cellularObservation: "available",
             vpnObservation: "detected", vpnCandidate: "utun3", pathStatus: "satisfied",
             utunSummary: "one", networkSnapshot: snapshot, utunInterfaces: [topology],
@@ -161,7 +198,7 @@ struct BootstrapCoordinatorCorrectionTests {
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
     }
 
-    @Test func autoCellularUsesRetainedProductionPreparationWithoutResearchBeta() {
+    @Test func autoCellularUsesKnownGoodAssistedFlowWithoutResearchBeta() {
         cellular(.auto)
         DirectCellularResearchService.shared.isBetaEnabled = false
         var assistedCount = 0
@@ -169,32 +206,25 @@ struct BootstrapCoordinatorCorrectionTests {
             assistedCount += 1
             completion(.success(.needsLocationWrite))
         }
-        var endpointUsed = ""
-        ProductionLocationSessionPreparer.shared.mockPreparationResult = { endpoint, _ in
-            endpointUsed = endpoint
-            return success
-        }
         var proceeded = false
         BootstrapCoordinator.shared.coordinateSimulation(
             targetCoordinate: RouteCoordinate(latitude: 25, longitude: 121),
-            onRequestPreflight: { Issue.record("Auto success must not request preflight") },
+            onRequestPreflight: { Issue.record("Auto success must not request preflight when assisted is enabled") },
             onProceed: { _ in proceeded = true },
             onError: { Issue.record("Unexpected production preparation error: \($0)") }
         )
 
-        #expect(endpointUsed == "127.0.0.1")
+        #expect(assistedCount == 1)
         #expect(proceeded)
-        #expect(assistedCount == 0)
-        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "production_auto_direct_success")
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "auto_cellular_assisted")
         TestBootstrapEnvironment.reset()
     }
 
-    @Test func autoCellularFailureFallsBackToAssistedExactlyOnceAndPreservesCoordinate() {
+    @Test func autoCellularAssistedPreservesCoordinateWithoutResearchBeta() {
         cellular(.auto)
         let target = RouteCoordinate(latitude: 25.0421, longitude: 121.5322)
         var assistedCount = 0
         var assistedTarget: RouteCoordinate?
-        ProductionLocationSessionPreparer.shared.mockPreparationResult = { _, _ in failure }
         BootstrapCoordinator.shared.testMockAssistedRunner = { coordinate, completion in
             assistedCount += 1
             assistedTarget = coordinate
@@ -210,8 +240,8 @@ struct BootstrapCoordinatorCorrectionTests {
 
         #expect(assistedCount == 1)
         #expect(assistedTarget == target)
-        #expect(BootstrapCoordinator.shared.lastFallbackOccurred)
-        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "production_direct_failed_assisted_fallback")
+        #expect(!BootstrapCoordinator.shared.lastFallbackOccurred)
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "auto_cellular_assisted")
         TestBootstrapEnvironment.reset()
     }
 

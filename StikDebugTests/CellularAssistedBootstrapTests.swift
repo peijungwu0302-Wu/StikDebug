@@ -1068,15 +1068,30 @@ struct CellularAssistedBootstrapTests {
         service.discardActiveTransactionForTesting()
     }
 
-    @Test func test_v1212_directCellularAuto_disabledResearchBeta_preparesProductionBeforeAssisted() {
+    @Test func test_v1213_literalShortcutInputPlaceholderProducesDedicatedError() {
+        let service = ShortcutBootstrapService.shared
+        service.resetForTesting()
+        service.isShortcutAssistedEnabled = true
+        var result: Bool?
+        _ = service.runDataOffShortcut(txId: "tx-placeholder") { result = $0 }
+        let url = URL(string: "routelocation://bootstrap-callback?tx=%5B%E6%8D%B7%E5%BE%91%E8%BC%B8%E5%85%A5%5D&phase=data-off&status=success")!
+        #expect(service.handleCallback(url: url) == false)
+        #expect(result == false)
+        #expect(service.lastCallbackError?.contains("捷徑輸入") == true)
+        service.discardActiveTransactionForTesting()
+    }
+
+    @Test func test_v1213_cellularAuto_disabledResearchBeta_usesAssistedFlow() {
         let coordinator = BootstrapCoordinator.shared
         ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
         LocationDataPathHealth.shared.resetForTesting()
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
         DirectCellularResearchService.shared.isBetaEnabled = false
-        ProductionLocationSessionPreparer.shared.mockPreparationResult = { _, _ in
-            LocationSimulationPreparationResult(target: "127.0.0.1:49152", stage: .rsd, statusCode: 9, ffiCode: 16, ffiSubCode: nil, message: "Connection refused", durationMs: 1)
+        var assistedCalled = false
+        coordinator.testMockAssistedRunner = { _, completion in
+            assistedCalled = true
+            completion(.success(.needsLocationWrite))
         }
 
         coordinator.coordinateSimulation(
@@ -1086,7 +1101,8 @@ struct CellularAssistedBootstrapTests {
             onError: { _ in }
         )
 
-        #expect(coordinator.lastCoordinationPath == "production_direct_failed_assisted_fallback")
+        #expect(assistedCalled)
+        #expect(coordinator.lastCoordinationPath == "auto_cellular_assisted")
         CellularAssistedBootstrapStateMachine.shared.resetForTesting()
         ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
         ProductionLocationSessionPreparer.shared.resetForTesting()

@@ -86,7 +86,7 @@ struct MapHomeView: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
                         .accessibilityLabel(L10n.text("搜尋地點"))
-                    Button { showCoordinateEntry = true } label: { Image(systemName: "number") }
+                    Button { showCoordinateEntry = true } label: { Image(systemName: "location.viewfinder") }
                         .accessibilityLabel(L10n.text("輸入座標"))
                     if !displayCoordinates.isEmpty {
                         Button { fitRoute() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
@@ -211,6 +211,10 @@ struct MapHomeView: View {
         }
         .padding(.horizontal)
         .padding(.bottom, 4)
+        .onChange(of: model.speedKmh) { _, newSpeed in
+            guard playback.state == .running || playback.state == .paused || playback.state == .reconnecting else { return }
+            if abs(playback.speedKmh - newSpeed) > 0.0001 { model.setPlaybackSpeed(newSpeed) }
+        }
     }
 
     private var isPlaybackActive: Bool {
@@ -228,7 +232,9 @@ struct MapHomeView: View {
         if let candidate = candidateCoordinate {
             PlaceFloatingCard(
                 coordinate: candidate,
-                onSaveFavorite: { showFavoriteName = true }
+                onSaveFavorite: {
+                    Task { await model.addFavorite(name: "", coordinate: model.activeSimulatedCoordinate ?? candidate) }
+                }
             )
         } else if case .singlePoint(let activeCoord) = model.simulationMode {
             // Active single point simulation
@@ -362,7 +368,7 @@ struct MapHomeView: View {
 
                     HStack {
                         Button(L10n.text("復原")) { model.undoLastWaypoint() }.buttonStyle(.bordered)
-                        Button(L10n.text("清除"), role: .destructive) { showClearDraftAlert = true }.buttonStyle(.bordered)
+                        Button(L10n.text("清除路線"), role: .destructive) { showClearDraftAlert = true }.buttonStyle(.bordered)
                         Spacer()
                         Button(L10n.text("儲存路線")) { showSaveSheet = true }
                             .buttonStyle(.bordered)

@@ -23,6 +23,16 @@ struct FavoritesView: View {
             .navigationTitle(L10n.text("喜愛"))
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Menu {
+                        Picker(L10n.text("排序方式"), selection: $model.librarySortOption) {
+                            ForEach(LibrarySortOption.allCases) { option in
+                                Text(option.title).tag(option)
+                            }
+                        }
+                        Toggle(L10n.text("顯示收藏時間"), isOn: $model.showFavoriteTimestamps)
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
                     if selection == .locations {
                         EditButton()
                         Button { showAdd = true } label: { Image(systemName: "plus") }
@@ -54,10 +64,14 @@ struct FavoritesView: View {
         if model.favorites.isEmpty {
             ContentUnavailableView(L10n.text("尚無喜愛地點"), systemImage: "star", description: Text(L10n.text("請先在地圖選擇位置，再儲存為喜愛地點。")))
         } else {
-            ForEach(model.favorites) { favorite in
+            ForEach(model.sortedFavorites) { favorite in
                 Button { selectedLocation = favorite } label: {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(favorite.name).font(.headline).foregroundStyle(.primary)
+                        if model.showFavoriteTimestamps {
+                            Text(favorite.createdAt, style: .relative)
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
                         Text(String(format: "%.6f, %.6f", favorite.latitude, favorite.longitude))
                             .font(.caption.monospaced()).foregroundStyle(.secondary)
                         if let note = favorite.note, !note.isEmpty {
@@ -130,7 +144,10 @@ private struct FavoriteLocationDetailView: View {
                 Section(L10n.text("操作")) {
                     Button(L10n.text("模擬此位置")) {
                         dismiss()
-                        Task { await model.teleport(to: favorite.coordinate) }
+                        Task {
+                            await model.markFavoriteUsed(favorite)
+                            await model.teleport(to: favorite.coordinate)
+                        }
                     }
                     Button(L10n.text("顯示於地圖")) {
                         model.focusOnMap(favorite.coordinate)
@@ -138,6 +155,7 @@ private struct FavoriteLocationDetailView: View {
                         dismiss()
                     }
                     Button(L10n.text("加入目前路線")) {
+                        Task { await model.markFavoriteUsed(favorite) }
                         model.addWaypoint(favorite.coordinate)
                         model.statusMessage = L10n.text("已將喜愛地點加入路線。")
                         dismiss()

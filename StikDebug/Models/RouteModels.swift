@@ -225,10 +225,11 @@ struct FavoriteLocation: Codable, Identifiable, Equatable {
     var note: String?
     var createdAt: Date
     var updatedAt: Date
+    var lastUsedAt: Date?
 
     var coordinate: RouteCoordinate { RouteCoordinate(latitude: latitude, longitude: longitude) }
 
-    init(id: UUID = UUID(), name: String, coordinate: RouteCoordinate, note: String? = nil, createdAt: Date = .now, updatedAt: Date = .now) {
+    init(id: UUID = UUID(), name: String, coordinate: RouteCoordinate, note: String? = nil, createdAt: Date = .now, updatedAt: Date = .now, lastUsedAt: Date? = nil) {
         self.id = id
         self.name = name
         latitude = coordinate.latitude
@@ -236,6 +237,55 @@ struct FavoriteLocation: Codable, Identifiable, Equatable {
         self.note = note
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.lastUsedAt = lastUsedAt
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, latitude, longitude, note, createdAt, updatedAt, lastUsedAt }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        latitude = try container.decode(Double.self, forKey: .latitude)
+        longitude = try container.decode(Double.self, forKey: .longitude)
+        note = try container.decodeIfPresent(String.self, forKey: .note)
+        let fallback = Date()
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? fallback
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+        lastUsedAt = try container.decodeIfPresent(Date.self, forKey: .lastUsedAt)
+    }
+}
+
+enum LibrarySortOption: String, Codable, CaseIterable, Identifiable {
+    case newest
+    case oldest
+    case name
+    case recentlyUsed
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .newest: return L10n.text("最近收藏")
+        case .oldest: return L10n.text("最早收藏")
+        case .name: return L10n.text("名稱")
+        case .recentlyUsed: return L10n.text("最近使用")
+        }
+    }
+}
+
+struct RecentLocation: Codable, Identifiable, Equatable {
+    let id: UUID
+    let coordinate: RouteCoordinate
+    let title: String?
+    let createdAt: Date
+    let kind: String
+
+    init(id: UUID = UUID(), coordinate: RouteCoordinate, title: String? = nil, createdAt: Date = .now, kind: String = "simulate") {
+        self.id = id
+        self.coordinate = coordinate
+        self.title = title
+        self.createdAt = createdAt
+        self.kind = kind
     }
 }
 
@@ -300,8 +350,9 @@ struct SavedRoute: Codable, Identifiable, Equatable {
         navigationGeometryNeedsRecalculation = try container.decodeIfPresent(Bool.self, forKey: .navigationGeometryNeedsRecalculation) ?? false
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         lastUsedAt = try container.decodeIfPresent(Date.self, forKey: .lastUsedAt)
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
-        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        let fallback = Date()
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? fallback
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
     }
 }
 

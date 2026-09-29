@@ -78,6 +78,8 @@ final class RoutePlaybackEngine: ObservableObject {
     private var consecutiveCommandFailures = 0
     private var pausedOffset: Double = 0
     private var cancellables: Set<AnyCancellable> = []
+    @MainActor var assistedRecoveryAction: (@MainActor (_ coordinate: RouteCoordinate?) async -> Bool)?
+    private var assistedRecoveryInProgress = false
 
     init(
         sink: any LocationSimulationSink,
@@ -185,6 +187,29 @@ final class RoutePlaybackEngine: ObservableObject {
         task = Task { [weak self] in await self?.runLoop() }
     }
 
+    /// Changes playback speed without changing the current route distance.
+    /// The clock is rebased at the exact current distance so the next tick
+    /// continues smoothly instead of jumping by the old/new speed delta.
+    func setSpeed(_ newSpeed: Double) throws {
+        guard newSpeed.isFinite, newSpeed > 0 else { throw RouteLocationError.invalidSpeed }
+        let now = uptime()
+        let currentDistance: Double
+        switch state {
+        case .running, .reconnecting:
+            updateDerivedState(now: now)
+            currentDistance = traveledDistance
+        case .paused:
+            currentDistance = pausedOffset
+        default:
+            currentDistance = startingOffset
+        }
+        speedKmh = newSpeed
+        startingOffset = currentDistance
+        pausedOffset = currentDistance
+        startTime = now
+        if state != .stopped { updateDerivedState(now: now) }
+    }
+
     private func runLoop() async {
         while !Task.isCancelled {
             do { try await Task.sleep(for: .seconds(updateInterval)) } catch { return }
@@ -232,6 +257,28 @@ final class RoutePlaybackEngine: ObservableObject {
         lastReconnectWasPermanent = false
         defer { reconnectInProgress = false }
         state = .reconnecting
+        var assistedRecoveryDistance: Double?
+        if connectionMonitor.currentTransport == .cellular,
+           let assistedRecoveryAction,
+           !assistedRecoveryInProgress {
+            updateDerivedState(now: uptime())
+            assistedRecoveryDistance = traveledDistance
+            startingOffset = traveledDistance
+            startTime = uptime()
+            assistedRecoveryInProgress = true
+            let recovered = await assistedRecoveryAction(currentCoordinate)
+            assistedRecoveryInProgress = false
+            guard recovered else {
+                lastReconnectWasPermanent = false
+                return false
+            }
+            if let assistedRecoveryDistance {
+                startingOffset = assistedRecoveryDistance
+                pausedOffset = assistedRecoveryDistance
+                startTime = uptime()
+                updateDerivedState(now: startTime)
+            }
+        }
         for (index, delay) in reconnectDelays.enumerated() {
             guard !Task.isCancelled else { return false }
             reportConnection(.reconnecting(attempt: index + 1))

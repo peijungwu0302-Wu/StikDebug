@@ -454,13 +454,18 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
         let snapshot = captureSnapshot()
         let vpnIface = snapshot.vpnCandidate.interface
 
+        let effective = snapshot.configuredTargetIP
         let matrixSpecs: [(String, Int, [InterfacePolicy])] = [
-            ("10.7.0.1", 49152, [.DEFAULT, .CELLULAR_PROHIBITED, .REQUIRED_INTERFACE]),
-            ("127.0.0.1", 49152, [.DEFAULT, .CELLULAR_PROHIBITED]),
+            (effective, 49152, [.DEFAULT, .CELLULAR_PROHIBITED, .REQUIRED_INTERFACE]),
+            (BootstrapEndpointStrategy.localDevVPNAddress, 49152, [.DEFAULT, .CELLULAR_PROHIBITED, .REQUIRED_INTERFACE]),
+            (BootstrapEndpointStrategy.loopbackAddress, 49152, [.DEFAULT, .CELLULAR_PROHIBITED]),
             ("::1", 49152, [.DEFAULT, .CELLULAR_PROHIBITED])
         ]
 
+        var seenTargets = Set<String>()
         for (host, port, policies) in matrixSpecs {
+            let targetKey = "\(host):\(port)"
+            if !seenTargets.insert(targetKey).inserted { continue }
             for policy in policies {
                 let probeType: CellularProbeType
                 switch policy {
@@ -915,5 +920,106 @@ public final class CellularBootstrapTransportProbe: ObservableObject {
             }
         }
         return (nil, .UNKNOWN)
+    }
+}
+
+/// Policy and serialized helper used by the production Assisted bootstrap
+/// after the DataOff callback.  The callback only proves that the shortcut
+/// returned; this gate independently waits for the unscoped production socket
+/// route to settle before invoking the expensive FFI chain.
+struct CellularTCPSettlingPolicy: Sendable, Equatable {
+    let totalBudget: TimeInterval
+    let attemptDeadline: TimeInterval
+    let interAttemptDelay: TimeInterval
+
+    static let production = CellularTCPSettlingPolicy(
+        totalBudget: 5.0,
+        attemptDeadline: 0.35,
+        interAttemptDelay: 0.15
+    )
+}
+
+struct CellularTCPSettlingResult: Sendable, Equatable {
+    let succeeded: Bool
+    let attempts: Int
+    let elapsedMs: Int
+}
+
+enum CellularDefaultTCPSettler {
+    /// Runs strictly sequential attempts.  The optional attempt closure is a
+    /// deterministic seam for unit tests; production uses one NWConnection per
+    /// attempt and never starts the next connection before the previous one is
+    /// cancelled and its continuation has completed.
+    static func settle(
+        targetIP: String,
+        port: UInt16 = 49152,
+        policy: CellularTCPSettlingPolicy = .production,
+        attempt: (@Sendable (_ targetIP: String, _ port: UInt16, _ deadline: TimeInterval) async -> Bool)? = nil,
+        onAttempt: (@Sendable (_ attempt: Int, _ elapsedMs: Int) -> Void)? = nil
+    ) async -> CellularTCPSettlingResult {
+        let started = ProcessInfo.processInfo.systemUptime
+        var attempts = 0
+        while ProcessInfo.processInfo.systemUptime - started < policy.totalBudget {
+            if Task.isCancelled { break }
+            attempts += 1
+            onAttempt?(attempts, Int((ProcessInfo.processInfo.systemUptime - started) * 1000))
+            let ok: Bool
+            if let attempt {
+                ok = await attempt(targetIP, port, policy.attemptDeadline)
+            } else {
+                ok = await defaultAttempt(targetIP: targetIP, port: port, deadline: policy.attemptDeadline)
+            }
+            if ok {
+                return CellularTCPSettlingResult(
+                    succeeded: true,
+                    attempts: attempts,
+                    elapsedMs: Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
+                )
+            }
+            let remaining = policy.totalBudget - (ProcessInfo.processInfo.systemUptime - started)
+            if remaining <= 0 { break }
+            let delay = min(policy.interAttemptDelay, remaining)
+            if delay > 0 {
+                try? await Task.sleep(for: .seconds(delay))
+            }
+        }
+        return CellularTCPSettlingResult(
+            succeeded: false,
+            attempts: attempts,
+            elapsedMs: Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
+        )
+    }
+
+    private static func defaultAttempt(targetIP: String, port: UInt16, deadline: TimeInterval) async -> Bool {
+        guard let nwPort = NWEndpoint.Port(rawValue: port) else { return false }
+        let connection = NWConnection(
+            host: NWEndpoint.Host(targetIP),
+            port: nwPort,
+            using: NWParameters(tls: nil, tcp: NWProtocolTCP.Options())
+        )
+        let queue = DispatchQueue(label: "com.routelocation.assisted-settling", qos: .userInitiated)
+        return await withCheckedContinuation { continuation in
+            let lock = NSLock()
+            var completed = false
+            func complete(_ value: Bool) {
+                lock.lock()
+                guard !completed else { lock.unlock(); return }
+                completed = true
+                lock.unlock()
+                connection.cancel()
+                continuation.resume(returning: value)
+            }
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready: complete(true)
+                case .failed, .cancelled: complete(false)
+                default: break
+                }
+            }
+            connection.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + deadline) {
+                complete(false)
+            }
+        }
     }
 }

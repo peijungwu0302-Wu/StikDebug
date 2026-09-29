@@ -64,6 +64,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     /// The known-good Assisted DataOff sequence always bootstraps through
     /// LocalDevVPN, independent of any developer direct-endpoint selection.
     static let assistedBootstrapEndpoint = DeviceConnectionContext.defaultTargetIPAddress
+    private static let recoveryIntentKey = "RouteLocation.assistedRecoveryIntent"
+    private static let recoveryAttemptKey = "RouteLocation.assistedRecoveryAttemptedForeground"
 
     @Published private(set) var state: CellularAssistedState = .idle
     @Published private(set) var activeTxId: String?
@@ -80,16 +82,65 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     private var verificationCoordinate: RouteCoordinate?
     private var cancellables: Set<AnyCancellable> = []
     private var stateTimeoutTask: Task<Void, Never>?
+    private var recoveryAttemptedInForeground = false
     var simulationSink: any LocationSimulationSink = DeviceLocationSimulationService.shared
 
+    private struct RecoveryIntent: Codable {
+        let transactionID: String
+        let startedAt: Date
+        var phase: String
+    }
+
     private init() {}
+
+    var hasPendingRecoveryIntent: Bool {
+        UserDefaults.standard.data(forKey: Self.recoveryIntentKey) != nil
+    }
+
+    func beginForegroundRecoveryCycle() {
+        recoveryAttemptedInForeground = false
+    }
+
+    func handleStaleRecoveryIfNeeded() {
+        guard !state.isRunning, !recoveryAttemptedInForeground,
+              let data = UserDefaults.standard.data(forKey: Self.recoveryIntentKey),
+              let intent = try? JSONDecoder().decode(RecoveryIntent.self, from: data) else { return }
+        recoveryAttemptedInForeground = true
+        BootstrapTraceStore.shared.recordEvent(.staleRecoveryDetected, details: [
+            "transactionID": intent.transactionID,
+            "phase": intent.phase,
+            "startedAt": intent.startedAt.ISO8601Format()
+        ])
+        let recoveryTx = "recovery-\(UUID().uuidString)"
+        BootstrapTraceStore.shared.recordEvent(.staleRecoveryDataOnStarted, details: ["transactionID": recoveryTx])
+        let opened = ShortcutBootstrapService.shared.runDataOnShortcut(txId: recoveryTx) { [weak self] success in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if success {
+                    self.clearRecoveryIntent()
+                    BootstrapTraceStore.shared.recordEvent(.staleRecoveryCompleted, details: ["confirmed": "true"])
+                    ToastManager.shared.show(L10n.text("已完成待恢復的行動數據復原。"), kind: .success)
+                } else {
+                    self.requiresManualDataOnAlert = true
+                    self.lastErrorMessage = L10n.text("偵測到未完成的行動數據恢復。請手動開啟行動數據，或完成 RouteLocationDataOn 捷徑設定。")
+                    BootstrapTraceStore.shared.recordEvent(.staleRecoveryCompleted, details: ["confirmed": "false"])
+                }
+            }
+        }
+        if !opened {
+            requiresManualDataOnAlert = true
+            lastErrorMessage = L10n.text("偵測到未完成的行動數據恢復。請手動開啟行動數據。")
+            BootstrapTraceStore.shared.recordEvent(.staleRecoveryCompleted, details: ["confirmed": "false", "opened": "false"])
+        }
+    }
 
     // MARK: - Eligibility Check (Blocker K)
 
     var isEligibleForDataOff: Bool {
         guard ShortcutBootstrapService.shared.isShortcutAssistedEnabled else { return false }
         let monitor = ConnectionMonitor.shared
-        let hasActiveDVT = monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess
+        let prepared = LocationSimulationCommandQueue.shared.sync { location_simulation_session_snapshot().isPrepared }
+        let hasActiveDVT = monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess || prepared
         guard !hasActiveDVT else { return false }
         guard !monitor.isWifiAvailable && (monitor.currentTransport == .cellular || monitor.isCellularAvailable) else { return false }
         return true
@@ -113,7 +164,10 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
 
         // Pre-launch Double-Check Gate
         let monitor = ConnectionMonitor.shared
-        if monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess {
+        let preparedSession = LocationSimulationCommandQueue.shared.sync {
+            location_simulation_session_snapshot().isPrepared
+        }
+        if monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess || preparedSession {
             LogManager.shared.addInfoLog("Pre-launch check: Active DVT session already present. Skipping shortcut.")
             completion(.success(.needsLocationWrite))
             return
@@ -128,7 +182,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             return
         }
 
-        let txId = "tx-\(UUID().uuidString.prefix(8))"
+        let txId = UUID().uuidString
         self.activeTxId = txId
         self.verificationCoordinate = targetCoordinate
         self.locationWriteSuccessConfirmed = false
@@ -138,6 +192,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         self.dataOffWasRequested = true
         self.cellularOffWasObserved = false
         self.dataRestoreRequired = true
+
+        persistRecoveryIntent(transactionID: txId, phase: "data-off-requested")
 
         #if DEBUG
         lastAssistedBootstrapEndpointForTesting = Self.assistedBootstrapEndpoint
@@ -176,6 +232,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     var testStabilizationDelaySeconds: Double?
     var testCellularOffSequence: [Bool]?
     var testMockBootstrapRunner: (() async -> Bool)?
+    var testMockTCPSettlingRunner: (() async -> CellularTCPSettlingResult)?
     var testBootstrapAttemptCount: Int = 0
     private(set) var lastAssistedBootstrapEndpointForTesting: String?
     var testVerificationCoordinate: RouteCoordinate? {
@@ -211,6 +268,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     func handleDataOffCallbackSuccess() async {
         guard state == .requestingDataOff || state == .waitingForDataOffCallback else { return }
         transitionTo(.waitingForCellularOff)
+        updateRecoveryPhase("data-off-callback")
 
         let additionalDelay = effectiveStabilizationDelay
         let isCellularOff = checkIsCellularOff()
@@ -328,6 +386,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     private func proceedToBootstrapping() async {
         guard state == .waitingForCellularOff else { return }
         transitionTo(.bootstrapping)
+        updateRecoveryPhase("settling")
         scheduleTimeout(seconds: 25, stage: "BootstrapTunnel")
 
         #if DEBUG
@@ -345,25 +404,99 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         }
         #endif
 
-        // Trigger TunnelManager start
-        TunnelManager.shared.start(
-            showErrorUI: false,
-            targetIPAddress: Self.assistedBootstrapEndpoint
-        )
+        // The callback is not a readiness signal.  Wait for the unscoped
+        // production socket route to settle before starting exactly one FFI
+        // preparation attempt.
+        BootstrapTraceStore.shared.recordEvent(.assistedSettlingStarted, details: [
+            "target": "\(Self.assistedBootstrapEndpoint):49152",
+            "budgetMs": String(Int(CellularTCPSettlingPolicy.production.totalBudget * 1000)),
+            "attemptDeadlineMs": String(Int(CellularTCPSettlingPolicy.production.attemptDeadline * 1000))
+        ])
+        let settling: CellularTCPSettlingResult
+        #if DEBUG
+        if let mock = testMockTCPSettlingRunner {
+            settling = await mock()
+        } else {
+            settling = await CellularDefaultTCPSettler.settle(targetIP: Self.assistedBootstrapEndpoint) { attempt, elapsedMs in
+                Task { @MainActor in
+                    BootstrapTraceStore.shared.recordEvent(.assistedTCPProbeAttempt, details: [
+                        "attempt": String(attempt),
+                        "elapsedFromCallbackMs": String(elapsedMs),
+                        "target": "\(Self.assistedBootstrapEndpoint):49152",
+                        "deadlineMs": String(Int(CellularTCPSettlingPolicy.production.attemptDeadline * 1000)),
+                        "cellularObserved": String(ConnectionMonitor.shared.isCellularAvailable),
+                        "vpnObserved": String(ConnectionMonitor.shared.usesVPNInterface)
+                    ])
+                }
+            }
+        }
+        #else
+        settling = await CellularDefaultTCPSettler.settle(targetIP: Self.assistedBootstrapEndpoint) { attempt, elapsedMs in
+            Task { @MainActor in
+                BootstrapTraceStore.shared.recordEvent(.assistedTCPProbeAttempt, details: [
+                    "attempt": String(attempt),
+                    "elapsedFromCallbackMs": String(elapsedMs),
+                    "target": "\(Self.assistedBootstrapEndpoint):49152",
+                    "deadlineMs": String(Int(CellularTCPSettlingPolicy.production.attemptDeadline * 1000)),
+                    "cellularObserved": String(ConnectionMonitor.shared.isCellularAvailable),
+                    "vpnObserved": String(ConnectionMonitor.shared.usesVPNInterface)
+                ])
+            }
+        }
+        #endif
+        guard settling.succeeded else {
+            BootstrapTraceStore.shared.recordEvent(.assistedTCPProbeFailed, details: [
+                "attempts": String(settling.attempts),
+                "elapsedFromCallbackMs": String(settling.elapsedMs),
+                "target": "\(Self.assistedBootstrapEndpoint):49152"
+            ])
+            handleFailure(stage: "TCPSettling", reason: "等待 \(Self.assistedBootstrapEndpoint):49152 就緒逾時")
+            return
+        }
+        BootstrapTraceStore.shared.recordEvent(.assistedTCPReady, details: [
+            "attempts": String(settling.attempts),
+            "elapsedFromCallbackMs": String(settling.elapsedMs),
+            "target": "\(Self.assistedBootstrapEndpoint):49152"
+        ])
 
-        // Await connection / RSD ready
-        let connected = await waitForTunnelConnected(timeoutSeconds: 15.0)
-        guard connected else {
-            handleFailure(stage: "RPairing/Tunnel", reason: TunnelManager.shared.lastErrorMessage ?? "通道建立失敗")
+        transitionTo(.waitingForRSD)
+        updateRecoveryPhase("ffi-preparing")
+        BootstrapTraceStore.shared.recordEvent(.assistedFFIPrepareStarted, details: ["target": Self.assistedBootstrapEndpoint])
+        let pairingPath = PairingFileStore.prepareURL().path
+        let preparation = await withCheckedContinuation { continuation in
+            if LocationSimulationCommandQueue.shared.sync { location_simulation_session_snapshot().isPrepared } {
+                continuation.resume(returning: LocationSimulationPreparationResult(
+                    target: "\(Self.assistedBootstrapEndpoint):49152", stage: .ready,
+                    statusCode: 0, ffiCode: nil, ffiSubCode: nil,
+                    message: "Prepared session reused", durationMs: 0
+                ))
+            } else {
+                ProductionLocationSessionPreparer.shared.prepare(
+                    endpointAddress: Self.assistedBootstrapEndpoint,
+                    pairingFile: pairingPath
+                ) { result in
+                    continuation.resume(returning: result)
+                }
+            }
+        }
+        BootstrapTraceStore.shared.recordEvent(.assistedFFIPrepareResult, details: [
+            "stage": preparation.stage.rawValue,
+            "status": preparation.isSuccess ? "READY" : "FAILED",
+            "ffiCode": preparation.ffiCode.map(String.init) ?? "",
+            "ffiSubCode": preparation.ffiSubCode.map(String.init) ?? "",
+            "message": preparation.message ?? "",
+            "durationMs": String(Int(preparation.durationMs))
+        ])
+        guard preparation.isSuccess else {
+            handleFailure(stage: preparation.stage.rawValue, reason: preparation.message ?? "FFI 準備失敗")
             return
         }
 
-        transitionTo(.waitingForRSD)
         transitionTo(.waitingForDVT)
-
-        // Verify first real location write before restoring cellular data
+        updateRecoveryPhase("dvt-ready")
         await verifyFirstLocationWrite()
     }
+
 
     private func waitForTunnelConnected(timeoutSeconds: Double) async -> Bool {
         let deadline = Date().addingTimeInterval(timeoutSeconds)
@@ -423,6 +556,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
 
     private func proceedToDataOn() async {
         transitionTo(.requestingDataOn)
+        updateRecoveryPhase("data-on-requested")
         guard let txId = activeTxId else {
             finishSuccess()
             return
@@ -465,6 +599,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         let confirmed = await waitForCellularOnSettlement(timeoutSeconds: self.onSettlementTimeout)
         if confirmed {
             self.dataRestoreRequired = false
+            self.clearRecoveryIntent()
             BootstrapTraceStore.shared.recordEvent(.cellularOnConfirmed)
             self.finishSuccess()
         } else {
@@ -569,6 +704,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             let confirmed = await waitForCellularOnSettlement(timeoutSeconds: self.onSettlementTimeout)
             if confirmed {
                 self.dataRestoreRequired = false
+                self.clearRecoveryIntent()
                 BootstrapTraceStore.shared.recordEvent(.cellularOnConfirmed, details: ["context": "rollback"])
                 BootstrapTraceStore.shared.recordEvent(.recoveryDataOnCompleted, details: ["confirmed": "true"])
                 LogManager.shared.addInfoLog("Rollback DataOn physical cellular restoration confirmed.")
@@ -626,6 +762,27 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         stabilizationTask = nil
     }
 
+    private func persistRecoveryIntent(transactionID: String, phase: String) {
+        let intent = RecoveryIntent(transactionID: transactionID, startedAt: Date(), phase: phase)
+        if let data = try? JSONEncoder().encode(intent) {
+            UserDefaults.standard.set(data, forKey: Self.recoveryIntentKey)
+        }
+    }
+
+    private func updateRecoveryPhase(_ phase: String) {
+        guard let data = UserDefaults.standard.data(forKey: Self.recoveryIntentKey),
+              var intent = try? JSONDecoder().decode(RecoveryIntent.self, from: data) else { return }
+        intent.phase = phase
+        if let updated = try? JSONEncoder().encode(intent) {
+            UserDefaults.standard.set(updated, forKey: Self.recoveryIntentKey)
+        }
+    }
+
+    private func clearRecoveryIntent() {
+        UserDefaults.standard.removeObject(forKey: Self.recoveryIntentKey)
+        UserDefaults.standard.removeObject(forKey: Self.recoveryAttemptKey)
+    }
+
     private func scheduleTimeout(seconds: Double, stage: String) {
         stateTimeoutTask?.cancel()
         stateTimeoutTask = Task { [weak self] in
@@ -664,6 +821,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         testStabilizationDelaySeconds = nil
         testCellularOffSequence = nil
         testMockBootstrapRunner = nil
+        testMockTCPSettlingRunner = nil
         testBootstrapAttemptCount = 0
         lastAssistedBootstrapEndpointForTesting = nil
         simulationSink = DeviceLocationSimulationService.shared
@@ -671,6 +829,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         stateTimeoutTask = nil
         stabilizationTask?.cancel()
         stabilizationTask = nil
+        recoveryAttemptedInForeground = false
+        clearRecoveryIntent()
     }
 
     func forceStateForTesting(_ newState: CellularAssistedState) {

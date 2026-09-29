@@ -65,7 +65,7 @@ struct RouteMapView: View {
                         .accessibilityLabel(L10n.text("我的路線"))
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
                         .accessibilityLabel(L10n.text("搜尋地點"))
-                    Button { showCoordinateEntry = true } label: { Image(systemName: "number") }
+                    Button { showCoordinateEntry = true } label: { Image(systemName: "location.viewfinder") }
                         .accessibilityLabel(L10n.text("輸入座標"))
                     Button { fitRoute() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                         .accessibilityLabel(L10n.text("顯示完整路線"))
@@ -106,6 +106,10 @@ struct RouteMapView: View {
         .onChange(of: model.mapFocusRevision) { _, _ in
             guard let coordinate = model.selectedCoordinate else { return }
             camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
+        }
+        .onChange(of: model.speedKmh) { _, newSpeed in
+            guard playback.state == .running || playback.state == .paused || playback.state == .reconnecting else { return }
+            if abs(playback.speedKmh - newSpeed) > 0.0001 { model.setPlaybackSpeed(newSpeed) }
         }
     }
 
@@ -154,7 +158,7 @@ struct RouteMapView: View {
                     HStack {
                         Button(L10n.text("模擬此位置")) { model.requestSinglePointSimulation() }.buttonStyle(.borderedProminent)
                         Button(L10n.text("加入航點")) { model.addSelectedWaypoint() }.buttonStyle(.bordered)
-                        Button { showFavoriteName = true } label: { Image(systemName: "star") }.buttonStyle(.bordered)
+                        Button { Task { await model.addFavorite(name: "") } } label: { Image(systemName: "star") }.buttonStyle(.bordered)
                     }
                 } else {
                     Text(L10n.text("點選地圖、搜尋地點、輸入座標，或選擇喜愛地點。")).font(.footnote).foregroundStyle(.secondary)
@@ -275,7 +279,7 @@ struct QuickRouteMapView: View {
                     }
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
                         .accessibilityLabel(L10n.text("搜尋地點"))
-                    Button { showCoordinateEntry = true } label: { Image(systemName: "number") }
+                    Button { showCoordinateEntry = true } label: { Image(systemName: "location.viewfinder") }
                         .accessibilityLabel(L10n.text("輸入座標"))
                     Button { fitRoute() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                         .accessibilityLabel(L10n.text("顯示完整路線"))
@@ -444,6 +448,15 @@ struct QuickRouteMapView: View {
             Spacer()
             Text(L10n.format("第 %d 圈", playback.lapNumber))
                 .font(.caption.bold())
+            if playback.state == .running {
+                Button(L10n.text("暫停移動")) { playback.pause() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            } else if playback.state == .paused {
+                Button(L10n.text("繼續")) { Task { await playback.resume() } }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
             Button(L10n.text("停止")) {
                 playback.stop(clearMarker: true)
             }
@@ -497,7 +510,7 @@ struct QuickRouteMapView: View {
                         .buttonStyle(.bordered)
 
                         Button {
-                            showFavoriteName = true
+                            Task { await model.addFavorite(name: "", coordinate: model.activeSimulatedCoordinate ?? selected) }
                         } label: {
                             Image(systemName: "star")
                         }

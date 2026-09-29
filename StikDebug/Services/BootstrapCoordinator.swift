@@ -84,30 +84,17 @@ final class BootstrapCoordinator: ObservableObject {
                 onProceed(.needsLocationWrite)
                 return
             }
-
-            #if DEBUG
-            // Compatibility for historical unit-test seams only. The real
-            // application never gates Auto on the Research Beta toggle.
-            if DirectCellularResearchService.shared.isBetaEnabled,
-               testMockResearchRunner != nil || DirectCellularResearchService.shared.testMockDirectAttempt != nil {
-                lastCoordinationPath = "research_beta_direct_attempt"
-                attemptResearchBetaWithFallback(
-                    targetCoordinate: targetCoordinate,
-                    onRequestPreflight: onRequestPreflight,
-                    onProceed: onProceed,
-                    onError: onError
-                )
-                return
+            // Real-device evidence shows that a cellular cold session cannot
+            // complete the localhost production FFI chain.  Automatic mode
+            // therefore enters the known-good DataOff -> 10.7.0.1 assisted
+            // transaction directly; developer direct/custom and research
+            // modes remain available through their explicit policies.
+            lastCoordinationPath = "auto_cellular_assisted"
+            if ShortcutBootstrapService.shared.isShortcutAssistedEnabled {
+                executeAssistedBootstrap(targetCoordinate: targetCoordinate, onProceed: onProceed, onError: onError)
+            } else {
+                onRequestPreflight()
             }
-            #endif
-
-            attemptProductionDirect(
-                targetCoordinate: targetCoordinate,
-                policy: .auto,
-                onRequestPreflight: onRequestPreflight,
-                onProceed: onProceed,
-                onError: onError
-            )
         }
     }
 

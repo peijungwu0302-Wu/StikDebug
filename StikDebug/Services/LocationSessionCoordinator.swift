@@ -41,6 +41,12 @@ final class LocationSessionCoordinator: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.prewarmIfAppropriate() }
             .store(in: &cancellables)
+        ConnectionMonitor.shared.$currentTransport
+            .removeDuplicates()
+            .filter { $0 == .wifi }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.prewarmIfAppropriate() }
+            .store(in: &cancellables)
 
         // Observe DataPathHealth
         LocationDataPathHealth.shared.$status

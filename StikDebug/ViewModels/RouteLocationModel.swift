@@ -37,6 +37,13 @@ final class RouteLocationModel: ObservableObject {
     @Published private(set) var navigationGeometryNeedsRecalculation = false
     @Published private(set) var favorites: [FavoriteLocation] = []
     @Published private(set) var savedRoutes: [SavedRoute] = []
+    @Published private(set) var recentLocations: [RecentLocation] = []
+    @Published var librarySortOption: LibrarySortOption {
+        didSet { UserDefaults.standard.set(librarySortOption.rawValue, forKey: Self.librarySortKey) }
+    }
+    @Published var showFavoriteTimestamps: Bool {
+        didSet { UserDefaults.standard.set(showFavoriteTimestamps, forKey: Self.showFavoriteTimestampsKey) }
+    }
     @Published private(set) var isResolvingNavigation = false
     @Published var presentedError: String?
     @Published var statusMessage: String?
@@ -57,6 +64,8 @@ final class RouteLocationModel: ObservableObject {
     private static let speedKey = "RouteLocation.lastSpeedKmh"
     private static let mapStyleKey = "RouteLocation.mapInteractionStyle"
     private static let modeSwitchKey = "RouteLocation.modeSwitchConfirmation"
+    private static let librarySortKey = "RouteLocation.librarySortOption"
+    private static let showFavoriteTimestampsKey = "RouteLocation.showFavoriteTimestamps"
 
     var hasLoadedRoute: Bool { loadedRouteID != nil }
     var favoriteRoutes: [SavedRoute] { savedRoutes.filter(\.isFavorite) }
@@ -86,8 +95,14 @@ final class RouteLocationModel: ObservableObject {
         } else {
             modeSwitchConfirmation = .askFirst
         }
+        librarySortOption = LibrarySortOption(rawValue: UserDefaults.standard.string(forKey: Self.librarySortKey) ?? "newest") ?? .newest
+        showFavoriteTimestamps = UserDefaults.standard.object(forKey: Self.showFavoriteTimestampsKey) as? Bool ?? true
 
         playback = RoutePlaybackEngine(sink: simulationService, connectionMonitor: connectionMonitor)
+        playback.assistedRecoveryAction = { [weak self] coordinate in
+            guard let self else { return false }
+            return await self.performAssistedPlaybackRecovery(coordinate: coordinate)
+        }
         HealthStepSyncService.shared.attach(to: playback)
 
         playback.$state
@@ -98,6 +113,15 @@ final class RouteLocationModel: ObservableObject {
             .store(in: &cancellables)
 
         Task { await loadPersistedData() }
+    }
+
+    private func performAssistedPlaybackRecovery(coordinate: RouteCoordinate?) async -> Bool {
+        guard ShortcutBootstrapService.shared.isShortcutAssistedEnabled else { return false }
+        return await withCheckedContinuation { continuation in
+            CellularAssistedBootstrapStateMachine.shared.startAssistedBootstrap(targetCoordinate: coordinate) { result in
+                continuation.resume(returning: (try? result.get()) != nil)
+            }
+        }
     }
 
     var estimatedLapDuration: TimeInterval? {
@@ -132,6 +156,10 @@ final class RouteLocationModel: ObservableObject {
     func replaceWaypoints(_ coordinates: [RouteCoordinate]) {
         waypoints = coordinates.filter(\.isValid)
         routeInputsChanged()
+        quickRouteMode = .route
+        previewingRoute = nil
+        mapFocusRevision = UUID()
+        statusMessage = L10n.text("已匯入路線預覽。")
     }
 
     func removeWaypoints(at offsets: IndexSet) {
@@ -223,6 +251,7 @@ final class RouteLocationModel: ObservableObject {
                 navigationTransportMode: navigationTransport, isClosedLoop: isClosedLoop,
                 preferredSpeedKmh: speedKmh, playbackMode: playbackMode,
                 navigationGeometryNeedsRecalculation: false, isFavorite: existing?.isFavorite ?? false,
+                lastUsedAt: existing?.lastUsedAt,
                 createdAt: existing?.createdAt ?? now, updatedAt: now
             )
             try await persistence.saveRoute(route)
@@ -380,6 +409,9 @@ final class RouteLocationModel: ObservableObject {
         updated.lastUsedAt = Date()
         savedRoutes[index] = updated
         try? await persistence.saveRoute(updated)
+        if let coordinate = updated.waypoints.first {
+            await recordRecent(coordinate: coordinate, title: updated.name, kind: "route-start")
+        }
     }
 
     func deleteRoute(_ route: SavedRoute) async {
@@ -392,9 +424,11 @@ final class RouteLocationModel: ObservableObject {
 
     func addFavorite(name: String, note: String? = nil, coordinate: RouteCoordinate? = nil) async {
         guard let coordinate = coordinate ?? selectedCoordinate, coordinate.isValid else { presentedError = L10n.text("請先選擇有效座標。"); return }
-        let value = FavoriteLocation(name: name.isEmpty ? L10n.text("喜愛地點") : name, coordinate: coordinate, note: note)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = FavoriteLocation(name: trimmed.isEmpty ? L10n.text("新地點") : trimmed, coordinate: coordinate, note: note)
         favorites.append(value)
         await saveFavorites()
+        ToastManager.shared.show(L10n.format("已收藏「%@」", value.name), kind: .success)
     }
 
     func updateFavorite(_ favorite: FavoriteLocation, name: String, note: String?) async {
@@ -402,6 +436,12 @@ final class RouteLocationModel: ObservableObject {
         favorites[index].name = name
         favorites[index].note = note
         favorites[index].updatedAt = .now
+        await saveFavorites()
+    }
+
+    func markFavoriteUsed(_ favorite: FavoriteLocation) async {
+        guard let index = favorites.firstIndex(where: { $0.id == favorite.id }) else { return }
+        favorites[index].lastUsedAt = Date()
         await saveFavorites()
     }
 
@@ -416,9 +456,8 @@ final class RouteLocationModel: ObservableObject {
         guard !hasActiveDVT else { return false }
         guard connectionMonitor.currentTransport != .wifi else { return false }
         // directOnly still needs a real production preparation attempt; it
-        // simply refuses the assisted DataOff/DataOn fallback. assistedFirst
-        // retains the existing preflight behavior and auto uses localhost
-        // production preparation before falling back exactly once.
+        // simply refuses the assisted DataOff/DataOn fallback. Automatic
+        // cellular cold starts use the known-good assisted transaction.
         return connectionMonitor.currentTransport == .cellular || connectionMonitor.isCellularAvailable
     }
 
@@ -582,6 +621,7 @@ final class RouteLocationModel: ObservableObject {
         if alreadyWritten {
             startSinglePointHold(at: target)
             statusMessage = L10n.text("已成功模擬所選位置。")
+            await recordRecent(coordinate: target, kind: "simulate")
             return
         }
 
@@ -589,6 +629,7 @@ final class RouteLocationModel: ObservableObject {
             try await setCoordinateWithBoundedRecovery(target)
             startSinglePointHold(at: target)
             statusMessage = L10n.text("已成功模擬所選位置。")
+            await recordRecent(coordinate: target, kind: "simulate")
         } catch {
             LocationSessionCoordinator.shared.markSessionDegraded(error: error)
             presentedError = error.localizedDescription
@@ -727,8 +768,10 @@ final class RouteLocationModel: ObservableObject {
         do {
             async let loadedFavorites = persistence.loadFavorites()
             async let loadedRoutes = persistence.loadRoutes()
+            async let loadedRecents = persistence.loadRecentLocations()
             favorites = try await loadedFavorites
             savedRoutes = try await loadedRoutes
+            recentLocations = try await loadedRecents
             let legacyRoutes = savedRoutes.filter { $0.name == "New Route" }
             for route in legacyRoutes {
                 var updated = route
@@ -747,8 +790,39 @@ final class RouteLocationModel: ObservableObject {
     private func saveFavorites() async {
         do {
             try await persistence.saveFavorites(favorites)
-            favorites.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         } catch { presentedError = L10n.format("無法儲存喜愛地點：%@", error.localizedDescription) }
+    }
+
+    func recordRecent(coordinate: RouteCoordinate, title: String? = nil, kind: String = "simulate") async {
+        guard coordinate.isValid else { return }
+        recentLocations.removeAll { existing in
+            abs(existing.coordinate.latitude - coordinate.latitude) < 0.000001 &&
+            abs(existing.coordinate.longitude - coordinate.longitude) < 0.000001
+        }
+        recentLocations.insert(RecentLocation(coordinate: coordinate, title: title, kind: kind), at: 0)
+        recentLocations = Array(recentLocations.prefix(30))
+        try? await persistence.saveRecentLocations(recentLocations)
+    }
+
+    func clearRecentLocations() async {
+        recentLocations = []
+        try? await persistence.saveRecentLocations([])
+    }
+
+    var sortedFavorites: [FavoriteLocation] {
+        switch librarySortOption {
+        case .newest: return favorites.sorted { $0.createdAt > $1.createdAt }
+        case .oldest: return favorites.sorted { $0.createdAt < $1.createdAt }
+        case .name: return favorites.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .recentlyUsed: return favorites.sorted { ($0.lastUsedAt ?? .distantPast) > ($1.lastUsedAt ?? .distantPast) }
+        }
+    }
+
+    func setPlaybackSpeed(_ speed: Double) {
+        do {
+            try playback.setSpeed(speed)
+            speedKmh = speed
+        } catch { presentedError = error.localizedDescription }
     }
 
     #if DEBUG

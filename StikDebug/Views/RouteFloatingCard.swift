@@ -134,6 +134,17 @@ struct RouteFloatingCard: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let current = model.activeSimulatedCoordinate {
+                Button {
+                    Task { await model.addFavorite(name: "", coordinate: current) }
+                } label: {
+                    Image(systemName: "star")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel(L10n.text("收藏目前模擬位置"))
+            }
+
             Spacer()
 
             Button(L10n.text("更多…")) { showMoreActions = true }

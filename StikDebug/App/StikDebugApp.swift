@@ -18,6 +18,8 @@ struct RouteLocationApp: App {
         WindowGroup {
             MainTabView()
                 .task {
+                    CellularAssistedBootstrapStateMachine.shared.beginForegroundRecoveryCycle()
+                    CellularAssistedBootstrapStateMachine.shared.handleStaleRecoveryIfNeeded()
                     await downloadMissingDeveloperDiskImageFiles()
                     LocationSessionCoordinator.shared.prewarmIfAppropriate()
                 }
@@ -33,6 +35,8 @@ struct RouteLocationApp: App {
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         switch newPhase {
         case .active:
+            CellularAssistedBootstrapStateMachine.shared.beginForegroundRecoveryCycle()
+            CellularAssistedBootstrapStateMachine.shared.handleStaleRecoveryIfNeeded()
             LocationSessionCoordinator.shared.prewarmIfAppropriate()
         case .background:
             Task { await HealthStepSyncService.shared.flush() }
