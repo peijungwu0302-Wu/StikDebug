@@ -70,6 +70,10 @@ jobs:
               print(f"::error::Unable to decode xcresult summary: {exc}")
               raise SystemExit(0)
           summary = data.get("testResults", data)
+          for failure in summary.get("testFailures", []):
+              identifier = failure.get("testIdentifierString", "unknown-test")
+              message = failure.get("failureText", "unknown failure")
+              print("::error::TEST_FAILURE " + identifier + " :: " + message[:700])
           print("::error::XCRESULT_SUMMARY " + json.dumps(summary, ensure_ascii=False, separators=(",", ":"))[:900])
           PY
             fi

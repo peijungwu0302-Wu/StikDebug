@@ -1585,13 +1585,15 @@ struct CellularAssistedBootstrapTests {
         // User confirms preflight force. Use a bounded cooperative wait so a
         // regression cannot leave the CI process suspended forever if the
         // asynchronous playback completion callback is not delivered.
-        model.testPlaybackAfterBootstrapCompletion = { }
+        var playbackStartCompleted = false
+        model.testPlaybackAfterBootstrapCompletion = { playbackStartCompleted = true }
         model.confirmBootstrapPreflightForce()
-        for _ in 0..<200 where model.testPlaybackStartInvocationCount == 0 {
+        for _ in 0..<2000 where !playbackStartCompleted {
             await Task.yield()
         }
 
         // Verify preflight sheet does NOT re-appear recursively and playback started exactly once
+        #expect(playbackStartCompleted == true)
         #expect(model.testPlaybackStartInvocationCount == 1)
         #expect(model.showBootstrapPreflightSheet == false)
         #expect(model.presentedError == nil)
