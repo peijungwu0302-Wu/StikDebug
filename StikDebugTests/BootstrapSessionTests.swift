@@ -121,7 +121,9 @@ struct BootstrapSessionTests {
             productionSessionHealth: "none", productionBehaviorModified: false,
             locationWriteOccurred: false
         )
-        let decoded = try JSONDecoder().decode(FullCellularResearchReport.self, from: report.jsonData!)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(FullCellularResearchReport.self, from: report.jsonData!)
         #expect(decoded == report)
         #expect(report.text.contains("flags=32849"))
         #expect(report.text.contains("errno=61"))

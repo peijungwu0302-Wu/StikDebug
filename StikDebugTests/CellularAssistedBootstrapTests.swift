@@ -807,6 +807,7 @@ struct CellularAssistedBootstrapTests {
     @Test func test_J_afterCompletedRouteBootstrap_laterSinglePointRequestDoesNotReuseStaleMarker() async {
         let mockSink = MockLocationSink()
         let model = RouteLocationModel(simulationService: mockSink)
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .connected)
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = .directOnly
 
         let coord = RouteCoordinate(latitude: 25.01, longitude: 121.51)
@@ -936,6 +937,9 @@ struct CellularAssistedBootstrapTests {
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
         DirectCellularResearchService.shared.isBetaEnabled = false
+        ProductionLocationSessionPreparer.shared.mockPreparationResult = { _, _ in
+            LocationSimulationPreparationResult(target: "127.0.0.1:49152", stage: .rsd, statusCode: 9, ffiCode: 16, ffiSubCode: nil, message: "Connection refused", durationMs: 1)
+        }
 
         var invocationCount = 0
         var triggeredPhase: ShortcutPhase?
@@ -958,6 +962,7 @@ struct CellularAssistedBootstrapTests {
 
         ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
         CellularAssistedBootstrapStateMachine.shared.resetForTesting()
+        ProductionLocationSessionPreparer.shared.resetForTesting()
     }
 
     @Test func test_v1211_dataOffCallbackSuccess_cellularStillReportedAvailable_bootstrapProceedsImmediately() async {
