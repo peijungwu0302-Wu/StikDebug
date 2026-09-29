@@ -1108,7 +1108,7 @@ struct CellularAssistedBootstrapTests {
         ProductionLocationSessionPreparer.shared.resetForTesting()
     }
 
-    @Test func test_v1211_directCellularResearchBeta_failedDirect_autoFallbacksWithPreservedTarget() async {
+    @Test func test_v1213_cellularAuto_ignoresResearchBetaAndUsesAssistedTarget() async {
         let coordinator = BootstrapCoordinator.shared
         ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
         LocationDataPathHealth.shared.resetForTesting()
@@ -1118,9 +1118,10 @@ struct CellularAssistedBootstrapTests {
 
         let target = RouteCoordinate(latitude: 25.0421, longitude: 121.5322)
 
-        // Mock research direct attempt failure
-        DirectCellularResearchService.shared.testMockDirectAttempt = { coord, comp in
-            comp(false, NSError(domain: "NSPOSIXErrorDomain", code: 65, userInfo: [NSLocalizedDescriptionKey: "No route to host"]))
+        var assistedTarget: RouteCoordinate?
+        coordinator.testMockAssistedRunner = { coordinate, completion in
+            assistedTarget = coordinate
+            completion(.success(.needsLocationWrite))
         }
 
         coordinator.coordinateSimulation(
@@ -1130,16 +1131,12 @@ struct CellularAssistedBootstrapTests {
             onError: { _ in }
         )
 
-        try? await Task.sleep(for: .milliseconds(50))
+        #expect(coordinator.lastCoordinationPath == "auto_cellular_assisted")
+        #expect(coordinator.lastFallbackOccurred == false)
+        #expect(assistedTarget == target)
 
-        #expect(coordinator.lastCoordinationPath == "research_beta_direct_attempt")
-        #expect(coordinator.lastFallbackOccurred == true)
-        #expect(DirectCellularResearchService.shared.lastResult?.posixErrno == "65")
-        #expect(DirectCellularResearchService.shared.lastResult?.fallbackOccurred == true)
-        #expect(CellularAssistedBootstrapStateMachine.shared.testVerificationCoordinate == target)
-
-        DirectCellularResearchService.shared.testMockDirectAttempt = nil
         DirectCellularResearchService.shared.isBetaEnabled = false
+        coordinator.resetForTesting()
         CellularAssistedBootstrapStateMachine.shared.resetForTesting()
         ShortcutBootstrapService.shared.discardActiveTransactionForTesting()
     }
@@ -1301,6 +1298,9 @@ struct CellularAssistedBootstrapTests {
         BootstrapCoordinator.shared.testMockResearchRunner = { _, completion in
             completion(true)
         }
+        BootstrapCoordinator.shared.testMockAssistedRunner = { _, completion in
+            completion(.success(.needsLocationWrite))
+        }
 
         var observedDisposition: BootstrapProceedDisposition?
         BootstrapCoordinator.shared.coordinateSimulation(
@@ -1311,7 +1311,7 @@ struct CellularAssistedBootstrapTests {
         )
 
         #expect(observedDisposition == .needsLocationWrite)
-        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "research_beta_direct_attempt")
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "auto_cellular_assisted")
 
         BootstrapCoordinator.shared.resetForTesting()
         DirectCellularResearchService.shared.isBetaEnabled = false
@@ -1443,12 +1443,9 @@ struct CellularAssistedBootstrapTests {
         )
 
         #expect(didProceed == true)
-        #expect(BootstrapCoordinator.shared.lastFallbackOccurred == true)
+        #expect(BootstrapCoordinator.shared.lastFallbackOccurred == false)
 
-        let researchTrace = store.history.first { $0.txId == "tx-research-test" } ?? (store.previousTrace?.txId == "tx-research-test" ? store.previousTrace : nil)
-        #expect(researchTrace != nil)
-        #expect(researchTrace?.outcome == "RESEARCH_FAILED_FALLBACK")
-        #expect(researchTrace?.failureStage == "ResearchDirect")
+        #expect(store.history.first { $0.txId == "tx-research-test" } == nil)
 
         BootstrapCoordinator.shared.resetForTesting()
         DirectCellularResearchService.shared.isBetaEnabled = false
@@ -1473,7 +1470,7 @@ struct CellularAssistedBootstrapTests {
         )
 
         #expect(preflightCalled == true)
-        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "production_direct_failed_assisted_fallback")
+        #expect(BootstrapCoordinator.shared.lastCoordinationPath == "auto_cellular_assisted")
 
         ProductionLocationSessionPreparer.shared.resetForTesting()
         ShortcutBootstrapService.shared.isShortcutAssistedEnabled = true
