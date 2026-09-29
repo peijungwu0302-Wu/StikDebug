@@ -109,7 +109,12 @@ struct BootstrapSessionTests {
             ffiCode: 16, ffiSubCode: nil, message: "Connection refused", durationMs: 3
         ))
         let report = FullCellularResearchReport(
-            id: UUID(), startedAt: .now, completedAt: .now,
+            id: UUID(),
+            // ISO-8601 JSON intentionally has millisecond precision. Use
+            // deterministic whole-second dates so round-trip equality tests
+            // do not depend on Date's sub-millisecond representation.
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            completedAt: Date(timeIntervalSince1970: 1_700_000_001),
             appVersion: "1.2.12", build: "8", transport: "cellular",
             wifiObservation: "off", cellularObservation: "available",
             vpnObservation: "detected", vpnCandidate: "utun3", pathStatus: "satisfied",
