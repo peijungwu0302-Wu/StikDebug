@@ -254,13 +254,8 @@ struct BootstrapCoordinatorCorrectionTests {
         defaults.set(BootstrapEndpointMode.loopbackIPv4.rawValue, forKey: BootstrapEndpointStrategy.modeKey)
 
         let target = RouteCoordinate(latitude: 25.0478, longitude: 121.5319)
-        var directEndpoint = ""
         var assistedCount = 0
         var assistedTarget: RouteCoordinate?
-        ProductionLocationSessionPreparer.shared.mockPreparationResult = { endpoint, _ in
-            directEndpoint = endpoint
-            return failure
-        }
         BootstrapCoordinator.shared.testMockAssistedRunner = { coordinate, completion in
             assistedCount += 1
             assistedTarget = coordinate
@@ -274,7 +269,8 @@ struct BootstrapCoordinatorCorrectionTests {
             onError: { _ in Issue.record("Assisted fallback should handle loopback failure") }
         )
 
-        #expect(directEndpoint == BootstrapEndpointStrategy.loopbackAddress)
+        // Automatic cellular cold start intentionally skips the localhost
+        // production attempt; it enters the known-good assisted flow directly.
         #expect(assistedCount == 1)
         #expect(assistedTarget == target)
         #expect(CellularAssistedBootstrapStateMachine.assistedBootstrapEndpoint == BootstrapEndpointStrategy.localDevVPNAddress)
@@ -302,10 +298,6 @@ struct BootstrapCoordinatorCorrectionTests {
         defaults.set("192.0.2.10", forKey: BootstrapEndpointStrategy.customAddressKey)
 
         var assistedCount = 0
-        ProductionLocationSessionPreparer.shared.mockPreparationResult = { endpoint, _ in
-            #expect(endpoint == "192.0.2.10")
-            return failure
-        }
         BootstrapCoordinator.shared.testMockAssistedRunner = { _, completion in
             assistedCount += 1
             completion(.success(.needsLocationWrite))
@@ -318,6 +310,9 @@ struct BootstrapCoordinatorCorrectionTests {
             onError: { _ in Issue.record("Assisted fallback should handle custom endpoint failure") }
         )
 
+        // Automatic cellular cold start does not probe a developer endpoint;
+        // the assisted flow is selected directly and keeps the preference
+        // available for explicit Direct Only/research operations.
         #expect(assistedCount == 1)
         #expect(BootstrapEndpointStrategy.storedMode() == .custom)
         #expect(BootstrapEndpointStrategy.storedCustomAddress() == "192.0.2.10")
