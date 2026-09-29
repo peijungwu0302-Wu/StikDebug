@@ -748,6 +748,175 @@ private enum LocationSimulationState {
             self.adapter = nil
         }
     }
+
+    static var isPrepared: Bool { locationSimulation != nil }
+}
+
+enum LocationSimulationPreparationStage: String, Codable, Sendable {
+    case pairingRead = "PAIRING_READ"
+    case rpairing = "RPAIRING"
+    case rsd = "RSD"
+    case locationSimulationService = "LOCATION_SIMULATION_SERVICE"
+    case ready = "READY"
+}
+
+struct LocationSimulationPreparationResult: Codable, Equatable, Sendable {
+    let target: String
+    let stage: LocationSimulationPreparationStage
+    let statusCode: Int32
+    let ffiCode: Int32?
+    let ffiSubCode: Int32?
+    let message: String?
+    let durationMs: Double
+
+    var isSuccess: Bool { stage == .ready && statusCode == LocationSimulationStatus.ok }
+}
+
+private func locationSimulationErrorDetails(_ error: UnsafeMutablePointer<IdeviceFfiError>?) -> (Int32?, Int32?, String?) {
+    guard let error else { return (nil, nil, nil) }
+    let code = error.pointee.code
+    let subCode = error.pointee.sub_code
+    let message = error.pointee.message.map { String(cString: $0) }
+    idevice_error_free(error)
+    return (code, subCode, message)
+}
+
+private func makeLocationAddress(_ deviceIP: String) -> sockaddr_in? {
+    var address = sockaddr_in()
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = in_port_t(49152).bigEndian
+    let result = deviceIP.withCString { inet_pton(AF_INET, $0, &address.sin_addr) }
+    return result == 1 ? address : nil
+}
+
+/// Prepare the production RemotePairing → RSD → LocationSimulation chain without
+/// changing the user's location. Callers must serialize this function on
+/// `LocationSimulationCommandQueue`; the same queue owns all global handles.
+func prepare_location_simulation_session(_ deviceIP: String, _ pairingFile: String) -> LocationSimulationPreparationResult {
+    let started = ProcessInfo.processInfo.systemUptime
+    func result(_ stage: LocationSimulationPreparationStage, _ status: Int32, _ details: (Int32?, Int32?, String?) = (nil, nil, nil)) -> LocationSimulationPreparationResult {
+        LocationSimulationPreparationResult(
+            target: "\(deviceIP):49152",
+            stage: stage,
+            statusCode: status,
+            ffiCode: details.0,
+            ffiSubCode: details.1,
+            message: details.2,
+            durationMs: (ProcessInfo.processInfo.systemUptime - started) * 1000
+        )
+    }
+
+    guard makeLocationAddress(deviceIP) != nil else {
+        return result(.pairingRead, LocationSimulationStatus.invalidIP, (nil, nil, "Invalid IPv4 address"))
+    }
+    if LocationSimulationState.isPrepared { return result(.ready, LocationSimulationStatus.ok) }
+    guard FileManager.default.fileExists(atPath: pairingFile) else {
+        return result(.pairingRead, LocationSimulationStatus.pairingRead, (nil, nil, "Pairing file is missing"))
+    }
+
+    var pairingHandle: OpaquePointer?
+    let pairingError = pairingFile.withCString { rp_pairing_file_read($0, &pairingHandle) }
+    if let pairingError {
+        let details = locationSimulationErrorDetails(pairingError)
+        return result(.pairingRead, LocationSimulationStatus.pairingRead, details)
+    }
+    guard let pairingHandle else {
+        return result(.pairingRead, LocationSimulationStatus.pairingRead, (nil, nil, "Pairing file could not be read"))
+    }
+    defer { rp_pairing_file_free(pairingHandle) }
+
+    // Preparation owns only the handles created by this attempt. Existing
+    // production handles are never touched by an experimental probe.
+    var adapter: OpaquePointer?
+    var handshake: OpaquePointer?
+    var remoteServer: OpaquePointer?
+    var locationSimulation: OpaquePointer?
+    func cleanupAttempt() {
+        if let locationSimulation { location_simulation_free(locationSimulation) }
+        if let remoteServer { remote_server_free(remoteServer) }
+        if let handshake { rsd_handshake_free(handshake) }
+        if let adapter { adapter_free(adapter) }
+    }
+    guard var address = makeLocationAddress(deviceIP) else {
+        return result(.pairingRead, LocationSimulationStatus.invalidIP, (nil, nil, "Invalid IPv4 address"))
+    }
+    let providerError = withUnsafePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            tunnel_create_rppairing($0, socklen_t(MemoryLayout<sockaddr_in>.stride), "StikDebugLocation", pairingHandle, nil, nil, &adapter, &handshake)
+        }
+    }
+    if let providerError {
+        let details = locationSimulationErrorDetails(providerError)
+        cleanupAttempt()
+        return result(.rpairing, LocationSimulationStatus.providerCreate, details)
+    }
+
+    if let error = remote_server_connect_rsd(adapter, handshake, &remoteServer) {
+        let details = locationSimulationErrorDetails(error)
+        cleanupAttempt()
+        return result(.rsd, LocationSimulationStatus.remoteServer, details)
+    }
+    if let error = location_simulation_new(remoteServer, &locationSimulation) {
+        let details = locationSimulationErrorDetails(error)
+        cleanupAttempt()
+        return result(.locationSimulationService, LocationSimulationStatus.locationSimulation, details)
+    }
+
+    // Transfer ownership only after every preparation stage succeeded.
+    LocationSimulationState.cleanup()
+    LocationSimulationState.adapter = adapter
+    LocationSimulationState.handshake = handshake
+    LocationSimulationState.remoteServer = remoteServer
+    LocationSimulationState.locationSimulation = locationSimulation
+    return result(.ready, LocationSimulationStatus.ok)
+}
+
+func set_prepared_location(_ latitude: Double, _ longitude: Double) -> Int32 {
+    guard let locationSimulation = LocationSimulationState.locationSimulation else { return LocationSimulationStatus.locationSimulation }
+    if let error = location_simulation_set(locationSimulation, latitude, longitude) {
+        idevice_error_free(error)
+        return LocationSimulationStatus.locationSet
+    }
+    return LocationSimulationStatus.ok
+}
+
+func has_prepared_location_simulation_session() -> Bool { LocationSimulationState.isPrepared }
+
+func cleanup_prepared_location_simulation_session() { LocationSimulationState.cleanup() }
+
+/// Isolated production-equivalent trial. It never touches LocationSimulationState
+/// and never calls location_simulation_set/clear.
+func probe_location_simulation_session(_ deviceIP: String, _ pairingFile: String) -> LocationSimulationPreparationResult {
+    let started = ProcessInfo.processInfo.systemUptime
+    func result(_ stage: LocationSimulationPreparationStage, _ status: Int32, _ details: (Int32?, Int32?, String?) = (nil, nil, nil)) -> LocationSimulationPreparationResult {
+        LocationSimulationPreparationResult(target: "\(deviceIP):49152", stage: stage, statusCode: status, ffiCode: details.0, ffiSubCode: details.1, message: details.2, durationMs: (ProcessInfo.processInfo.systemUptime - started) * 1000)
+    }
+    guard var address = makeLocationAddress(deviceIP) else { return result(.pairingRead, LocationSimulationStatus.invalidIP, (nil, nil, "Invalid IPv4 address")) }
+    var pairingHandle: OpaquePointer?
+    if let error = pairingFile.withCString({ rp_pairing_file_read($0, &pairingHandle) }) {
+        return result(.pairingRead, LocationSimulationStatus.pairingRead, locationSimulationErrorDetails(error))
+    }
+    guard let pairingHandle else { return result(.pairingRead, LocationSimulationStatus.pairingRead, (nil, nil, "Pairing file could not be read")) }
+    defer { rp_pairing_file_free(pairingHandle) }
+    var adapter: OpaquePointer?
+    var handshake: OpaquePointer?
+    var remoteServer: OpaquePointer?
+    var locationSimulation: OpaquePointer?
+    defer {
+        if let locationSimulation { location_simulation_free(locationSimulation) }
+        if let remoteServer { remote_server_free(remoteServer) }
+        if let handshake { rsd_handshake_free(handshake) }
+        if let adapter { adapter_free(adapter) }
+    }
+    let providerError = withUnsafePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            tunnel_create_rppairing($0, socklen_t(MemoryLayout<sockaddr_in>.stride), "StikDebugLocationResearch", pairingHandle, nil, nil, &adapter, &handshake)
+        }
+    }
+    if let providerError { return result(.rpairing, LocationSimulationStatus.providerCreate, locationSimulationErrorDetails(providerError)) }
+    if let error = remote_server_connect_rsd(adapter, handshake, &remoteServer) { return result(.rsd, LocationSimulationStatus.remoteServer, locationSimulationErrorDetails(error)) }
+    if let error = location_simulation_new(remoteServer, &locationSimulation) { return result(.locationSimulationService, LocationSimulationStatus.locationSimulation, locationSimulationErrorDetails(error)) }
+    return result(.ready, LocationSimulationStatus.ok)
 }
 
 enum LocationSimulationCommandQueue {
@@ -755,97 +924,15 @@ enum LocationSimulationCommandQueue {
 }
 
 func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Double, _ pairingFile: String) -> Int32 {
-    if let locationSimulation = LocationSimulationState.locationSimulation {
-        if let ffiError = location_simulation_set(locationSimulation, latitude, longitude) {
-            idevice_error_free(ffiError)
-            LocationSimulationState.cleanup()
-        } else {
-            return LocationSimulationStatus.ok
-        }
-    }
-
-    var address = sockaddr_in()
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = in_port_t(49152).bigEndian
-
-    let inetResult = deviceIP.withCString { inet_pton(AF_INET, $0, &address.sin_addr) }
-    guard inetResult == 1 else {
-        return LocationSimulationStatus.invalidIP
-    }
-
-    var pairingHandle: OpaquePointer?
-    let pairingError = pairingFile.withCString { rp_pairing_file_read($0, &pairingHandle) }
-    if let pairingError {
-        idevice_error_free(pairingError)
-        return LocationSimulationStatus.pairingRead
-    }
-
-    guard let pairingHandle else {
-        return LocationSimulationStatus.pairingRead
-    }
-
-    defer { rp_pairing_file_free(pairingHandle) }
-
-    let providerError = withUnsafePointer(to: &address) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            tunnel_create_rppairing(
-                $0,
-                socklen_t(MemoryLayout<sockaddr_in>.stride),
-                "StikDebugLocation",
-                pairingHandle,
-                nil,
-                nil,
-                &LocationSimulationState.adapter,
-                &LocationSimulationState.handshake
-            )
-        }
-    }
-
-    if let providerError {
-        idevice_error_free(providerError)
+    if LocationSimulationState.isPrepared {
+        let code = set_prepared_location(latitude, longitude)
+        if code == LocationSimulationStatus.ok { return code }
         LocationSimulationState.cleanup()
-        return LocationSimulationStatus.providerCreate
     }
-
-    let remoteServerError = remote_server_connect_rsd(
-        LocationSimulationState.adapter,
-        LocationSimulationState.handshake,
-        &LocationSimulationState.remoteServer
-    )
-    if let remoteServerError {
-        idevice_error_free(remoteServerError)
-        LocationSimulationState.cleanup()
-        return LocationSimulationStatus.remoteServer
-    }
-
-    let locationSimulationError = location_simulation_new(
-        LocationSimulationState.remoteServer,
-        &LocationSimulationState.locationSimulation
-    )
-    if let locationSimulationError {
-        idevice_error_free(locationSimulationError)
-        LocationSimulationState.cleanup()
-        return LocationSimulationStatus.locationSimulation
-    }
-
-    Task { @MainActor in
-        BootstrapTraceStore.shared.recordEvent(.dvtReady)
-    }
-
-    LocationSimulationState.remoteServer = nil
-
-    let locationSetError = location_simulation_set(
-        LocationSimulationState.locationSimulation,
-        latitude,
-        longitude
-    )
-    if let locationSetError {
-        idevice_error_free(locationSetError)
-        LocationSimulationState.cleanup()
-        return LocationSimulationStatus.locationSet
-    }
-
-    return LocationSimulationStatus.ok
+    let prepared = prepare_location_simulation_session(deviceIP, pairingFile)
+    guard prepared.isSuccess else { return prepared.statusCode }
+    Task { @MainActor in BootstrapTraceStore.shared.recordEvent(.dvtReady) }
+    return set_prepared_location(latitude, longitude)
 }
 
 struct LocationClearOutcome: Sendable {

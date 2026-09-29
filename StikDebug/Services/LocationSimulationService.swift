@@ -53,14 +53,14 @@ final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked 
         guard coordinate.isValid else { throw LocationSimulationError.invalidCoordinate }
         let pairingURL = PairingFileStore.prepareURL()
         guard FileManager.default.fileExists(atPath: pairingURL.path) else { throw LocationSimulationError.pairingFileMissing }
-        let transport = await MainActor.run { ConnectionMonitor.shared.currentTransport.rawValue }
-        LogManager.shared.addDebugLog(
-            "Location update attempt: transport=\(transport), target=\(DeviceConnectionContext.targetIPAddress)"
-        )
+        let currentTransport = await MainActor.run { ConnectionMonitor.shared.currentTransport }
+        let transport = currentTransport.rawValue
+        let target = BootstrapEndpointStrategy.resolvedAddress(transport: currentTransport) ?? DeviceConnectionContext.targetIPAddress
+        LogManager.shared.addDebugLog("Location update attempt: transport=\(transport), target=\(target)")
         let code: Int32 = await withCheckedContinuation { continuation in
             LocationSimulationCommandQueue.shared.async {
                 continuation.resume(returning: simulate_location(
-                    DeviceConnectionContext.targetIPAddress,
+                    target,
                     coordinate.latitude,
                     coordinate.longitude,
                     pairingURL.path
@@ -92,7 +92,8 @@ final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked 
     func clearSimulatedLocation() async throws {
         let pairingURL = PairingFileStore.prepareURL()
         let pairingPath = FileManager.default.fileExists(atPath: pairingURL.path) ? pairingURL.path : nil
-        let targetIP = DeviceConnectionContext.targetIPAddress
+        let currentTransport = await MainActor.run { ConnectionMonitor.shared.currentTransport }
+        let targetIP = BootstrapEndpointStrategy.resolvedAddress(transport: currentTransport) ?? DeviceConnectionContext.targetIPAddress
 
         let outcome: LocationClearOutcome = await withCheckedContinuation { continuation in
             LocationSimulationCommandQueue.shared.async {

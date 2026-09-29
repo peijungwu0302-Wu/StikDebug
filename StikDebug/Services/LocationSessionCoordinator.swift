@@ -135,31 +135,32 @@ final class LocationSessionCoordinator: ObservableObject {
             return
         }
 
-        if activeSessionAvailable || isPrewarming {
+        if activeSessionAvailable || isPrewarming || has_prepared_location_simulation_session() {
             DeveloperDiagnosticsStore.shared.logDecision(
                 action: "PREWARM_DECISION",
                 reason: "Session already active or pre-warm currently in progress",
                 context: [
                     "activeSessionAvailable": String(activeSessionAvailable),
-                    "isPrewarming": String(isPrewarming)
+                    "isPrewarming": String(isPrewarming),
+                    "preparedSession": String(has_prepared_location_simulation_session())
                 ]
             )
             return
         }
 
         let monitor = ConnectionMonitor.shared
-        if monitor.currentTransport == .offline {
+        guard monitor.currentTransport == .wifi, monitor.isWifiAvailable, monitor.usesVPNInterface else {
             DeveloperDiagnosticsStore.shared.logDecision(
                 action: "PREWARM_DECISION",
-                reason: "Device is offline, skipping pre-warm",
-                context: ["transport": "offline"]
+                reason: "Automatic warm-up requires Wi-Fi and LocalDevVPN; skipping cellular/offline launch",
+                context: ["transport": monitor.currentTransport.rawValue, "vpn": String(monitor.usesVPNInterface)]
             )
             return
         }
 
         isPrewarming = true
         lastPrewarmTimestamp = Date()
-        sessionState = .preparing(stage: "自動預熱準備中")
+        sessionState = .preparing(stage: L10n.text("自動預熱準備中"))
 
         DeveloperDiagnosticsStore.shared.logDecision(
             action: "START_PREWARM",
@@ -168,13 +169,21 @@ final class LocationSessionCoordinator: ObservableObject {
         )
 
         Task {
-            // Check tunnel health without modifying simulated coordinates
-            TunnelManager.shared.checkHealthNow(transport: monitor.currentTransport)
-            try? await Task.sleep(for: .seconds(1))
+            let pairingPath = PairingFileStore.prepareURL().path
+            let target = BootstrapEndpointStrategy.localDevVPNAddress
+            let result = await withCheckedContinuation { continuation in
+                LocationSimulationCommandQueue.shared.async {
+                    continuation.resume(returning: prepare_location_simulation_session(target, pairingPath))
+                }
+            }
             await MainActor.run {
                 self.isPrewarming = false
-                if case .preparing = self.sessionState {
+                if result.isSuccess {
+                    self.sessionState = .activeHealthy(sessionId: self.currentSessionId ?? self.startNewSession())
+                    DeveloperDiagnosticsStore.shared.record(category: .dvtSession, action: "WARM_SESSION_READY", details: ["target": target])
+                } else if case .preparing = self.sessionState {
                     self.sessionState = .noSession
+                    LogManager.shared.addDebugLog("Location warm-up skipped after \(result.stage.rawValue): \(result.message ?? "unknown")")
                 }
             }
         }

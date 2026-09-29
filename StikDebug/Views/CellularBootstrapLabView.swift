@@ -12,6 +12,7 @@ struct CellularBootstrapLabView: View {
     @ObservedObject private var stateMachine = CellularAssistedBootstrapStateMachine.shared
     @ObservedObject private var researchService = DirectCellularResearchService.shared
     @ObservedObject private var bonjourDiscovery = BonjourRemotePairingDiscovery.shared
+    @ObservedObject private var researchSuite = FullCellularResearchSuite.shared
 
     @State private var isTestingAssisted = false
     @State private var currentReport: DiagnosisReport? = nil
@@ -20,6 +21,8 @@ struct CellularBootstrapLabView: View {
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
     @State private var utunReport: UtunTopologyReport? = nil
+    @State private var endpointMode: BootstrapEndpointMode = BootstrapEndpointStrategy.storedMode()
+    @State private var customEndpoint: String = BootstrapEndpointStrategy.storedCustomAddress()
 
     private var hasHealthySession: Bool {
         monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess
@@ -312,6 +315,65 @@ struct CellularBootstrapLabView: View {
                 }
             }
 
+            Section(L10n.text("完整行動網路研究套件")) {
+                Text(L10n.text("一次收集網路、utun、Bonjour、NWPath、TCP 與真實 RPairing/RSD/DVT 準備結果。此研究不寫入座標、不改變生產端點，也不會摧毀健康的 DVT。"))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button {
+                    Task { _ = await researchSuite.run() }
+                } label: {
+                    Label(researchSuite.isRunning ? L10n.text("完整研究執行中…") : L10n.text("執行完整行動網路研究套件"), systemImage: "waveform.path.ecg")
+                }
+                .disabled(researchSuite.isRunning)
+                if let report = researchSuite.latestReport {
+                    Text(report.text)
+                        .font(.caption2.monospaced())
+                        .textSelection(.enabled)
+                    HStack {
+                        Button(L10n.text("複製完整研究報告")) {
+                            UIPasteboard.general.string = report.text
+                            showCopyFeedback(L10n.text("完整研究報告已複製"))
+                        }
+                        Button(L10n.text("分享 TXT / JSON")) {
+                            let json = report.jsonData.map { String(data: $0, encoding: .utf8) ?? "" } ?? "{}"
+                            shareItems = [report.text, json]
+                            showShareSheet = true
+                        }
+                    }
+                }
+            }
+
+            if DeveloperDiagnosticsStore.shared.isDeveloperModeUnlocked {
+                Section(L10n.text("開發者端點策略")) {
+                    Picker(L10n.text("Bootstrap 端點"), selection: $endpointMode) {
+                        ForEach(BootstrapEndpointMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    if endpointMode == .custom {
+                        TextField(L10n.text("IPv4 位址"), text: $customEndpoint)
+                            .keyboardType(.numbersAndPunctuation)
+                        Button(L10n.text("儲存自訂端點")) {
+                            guard BootstrapEndpointStrategy.isValidIPv4(customEndpoint) else {
+                                ToastManager.shared.show(L10n.text("IPv4 位址無效"), kind: .error)
+                                return
+                            }
+                            UserDefaults.standard.set(customEndpoint, forKey: BootstrapEndpointStrategy.customAddressKey)
+                            UserDefaults.standard.set(endpointMode.rawValue, forKey: BootstrapEndpointStrategy.modeKey)
+                            ToastManager.shared.show(L10n.text("端點策略已儲存"), kind: .success)
+                        }
+                    } else {
+                        Button(L10n.text("套用端點策略")) {
+                            UserDefaults.standard.set(endpointMode.rawValue, forKey: BootstrapEndpointStrategy.modeKey)
+                            ToastManager.shared.show(L10n.text("端點策略已儲存"), kind: .success)
+                        }
+                    }
+                    Text(L10n.text("自動模式在 Wi-Fi 使用 10.7.0.1；行動網路冷啟動會先嘗試 127.0.0.1。研究模式不會修改此設定。"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             // ==========================================
             // 5. 生產底層真理 (Production FFI Truth & Route Analysis)
             // ==========================================
@@ -320,7 +382,7 @@ struct CellularBootstrapLabView: View {
                     HStack {
                         Text(L10n.text("生產連線目標 (Target)"))
                         Spacer()
-                        Text("10.7.0.1:49152")
+                        Text("Automatic: Wi-Fi 10.7.0.1 / Cellular 127.0.0.1")
                             .font(.caption.monospaced().bold())
                     }
                     HStack {
@@ -345,7 +407,7 @@ struct CellularBootstrapLabView: View {
                             .foregroundStyle(.secondary)
                     }
                     Divider()
-                    Text(L10n.text("行為事實說明：\n• 當行動網路開啟時，iOS 預設路由表將 10.7.0.1 封包導向 pdp_ip0 (蜂巢網路)，因而收到 POSIX 65 (No route to host)。\n• 當行動網路關閉時，LocalDevVPN 的 utun 介面接管或成為唯一直連路徑，連線瞬間成功。\n• 一旦建立 DVT Session，即便重新開啟行動數據，既有 TCP/TLS 保持活躍 (State C)，因此 One-Tap 輔助流程是當前最穩定可靠的解決方案。"))
+                    Text(L10n.text("行為事實說明：\n• Wi-Fi 自動模式使用 10.7.0.1；行動網路冷啟動會先以真實 FFI 嘗試 127.0.0.1。\n• TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功；完整研究套件會分開記錄每個階段。\n• 已建立的 DVT Session 不應因新的輔助探測失敗而被摧毀。"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

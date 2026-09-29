@@ -14,26 +14,26 @@ struct RouteEditorView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("路線") {
-                    TextField("路線名稱", text: $model.routeName)
-                    Picker("路線類型", selection: $model.routeMode) {
+                Section(L10n.text("路線")) {
+                    TextField(L10n.text("路線名稱"), text: $model.routeName)
+                    Picker(L10n.text("路線類型"), selection: $model.routeMode) {
                         ForEach(RouteMode.allCases) { Text($0.title).tag($0) }
                     }.pickerStyle(.segmented)
                     if model.routeMode == .navigation {
-                        Picker("交通方式", selection: $model.navigationTransport) {
+                        Picker(L10n.text("交通方式"), selection: $model.navigationTransport) {
                             ForEach(NavigationTransportMode.allCases) { Text($0.title).tag($0) }
                         }
                         if model.navigationGeometryNeedsRecalculation {
-                            Label("路線需要重新計算", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                            Label(L10n.text("路線需要重新計算"), systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                         }
                         Button(L10n.text(model.isResolvingNavigation ? "計算中…" : "使用 Apple 地圖計算")) {
                             Task { await model.recalculateNavigation() }
                         }.disabled(model.isResolvingNavigation || model.waypoints.count < 2)
                     }
-                    Toggle("封閉路線", isOn: $model.isClosedLoop)
+                    Toggle(L10n.text("封閉路線"), isOn: $model.isClosedLoop)
                 }
 
-                Section("航點（\(model.waypoints.count)）") {
+                Section(L10n.format("航點（%d）", model.waypoints.count)) {
                     ForEach(Array(model.waypoints.enumerated()), id: \.offset) { index, waypoint in
                         WaypointRow(index: index, waypoint: waypoint) { latitude, longitude in
                             model.updateWaypoint(at: index, latitude: latitude, longitude: longitude)
@@ -42,42 +42,42 @@ struct RouteEditorView: View {
                     .onDelete(perform: model.removeWaypoints)
                     .onMove(perform: model.moveWaypoints)
                     HStack {
-                        Button("貼上") { showPaste = true }
-                        Spacer(); Button("匯入檔案") {
+                        Button(L10n.text("貼上")) { showPaste = true }
+                        Spacer(); Button(L10n.text("匯入檔案")) {
                             showPaste = false
                             showSearch = false
                             showImporter = true
                         }
-                        Spacer(); Button("搜尋") { showSearch = true }
+                        Spacer(); Button(L10n.text("搜尋")) { showSearch = true }
                     }
                     .buttonStyle(.borderless)
-                    Text("支援文字、CSV、JSON、GeoJSON、GPX 與 KML。")
+                    Text(L10n.text("支援文字、CSV、JSON、GeoJSON、GPX 與 KML。"))
                         .font(.caption).foregroundStyle(.secondary)
-                    if model.selectedCoordinate != nil { Button("加入地圖所選位置") { model.addSelectedWaypoint() } }
-                    Button("全部清除", role: .destructive) { model.clearWaypoints() }.disabled(model.waypoints.isEmpty)
+                    if model.selectedCoordinate != nil { Button(L10n.text("加入地圖所選位置")) { model.addSelectedWaypoint() } }
+                    Button(L10n.text("全部清除"), role: .destructive) { model.clearWaypoints() }.disabled(model.waypoints.isEmpty)
                 }
 
-                Section("播放") {
+                Section(L10n.text("播放")) {
                     HStack {
-                        TextField("速度", value: $model.speedKmh, format: .number)
+                        TextField(L10n.text("速度"), value: $model.speedKmh, format: .number)
                             .keyboardType(.decimalPad)
                             .focused($speedFieldFocused)
                         Text("km/h").foregroundStyle(.secondary)
                     }
-                    Picker("模式", selection: $model.playbackMode) {
+                    Picker(L10n.text("模式"), selection: $model.playbackMode) {
                         ForEach(RoutePlaybackMode.allCases) { Text($0.title).tag($0) }
                     }
-                    LabeledContent("距離", value: model.geometry.totalDistance.formattedRouteDistance)
-                    LabeledContent("預估單圈時間", value: model.estimatedLapDuration?.formattedDuration ?? "—")
-                    Button("開始播放") { Task { await model.startPlayback() } }
+                    LabeledContent(L10n.text("距離"), value: model.geometry.totalDistance.formattedRouteDistance)
+                    LabeledContent(L10n.text("預估單圈時間"), value: model.estimatedLapDuration?.formattedDuration ?? "—")
+                    Button(L10n.text("開始播放")) { Task { await model.startPlayback() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
-                    Button("儲存路線") { speedFieldFocused = false; showSaveSheet = true }
+                    Button(L10n.text("儲存路線")) { speedFieldFocused = false; showSaveSheet = true }
                         .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
                 }
 
-                Section("已儲存路線") {
-                    if model.savedRoutes.isEmpty { Text("尚無已儲存路線。").foregroundStyle(.secondary) }
+                Section(L10n.text("已儲存路線")) {
+                    if model.savedRoutes.isEmpty { Text(L10n.text("尚無已儲存路線。")) .foregroundStyle(.secondary) }
                     ForEach(model.savedRoutes) { route in
                         Button { model.loadRoute(route) } label: {
                             HStack {

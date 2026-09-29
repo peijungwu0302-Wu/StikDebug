@@ -15,7 +15,7 @@ struct DeveloperDiagnosticsView: View {
 
     var body: some View {
         List {
-            Section("目前測試回合 (Active Test Run)") {
+            Section(L10n.text("目前測試回合 (Active Test Run)")) {
                 if let run = store.activeRun {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
@@ -24,16 +24,16 @@ struct DeveloperDiagnosticsView: View {
                             Text(L10n.format("%d 個事件", run.eventCount))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                        Text("ID: \(run.id)")
+                        Text(L10n.format("ID: %@", run.id))
                             .font(.caption2.monospaced()).foregroundStyle(.secondary)
                         HStack {
-                            Text("版本: \(run.appVersion) (\(run.buildNumber))")
+                            Text(L10n.format("版本: %@ (%@)", run.appVersion, run.buildNumber))
                             Spacer()
                             Text("iOS: \(run.osVersion)")
                         }
                         .font(.caption).foregroundStyle(.secondary)
                         if let sid = coordinator.currentSessionId {
-                            Text("目前 Session: \(String(sid.prefix(8)))")
+                            Text(L10n.format("目前 Session: %@", String(sid.prefix(8))))
                                 .font(.caption.monospaced()).foregroundStyle(.green)
                         }
                     }
@@ -55,7 +55,7 @@ struct DeveloperDiagnosticsView: View {
                 }
             }
 
-            Section("安裝身分與容器 (Installation Identity)") {
+            Section(L10n.text("安裝身分與容器 (Installation Identity)")) {
                 let identity = store.installationIdentity
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -74,28 +74,28 @@ struct DeveloperDiagnosticsView: View {
                         Text(identity.teamIdentifier).font(.caption.monospaced()).foregroundStyle(.secondary)
                     }
                     HStack {
-                        Text("版本")
+                        Text(L10n.text("版本"))
                         Spacer()
                         Text("\(identity.version) (\(identity.build))").font(.caption).foregroundStyle(.secondary)
                     }
                     HStack {
-                        Text("容器識別雜湊")
+                        Text(L10n.text("容器識別雜湊"))
                         Spacer()
                         Text(identity.containerIdentityHash).font(.caption.monospaced().bold()).foregroundStyle(.blue)
                     }
                     HStack {
-                        Text("配對檔狀態")
+                        Text(L10n.text("配對檔狀態"))
                         Spacer()
                         Text(identity.pairingFileStatus).font(.caption).foregroundStyle(.secondary)
                     }
                     HStack {
-                        Text("簽名設定檔")
+                        Text(L10n.text("簽名設定檔"))
                         Spacer()
                         Text(identity.provisioningProfileStatus).font(.caption).foregroundStyle(.secondary)
                     }
                     if let exp = identity.signingExpirationDate {
                         HStack {
-                            Text("簽名到期")
+                            Text(L10n.text("簽名到期"))
                             Spacer()
                             Text(exp).font(.caption).foregroundStyle(.secondary)
                         }
@@ -104,7 +104,7 @@ struct DeveloperDiagnosticsView: View {
                 .padding(.vertical, 2)
             }
 
-            Section("匯出與分享 (Export & Share)") {
+            Section(L10n.text("匯出與分享 (Export & Share)")) {
                 Button {
                     if let url = store.exportSafeReport() {
                         shareURL = url
@@ -123,15 +123,15 @@ struct DeveloperDiagnosticsView: View {
                     Label(L10n.text("匯出完整開發者日誌 (Full JSONL)"), systemImage: "doc.text")
                 }
 
-                Text("安全報告會自動遮蔽敏感憑證、實際經緯度座標與搜尋關鍵字；完整日誌則供本機除錯。")
+                Text(L10n.text("安全報告會自動遮蔽敏感憑證、實際經緯度座標與搜尋關鍵字；完整日誌則供本機除錯。"))
                     .font(.footnote).foregroundStyle(.secondary)
             }
 
-            Section("事件分類篩選") {
+            Section(L10n.text("事件分類篩選")) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         Button(action: { selectedCategory = nil }) {
-                            Text("全部 (\(store.recentEvents.count))")
+                            Text(L10n.format("全部 (%d)", store.recentEvents.count))
                                 .font(.caption)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
@@ -158,10 +158,10 @@ struct DeveloperDiagnosticsView: View {
                 }
             }
 
-            Section("最近事件 (Recent Events)") {
+            Section(L10n.text("最近事件 (Recent Events)")) {
                 let filtered = filteredEvents
                 if filtered.isEmpty {
-                    Text("目前尚無符合篩選條件的事件記錄。")
+                    Text(L10n.text("目前尚無符合篩選條件的事件記錄。"))
                         .font(.footnote).foregroundStyle(.secondary)
                 } else {
                     ForEach(filtered) { event in
@@ -201,7 +201,7 @@ struct DeveloperDiagnosticsView: View {
                 }
             }
 
-            Section("管理") {
+            Section(L10n.text("管理")) {
                 Button(role: .destructive) {
                     showClearConfirm = true
                 } label: {
@@ -211,16 +211,16 @@ struct DeveloperDiagnosticsView: View {
         }
         .navigationTitle(L10n.text("開發者診斷"))
         .alert(L10n.text("新增測試標記"), isPresented: $showNewMarkerAlert) {
-            TextField("例如：開啟飛航模式、開始繞圈測試...", text: $markerText)
+            TextField(L10n.text("例如：開啟飛航模式、開始繞圈測試..."), text: $markerText)
             Button(L10n.text("新增")) {
                 store.addUserMarker(note: markerText)
             }
             Button(L10n.text("取消"), role: .cancel) {}
         } message: {
-            Text("輸入此時測試情境備忘，將存入 JSONL 事件流中。")
+            Text(L10n.text("輸入此時測試情境備忘，將存入 JSONL 事件流中。"))
         }
         .alert(L10n.text("建立新測試回合"), isPresented: $showNewRunAlert) {
-            TextField("回合名稱（留空使用時間戳記）", text: $newRunName)
+            TextField(L10n.text("回合名稱（留空使用時間戳記）"), text: $newRunName)
             Button(L10n.text("建立")) {
                 store.startNewRun(name: newRunName.isEmpty ? nil : newRunName)
             }
@@ -232,7 +232,7 @@ struct DeveloperDiagnosticsView: View {
             }
             Button(L10n.text("取消"), role: .cancel) {}
         } message: {
-            Text("這將會移除本機所有測試回合與事件 JSONL 檔案。")
+            Text(L10n.text("這將會移除本機所有測試回合與事件 JSONL 檔案。"))
         }
         .sheet(isPresented: $showShareSheet) {
             if let url = shareURL {

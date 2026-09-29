@@ -38,6 +38,35 @@ enum LocationSimulationCommandQueue {
     static let shared = DispatchQueue(label: "com.routelocation.simulator-location-sim")
 }
 
+enum LocationSimulationPreparationStage: String, Codable, Sendable {
+    case pairingRead = "PAIRING_READ"
+    case rpairing = "RPAIRING"
+    case rsd = "RSD"
+    case locationSimulationService = "LOCATION_SIMULATION_SERVICE"
+    case ready = "READY"
+}
+
+struct LocationSimulationPreparationResult: Codable, Equatable, Sendable {
+    let target: String
+    let stage: LocationSimulationPreparationStage
+    let statusCode: Int32
+    let ffiCode: Int32?
+    let ffiSubCode: Int32?
+    let message: String?
+    let durationMs: Double
+    var isSuccess: Bool { false }
+}
+
+func prepare_location_simulation_session(_ deviceIP: String, _ pairingFile: String) -> LocationSimulationPreparationResult {
+    LocationSimulationPreparationResult(target: "\(deviceIP):49152", stage: .pairingRead, statusCode: -1, ffiCode: nil, ffiSubCode: nil, message: "Device communication is unavailable in the iOS Simulator.", durationMs: 0)
+}
+func set_prepared_location(_ latitude: Double, _ longitude: Double) -> Int32 { -1 }
+func has_prepared_location_simulation_session() -> Bool { false }
+func cleanup_prepared_location_simulation_session() {}
+func probe_location_simulation_session(_ deviceIP: String, _ pairingFile: String) -> LocationSimulationPreparationResult {
+    prepare_location_simulation_session(deviceIP, pairingFile)
+}
+
 struct LocationClearOutcome: Sendable {
     let statusCode: Int32
     let stage: String

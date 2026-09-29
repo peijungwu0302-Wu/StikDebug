@@ -328,8 +328,11 @@ final class ShortcutBootstrapService: ObservableObject {
         activePhase = nil
 
         testMockShortcutRunner = nil
-        testCanOpenURL = nil
-        testOpenURL = nil
+        // Keep test execution hermetic: no unit test should launch a real
+        // shortcuts:// URL. Tests may override these closures when modelling
+        // a specific failure or callback sequence.
+        testCanOpenURL = { _ in true }
+        testOpenURL = { _, completion in completion(true) }
     }
 
     func resetForTesting(resetConfiguration: Bool = false) {

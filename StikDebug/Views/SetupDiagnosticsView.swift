@@ -28,7 +28,7 @@ struct SetupDiagnosticsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("設定狀態") {
+                Section(L10n.text("設定狀態")) {
                     status("配對檔案", pairingState.label, pairingState == .present ? .green : .orange, info: "這是目前裝置與受信任電腦之間的敏感信任憑證。RouteLocation 使用它建立裝置服務連線；它不是 IPA 簽名檔，也不會上傳。")
                     status("LocalDevVPN 介面", localVPNStatus, effectiveTunnelHealthy ? .green : .orange, info: "LocalDevVPN 提供本機裝置服務路徑；它與行動網路的 Internet 狀態彼此獨立。")
                     status("裝置 Bootstrap", tunnel.bootstrapAvailable ? "可用" : "目前傳輸不可用", tunnel.bootstrapAvailable ? .green : .orange, info: "表示能否開啟新的裝置連線。新連線被拒絕不代表既有 DVT 定位工作階段已失效。")
@@ -42,46 +42,46 @@ struct SetupDiagnosticsView: View {
                     status("網際網路連線", model.connectionMonitor.internetReachable ? "可連線" : "離線", model.connectionMonitor.internetReachable ? .green : .orange, info: "Apple 地圖搜尋、新導航路線計算與首次 DDI 下載需要網際網路；直線及已儲存路線不需要。")
                     status("VPN 介面", model.connectionMonitor.usesVPNInterface ? "已偵測" : "未偵測", .gray, info: "顯示系統是否偵測到 VPN 介面。這只能作為提示，不等同於 DVT 工作階段已成功連線。")
                 }
-                Section("配對檔案") {
+                Section(L10n.text("配對檔案")) {
                     HStack {
-                        Text("配對驗證狀態")
+                            Text(L10n.text("配對驗證狀態"))
                         Spacer()
                         Text(pairingState.label)
                             .foregroundStyle(pairingState == .present ? .green : (pairingState == .invalid ? .red : .orange))
                     }
                     HStack {
-                        Text("來源")
+                            Text(L10n.text("來源"))
                         Spacer()
                         Text(PairingFileStore.currentSource.label)
                             .foregroundStyle(.secondary)
                     }
                     if pairingPresent {
                         HStack {
-                            Text("儲存位置")
+                            Text(L10n.text("儲存位置"))
                             Spacer()
                             Text(PairingFileStore.canonicalRelativePath)
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    Button("重新驗證配對檔案") {
+                    Button(L10n.text("重新驗證配對檔案")) {
                         refreshPairingState()
                     }
                     Button(L10n.text(pairingPresent ? "更換配對檔案" : "匯入配對檔案")) {
                         showPairingImporter = true
                     }
                     if pairingPresent {
-                        Button("移除配對檔案", role: .destructive) {
+                        Button(L10n.text("移除配對檔案"), role: .destructive) {
                             showDeletePairingConfirm = true
                         }
                     }
-                    Text("配對檔案是敏感的裝置信任憑證。請妥善保管；RouteLocation 只會儲存在本機，絕不會上傳內容。")
+                    Text(L10n.text("配對檔案是敏感的裝置信任憑證。請妥善保管；RouteLocation 只會儲存在本機，絕不會上傳內容。"))
                         .font(.footnote)
-                    Text("如果 iLoader 的「Manage Pairing File」沒有列出 RouteLocation，請在 iLoader 選擇 Export，將這台 iPhone 或 iPad 的配對檔案傳到裝置，再按「匯入配對檔案」按鈕手動匯入。")
+                    Text(L10n.text("如果 iLoader 的「Manage Pairing File」沒有列出 RouteLocation，請在 iLoader 選擇 Export，將這台 iPhone 或 iPad 的配對檔案傳到裝置，再按「匯入配對檔案」按鈕手動匯入。"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("連線") {
-                    Button("檢查／重試裝置通道") {
+                Section(L10n.text("連線")) {
+                    Button(L10n.text("檢查／重試裝置通道")) {
                         if model.isCellularBootstrapPreparationNeeded {
                             model.requestBootstrapIfCellular {
                                 tunnel.checkHealthNow(transport: model.connectionMonitor.currentTransport)
@@ -90,22 +90,22 @@ struct SetupDiagnosticsView: View {
                             tunnel.checkHealthNow(transport: model.connectionMonitor.currentTransport)
                         }
                     }
-                    Button("檢查／掛載 DDI") { MountingProgress.shared.pubMount() }
-                    Text("請啟動 LocalDevVPN，使用 Wi-Fi 或行動網路皆可。設定期間保持裝置喚醒及解鎖，並確認配對檔案屬於目前這台 iPhone 或 iPad。")
+                    Button(L10n.text("檢查／掛載 DDI")) { MountingProgress.shared.pubMount() }
+                    Text(L10n.text("請啟動 LocalDevVPN，使用 Wi-Fi 或行動網路皆可。設定期間保持裝置喚醒及解鎖，並確認配對檔案屬於目前這台 iPhone 或 iPad。"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if tunnel.cellularBootstrapRequested {
-                    Section("行動網路 Bootstrap 模式") {
-                        Text("請暫時關閉行動數據以初始化定位通道。完成後即可重新開啟。")
-                        Text("1. 保持 LocalDevVPN 開啟。\n2. 暫時關閉行動數據，不需要開啟飛航模式。\n3. 返回 RouteLocation；系統會自動繼續建立裝置通道。\n4. DVT 與首次定位指令成功後，再重新開啟行動數據。")
+                    Section(L10n.text("行動網路 Bootstrap 模式")) {
+                        Text(L10n.text("請暫時關閉行動數據以初始化定位通道。完成後即可重新開啟。"))
+                        Text(L10n.text("1. 保持 LocalDevVPN 開啟。\n2. 暫時關閉行動數據，不需要開啟飛航模式。\n3. 返回 RouteLocation；系統會自動繼續建立裝置通道。\n4. DVT 與首次定位指令成功後，再重新開啟行動數據。"))
                             .font(.footnote)
-                        Text("RouteLocation 不會自動切換行動數據或飛航模式；此流程不需要 Wi-Fi。")
+                        Text(L10n.text("RouteLocation 不會自動切換行動數據或飛航模式；此流程不需要 Wi-Fi。"))
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
-                Section("介面與操作") {
+                Section(L10n.text("介面與操作")) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Picker("地圖操作模式", selection: $model.mapInteractionStyle) {
+                        Picker(L10n.text("地圖操作模式"), selection: $model.mapInteractionStyle) {
                             ForEach(MapInteractionStyle.allCases) { style in
                                 Text(style.title).tag(style)
                             }
@@ -114,7 +114,7 @@ struct SetupDiagnosticsView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        Picker("切換定位模式時", selection: $model.modeSwitchConfirmation) {
+                        Picker(L10n.text("切換定位模式時"), selection: $model.modeSwitchConfirmation) {
                             ForEach(ModeSwitchConfirmation.allCases) { conf in
                                 Text(conf.title).tag(conf)
                             }
@@ -123,7 +123,7 @@ struct SetupDiagnosticsView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
-                Section("健康同步") {
+                Section(L10n.text("健康同步")) {
                     Toggle("路線播放時同步步數", isOn: $healthSteps.isEnabled)
                         .onChange(of: healthSteps.isEnabled) { _, enabled in
                             if enabled {
@@ -131,20 +131,20 @@ struct SetupDiagnosticsView: View {
                             }
                         }
                     HStack {
-                        Text("HealthKit 狀態")
+                        Text(L10n.text("HealthKit 狀態"))
                         Spacer()
                         Text(healthSteps.isHealthDataAvailable ? L10n.text("可用") : L10n.text("不可用"))
                             .foregroundStyle(healthSteps.isHealthDataAvailable ? .green : .orange)
                     }
                     HStack {
-                        Text("步數寫入權限")
+                        Text(L10n.text("步數寫入權限"))
                         Spacer()
                         Text(healthSteps.authorizationState.label)
                             .foregroundStyle(.secondary)
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("計算方式").font(.caption).foregroundStyle(.secondary)
-                        Picker("計算方式", selection: $healthSteps.calculationMode) {
+                        Text(L10n.text("計算方式")).font(.caption).foregroundStyle(.secondary)
+                        Picker(L10n.text("計算方式"), selection: $healthSteps.calculationMode) {
                             ForEach(StepCalculationMode.allCases) { mode in
                                 Text(mode.title).tag(mode)
                             }
@@ -153,40 +153,40 @@ struct SetupDiagnosticsView: View {
                     }
                     if healthSteps.calculationMode == .fixedCadence {
                         HStack {
-                            Text("步頻")
+                            Text(L10n.text("步頻"))
                             Spacer()
                             TextField("160", value: $healthSteps.cadenceStepsPerMinute, format: .number.precision(.fractionLength(0)))
                                 .keyboardType(.numberPad)
                                 .multilineTextAlignment(.trailing)
                                 .frame(width: 80)
-                            Text("步／分鐘")
+                            Text(L10n.text("步／分鐘"))
                         }
                     } else {
                         HStack {
-                            Text("步長")
+                            Text(L10n.text("步長"))
                             Spacer()
                             TextField("0.80", value: $healthSteps.strideLengthMeters, format: .number.precision(.fractionLength(2)))
                                 .keyboardType(.decimalPad)
                                 .multilineTextAlignment(.trailing)
                                 .frame(width: 80)
-                            Text("公尺／步")
+                            Text(L10n.text("公尺／步"))
                         }
                     }
                     HStack {
-                        Text("最近一次寫入")
+                        Text(L10n.text("最近一次寫入"))
                         Spacer()
                         Text(healthSteps.lastWriteStatus.label)
                             .foregroundStyle(.secondary)
                     }
                     if let lastError = healthSteps.lastError {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("最近錯誤").font(.caption).foregroundStyle(.red)
+                            Text(L10n.text("最近錯誤")).font(.caption).foregroundStyle(.red)
                             Text(lastError.formattedDetails)
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    Button("測試寫入 10 步") {
+                    Button(L10n.text("測試寫入 10 步")) {
                         Task {
                             let result = await healthSteps.testWriteTenSteps()
                             switch result {
@@ -197,15 +197,15 @@ struct SetupDiagnosticsView: View {
                             }
                         }
                     }
-                    Button("手動新增 RouteLocation 步數") {
+                    Button(L10n.text("手動新增 RouteLocation 步數")) {
                         showManualStepEntry = true
                     }
-                    Text("只在路線實際播放時按新增時間或距離批次寫入；單點傳送不會增加步數。HealthKit 權限或錯誤不會影響定位模擬。")
+                    Text(L10n.text("只在路線實際播放時按新增時間或距離批次寫入；單點傳送不會增加步數。HealthKit 權限或錯誤不會影響定位模擬。"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("行動網路啟動策略") {
+                Section(L10n.text("行動網路啟動策略")) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Picker("啟動策略", selection: $shortcutService.cellularBootstrapPolicy) {
+                        Picker(L10n.text("啟動策略"), selection: $shortcutService.cellularBootstrapPolicy) {
                             ForEach(CellularBootstrapPolicy.allCases) { policy in
                                 Text(policy.title).tag(policy)
                             }
@@ -214,11 +214,11 @@ struct SetupDiagnosticsView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
 
-                    Toggle("Apple 捷徑自動切換輔助 (Beta)", isOn: $shortcutService.isShortcutAssistedEnabled)
+                    Toggle(L10n.text("Apple 捷徑自動切換輔助 (Beta)"), isOn: $shortcutService.isShortcutAssistedEnabled)
 
                     if shortcutService.isShortcutAssistedEnabled {
                         HStack {
-                            Text("DataOff 捷徑名稱")
+                            Text(L10n.text("DataOff 捷徑名稱"))
                             Spacer()
                             TextField("RouteLocationDataOff", text: $shortcutService.shortcutDataOffName)
                                 .multilineTextAlignment(.trailing)
@@ -226,7 +226,7 @@ struct SetupDiagnosticsView: View {
                         }
 
                         HStack {
-                            Text("DataOn 捷徑名稱")
+                            Text(L10n.text("DataOn 捷徑名稱"))
                             Spacer()
                             TextField("RouteLocationDataOn", text: $shortcutService.shortcutDataOnName)
                                 .multilineTextAlignment(.trailing)
@@ -257,28 +257,28 @@ struct SetupDiagnosticsView: View {
                             .font(.footnote)
                         }
 
-                        Button("複製二階段捷徑設定教學") {
+                        Button(L10n.text("複製二階段捷徑設定教學")) {
                             UIPasteboard.general.string = ShortcutBootstrapService.shortcutSetupGuide
                             ToastManager.shared.show(L10n.text("已複製教學到剪貼簿"), kind: .success)
                         }
 
-                        Button("安全測試捷徑（Data Off → Data On）") {
+                        Button(L10n.text("安全測試捷徑（Data Off → Data On）")) {
                             shortcutService.runSafeRoundTripTest { success, message in
                                 ToastManager.shared.show(message, kind: success ? .success : .error)
                             }
                         }
 
-                        Text("捷徑為完全選用之二階段切換功能；關閉時絕不呼叫 shortcuts://。無論是否開啟捷徑，所有流程均提供手動完成選項。")
+                        Text(L10n.text("捷徑為完全選用之二階段切換功能；關閉時絕不呼叫 shortcuts://。無論是否開啟捷徑，所有流程均提供手動完成選項。"))
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
-                Section("安全診斷") {
-                    Button("複製安全診斷報告") { copySanitizedDiagnosticReport() }
-                    Text("報告只包含狀態、傳輸類型、錯誤分類與目標位址；不包含配對檔內容、私鑰、憑證或帳號資料。")
+                Section(L10n.text("安全診斷")) {
+                    Button(L10n.text("複製安全診斷報告")) { copySanitizedDiagnosticReport() }
+                    Text(L10n.text("報告只包含狀態、傳輸類型、錯誤分類與目標位址；不包含配對檔內容、私鑰、憑證或帳號資料。"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if diagnosticsStore.isDeveloperModeUnlocked {
-                    Section("開發者診斷工具") {
+                    Section(L10n.text("開發者診斷工具")) {
                         NavigationLink {
                             DeveloperDiagnosticsView()
                         } label: {
@@ -295,26 +295,26 @@ struct SetupDiagnosticsView: View {
                             diagnosticsStore.lockDeveloperMode()
                             ToastManager.shared.show(L10n.text("已關閉開發者模式"), kind: .info)
                         } label: {
-                            Text("關閉開發者模式")
+                            Text(L10n.text("關閉開發者模式"))
                         }
                     }
                 }
-                Section("背景播放") {
+                Section(L10n.text("背景播放")) {
                     Text(backgroundGuidance).font(.footnote)
-                    Text("背景執行受 iOS 系統限制。強制結束 RouteLocation、重新啟動裝置、iOS 終止程序或系統層級錯誤都會停止播放。")
+                    Text(L10n.text("背景執行受 iOS 系統限制。強制結束 RouteLocation、重新啟動裝置、iOS 終止程序或系統層級錯誤都會停止播放。"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("語言") {
-                    Picker("介面語言", selection: $appLanguage) {
+                Section(L10n.text("語言")) {
+                    Picker(L10n.text("介面語言"), selection: $appLanguage) {
                         ForEach(AppLanguage.allCases) { language in
                             Text(language.displayName).tag(language.rawValue)
                         }
                     }
-                    Text("繁體中文是預設語言；切換後會立即更新主要介面。")
+                    Text(L10n.text("繁體中文是預設語言；切換後會立即更新主要介面。"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("隱私權") {
-                    Text("沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求 MapKit 圖磚、搜尋及導航計算時才會連接 Apple 服務。")
+                Section(L10n.text("隱私權")) {
+                    Text(L10n.text("沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求 MapKit 圖磚、搜尋及導航計算時才會連接 Apple 服務。"))
                         .font(.footnote)
                 }
                 SigningAndRefreshSectionView(
@@ -324,34 +324,34 @@ struct SetupDiagnosticsView: View {
                     model: model,
                     openSideStoreApp: openSideStoreApp
                 )
-                Section("SideStore 更新") {
-                    Text("RouteLocation 不會自動更新。您可以加入官方 SideStore Source，由 SideStore 進行簽名與更新管理，或前往 GitHub 查看發行版本。")
+                Section(L10n.text("SideStore 更新")) {
+                    Text(L10n.text("RouteLocation 不會自動更新。您可以加入官方 SideStore Source，由 SideStore 進行簽名與更新管理，或前往 GitHub 查看發行版本。"))
                         .font(.footnote)
 
                     Button {
                         openSideStoreSource()
                     } label: {
-                        Label("加入 RouteLocation Source", systemImage: "plus.circle")
+                        Label(L10n.text("加入 RouteLocation Source"), systemImage: "plus.circle")
                     }
 
                     Button {
                         copySourceURL()
                     } label: {
-                        Label("複製 Source URL", systemImage: "doc.on.doc")
+                        Label(L10n.text("複製 Source URL"), systemImage: "doc.on.doc")
                     }
 
                     Button {
                         openReleasesPage()
                     } label: {
-                        Label("查看 GitHub Releases", systemImage: "arrow.up.right.square")
+                        Label(L10n.text("查看 GitHub Releases"), systemImage: "arrow.up.right.square")
                     }
 
-                    Text("選用功能：您可隨時透過 SideStore 檢查與更新，舊版本仍可正常使用各項功能。")
+                    Text(L10n.text("選用功能：您可隨時透過 SideStore 檢查與更新，舊版本仍可正常使用各項功能。"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("關於 RouteLocation") {
+                Section(L10n.text("關於 RouteLocation")) {
                     HStack {
-                        Text("版本")
+                        Text(L10n.text("版本"))
                         Spacer()
                         Text("RouteLocation \(diagnosticsStore.installationIdentity.version)")
                             .foregroundStyle(.secondary)
@@ -374,14 +374,14 @@ struct SetupDiagnosticsView: View {
                     }
                     if diagnosticsStore.isDeveloperModeUnlocked {
                         HStack {
-                            Text("開發者模式")
+                            Text(L10n.text("開發者模式"))
                             Spacer()
-                            Text("已啟用").foregroundStyle(.green).bold()
+                            Text(L10n.text("已啟用")).foregroundStyle(.green).bold()
                         }
                     }
                 }
             }
-            .navigationTitle("設定與診斷")
+            .navigationTitle(L10n.text("設定與診斷"))
         }
         .fileImporter(isPresented: $showPairingImporter, allowedContentTypes: PairingFileStore.supportedContentTypes) { result in
             do {

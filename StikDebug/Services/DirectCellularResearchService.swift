@@ -130,7 +130,8 @@ final class DirectCellularResearchService: ObservableObject {
         let monitor = ConnectionMonitor.shared
         let stateClass = Self.classifyCurrentState()
         let topo = UtunTopologyCollector.collectTopology()
-        let targetAddr = "\(DeviceConnectionContext.targetIPAddress):49152"
+        let targetIP = BootstrapEndpointStrategy.resolvedAddress(mode: .automatic, transport: monitor.currentTransport) ?? BootstrapEndpointStrategy.loopbackAddress
+        let targetAddr = "\(targetIP):49152"
 
         BootstrapTraceStore.shared.startTrace(txId: "rs-\(runId.prefix(8))", mode: "ResearchBeta", targetAddress: targetAddr)
         BootstrapTraceStore.shared.recordEvent(
@@ -182,17 +183,19 @@ final class DirectCellularResearchService: ObservableObject {
         }
         #endif
 
-        // Trigger production TunnelManager directly without DataOff
-        TunnelManager.shared.start(showErrorUI: false)
-
         Task { [weak self] in
             guard let self else { return }
-            let connected = await self.waitForTunnelConnected(timeoutSeconds: 8.0)
+            let pairingPath = PairingFileStore.prepareURL().path
+            let prepared = await withCheckedContinuation { continuation in
+                LocationSimulationCommandQueue.shared.async {
+                    continuation.resume(returning: probe_location_simulation_session(targetIP, pairingPath))
+                }
+            }
             let elapsed = (ProcessInfo.processInfo.systemUptime - startTime) * 1000.0
             self.isAttemptInProgress = false
 
-            if connected {
-                LogManager.shared.addInfoLog("DirectCellularResearchService: Tunnel successfully connected directly under cellular!")
+            if prepared.isSuccess {
+                LogManager.shared.addInfoLog("DirectCellularResearchService: production-equivalent FFI preparation succeeded on \(targetAddr)")
                 let res = DirectCellularResearchResult(
                     id: runId,
                     stateClassification: stateClass,
@@ -201,11 +204,11 @@ final class DirectCellularResearchService: ObservableObject {
                     utunTopologySummary: topo.summary,
                     productionTarget: targetAddr,
                     productionRPairingResult: "SUCCESS",
-                    ffiCode: nil,
+                    ffiCode: prepared.ffiCode.map { String($0) },
                     posixErrno: nil,
                     durationMs: elapsed,
-                    rsdResult: "READY",
-                    dvtResult: "READY",
+                    rsdResult: prepared.stage == .ready ? "READY" : "NOT_RUN",
+                    dvtResult: prepared.stage == .ready ? "READY" : "NOT_RUN",
                     locationWriteResult: "PENDING",
                     fallbackOccurred: false
                 )
@@ -214,10 +217,10 @@ final class DirectCellularResearchService: ObservableObject {
                     .researchDirectResult,
                     details: ["outcome": "SUCCESS", "durationMs": String(format: "%.1f", elapsed)]
                 )
-                BootstrapTraceStore.shared.finishTrace(outcome: "RESEARCH_DIRECT_TUNNEL_SUCCESS")
+                BootstrapTraceStore.shared.finishTrace(outcome: "RESEARCH_DIRECT_FFI_SUCCESS")
                 completion(.success(()))
             } else {
-                let errReason = TunnelManager.shared.lastErrorMessage ?? "直接連線逾時或失敗"
+                let errReason = "\(prepared.stage.rawValue): \(prepared.message ?? "直接 FFI 準備失敗")"
                 LogManager.shared.addWarningLog("DirectCellularResearchService: Direct connection attempt failed: \(errReason)")
                 let res = DirectCellularResearchResult(
                     id: runId,
@@ -227,11 +230,11 @@ final class DirectCellularResearchService: ObservableObject {
                     utunTopologySummary: topo.summary,
                     productionTarget: targetAddr,
                     productionRPairingResult: "FAILED",
-                    ffiCode: nil,
-                    posixErrno: nil,
+                    ffiCode: prepared.ffiCode.map { String($0) },
+                    posixErrno: prepared.message?.contains("61") == true ? "61" : nil,
                     durationMs: elapsed,
-                    rsdResult: "FAILED",
-                    dvtResult: "FAILED",
+                    rsdResult: prepared.stage == .rsd ? "FAILED" : "NOT_RUN",
+                    dvtResult: prepared.stage == .locationSimulationService ? "FAILED" : "NOT_RUN",
                     locationWriteResult: "NOT_RUN",
                     fallbackOccurred: true
                 )
@@ -240,7 +243,7 @@ final class DirectCellularResearchService: ObservableObject {
                     .researchDirectResult,
                     details: ["outcome": "FAILED", "reason": errReason, "durationMs": String(format: "%.1f", elapsed)]
                 )
-                completion(.failure(NSError(domain: "RouteLocation.ResearchBeta", code: -203, userInfo: [NSLocalizedDescriptionKey: errReason])))
+                completion(.failure(NSError(domain: "RouteLocation.ResearchBeta", code: Int(prepared.statusCode), userInfo: [NSLocalizedDescriptionKey: errReason])))
             }
         }
     }

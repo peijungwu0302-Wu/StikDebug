@@ -365,9 +365,12 @@ public struct CellularBootstrapDiagnosisEngine {
                 } else if snapshot.peerSource == .P2P_DSTADDR {
                     let verdict = DiagnosisVerdict.INSUFFICIENT_EVIDENCE
                     let confidence = DiagnosisConfidence.low
-                    let interpretation = "設定之目標 IP (\(snapshot.configuredTargetIP)) 與 P2P Candidate Peer (\(peer)) 不相符，且預設目標連線失敗。但 Candidate Peer 尚未經 VPN 綁定之受控探測證實可通，不可直接認定為目標不符。"
-                    let nextStep = "需執行 VPN 介面綁定之候選 Peer 受控探測以確認連通性。"
-                    evidence.append("Configured target: \(snapshot.configuredTargetIP) vs Candidate peer: \(peer)")
+                    let interpretation = "設定之目標 IP (\(snapshot.configuredTargetIP)) 與觀測到的 P2P destination address (\(peer)) 不相符；此位址僅是觀測資料，不代表 RemotePairing 生產伺服器。"
+                    let peerAlreadyFailed = candidatePeerProbe?.status == .failure
+                    let nextStep = peerAlreadyFailed
+                        ? "候選位址的受控探測已失敗；不要重複相同探測，請依真實 RPairing/RSD/DVT 結果判斷。"
+                        : "如需比較，可執行一次 VPN 介面綁定之觀測位址探測；這不代表生產 FFI 成功。"
+                    evidence.append("Configured target: \(snapshot.configuredTargetIP) vs observed P2P destination address: \(peer)")
                     evidence.append("Candidate peer probe status: \(candidatePeerProbe?.status.rawValue ?? "NOT_RUN")")
                     if let pPeer = candidatePeerProbe {
                         evidence.append("Candidate peer probe policy: \(pPeer.interfacePolicy.rawValue), applied: \(pPeer.requiredInterfaceApplied)")

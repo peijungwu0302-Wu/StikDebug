@@ -1,2 +1,18 @@
-/* RouteLocation development language. Source strings are Traditional Chinese. */
-
+/* RouteLocation Traditional Chinese strings. Source-language keys intentionally
+   remain Traditional Chinese so the custom language selector has an explicit
+   localized bundle instead of relying on a missing-table fallback. */
+"自動預熱準備中" = "自動預熱準備中";
+"完整行動網路研究套件" = "完整行動網路研究套件";
+"完整研究執行中…" = "完整研究執行中…";
+"執行完整行動網路研究套件" = "執行完整行動網路研究套件";
+"複製完整研究報告" = "複製完整研究報告";
+"完整研究報告已複製" = "完整研究報告已複製";
+"分享 TXT / JSON" = "分享 TXT / JSON";
+"開發者端點策略" = "開發者端點策略";
+"Bootstrap 端點" = "Bootstrap 端點";
+"自動" = "自動";
+"IPv4 位址" = "IPv4 位址";
+"儲存自訂端點" = "儲存自訂端點";
+"套用端點策略" = "套用端點策略";
+"IPv4 位址無效" = "IPv4 位址無效";
+"端點策略已儲存" = "端點策略已儲存";

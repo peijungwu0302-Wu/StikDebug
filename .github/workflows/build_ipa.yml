@@ -2,7 +2,7 @@ name: Build RouteLocation IPA
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
     paths-ignore:
       - 'source.json'
       - 'source-test.json'

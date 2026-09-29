@@ -94,10 +94,10 @@ struct RouteMapView: View {
                 }
             }
         }
-        .alert("儲存喜好地點", isPresented: $showFavoriteName) {
-            TextField("名稱", text: $favoriteName)
-            Button("儲存") { Task { await model.addFavorite(name: favoriteName); favoriteName = "" } }
-            Button("取消", role: .cancel) {}
+        .alert(L10n.text("儲存喜好地點"), isPresented: $showFavoriteName) {
+            TextField(L10n.text("名稱"), text: $favoriteName)
+            Button(L10n.text("儲存")) { Task { await model.addFavorite(name: favoriteName); favoriteName = "" } }
+            Button(L10n.text("取消"), role: .cancel) {}
         }
         .onChange(of: model.selectedCoordinate) { _, coordinate in
             guard let coordinate else { return }
@@ -133,7 +133,7 @@ struct RouteMapView: View {
                             Image(systemName: "eye.fill").foregroundStyle(.blue)
                             Text(previewing.name).font(.headline).lineLimit(1)
                             Spacer()
-                            Text("預覽中").font(.caption2.bold())
+                            Text(L10n.text("預覽中")).font(.caption2.bold())
                                 .padding(.horizontal, 6).padding(.vertical, 2)
                                 .background(Color.blue.opacity(0.15), in: Capsule())
                                 .foregroundStyle(.blue)
@@ -143,22 +143,22 @@ struct RouteMapView: View {
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
                         HStack {
-                            Button("開始路線") { model.requestStartRoute(previewing) }.buttonStyle(.borderedProminent)
-                            Button("編輯") { NotificationCenter.default.post(name: .switchToRoutesTab, object: nil) }.buttonStyle(.bordered)
-                            Button("取消預覽", role: .cancel) { model.cancelRoutePreview() }.buttonStyle(.bordered)
+                            Button(L10n.text("開始路線")) { model.requestStartRoute(previewing) }.buttonStyle(.borderedProminent)
+                            Button(L10n.text("編輯")) { NotificationCenter.default.post(name: .switchToRoutesTab, object: nil) }.buttonStyle(.bordered)
+                            Button(L10n.text("取消預覽"), role: .cancel) { model.cancelRoutePreview() }.buttonStyle(.bordered)
                         }
                     }
                 } else if let selected = model.selectedCoordinate {
                     Text(String(format: "%.6f, %.6f", selected.latitude, selected.longitude))
                         .font(.footnote.monospaced()).textSelection(.enabled)
                     HStack {
-                        Button("模擬此位置") { model.requestSinglePointSimulation() }.buttonStyle(.borderedProminent)
-                        Button("加入航點") { model.addSelectedWaypoint() }.buttonStyle(.bordered)
+                        Button(L10n.text("模擬此位置")) { model.requestSinglePointSimulation() }.buttonStyle(.borderedProminent)
+                        Button(L10n.text("加入航點")) { model.addSelectedWaypoint() }.buttonStyle(.bordered)
                         Button { showFavoriteName = true } label: { Image(systemName: "star") }.buttonStyle(.bordered)
                     }
                 } else {
-                    Text("點選地圖、搜尋地點、輸入座標，或選擇喜愛地點。").font(.footnote).foregroundStyle(.secondary)
-                    Button("輸入精確座標") { showCoordinateEntry = true }.buttonStyle(.bordered)
+                    Text(L10n.text("點選地圖、搜尋地點、輸入座標，或選擇喜愛地點。")).font(.footnote).foregroundStyle(.secondary)
+                    Button(L10n.text("輸入精確座標")) { showCoordinateEntry = true }.buttonStyle(.bordered)
                 }
                 if model.geometry.totalDistance > 0 {
                     HStack {
@@ -318,16 +318,16 @@ struct QuickRouteMapView: View {
                 Task { await model.saveCurrentRoute(named: name, asCopy: asCopy) }
             }
         }
-        .alert("儲存喜好地點", isPresented: $showFavoriteName) {
-            TextField("名稱", text: $favoriteName)
-            Button("儲存") { Task { await model.addFavorite(name: favoriteName); favoriteName = "" } }
-            Button("取消", role: .cancel) {}
+        .alert(L10n.text("儲存喜好地點"), isPresented: $showFavoriteName) {
+            TextField(L10n.text("名稱"), text: $favoriteName)
+            Button(L10n.text("儲存")) { Task { await model.addFavorite(name: favoriteName); favoriteName = "" } }
+            Button(L10n.text("取消"), role: .cancel) {}
         }
-        .alert("清除草稿", isPresented: $showClearDraftAlert) {
-            Button("清除草稿", role: .destructive) { model.clearCurrentDraft() }
-            Button("取消", role: .cancel) {}
+        .alert(L10n.text("清除草稿"), isPresented: $showClearDraftAlert) {
+            Button(L10n.text("清除草稿"), role: .destructive) { model.clearCurrentDraft() }
+            Button(L10n.text("取消"), role: .cancel) {}
         } message: {
-            Text("確定要清除目前的路線草稿嗎？")
+            Text(L10n.text("確定要清除目前的路線草稿嗎？"))
         }
         .onChange(of: model.selectedCoordinate) { _, coordinate in
             guard let coordinate else { return }
