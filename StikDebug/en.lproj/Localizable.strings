@@ -836,3 +836,5 @@
 "定位連線已中斷" = "Location connection interrupted";
 "重新建立連線" = "Reconnect";
 "路線已暫停在目前位置。重新建立定位需要暫時關閉行動數據。" = "The route is paused at its current position. Reconnecting requires temporarily turning off cellular data.";
+"RouteLocation 路線已暫停" = "RouteLocation route paused";
+"需要重新建立定位連線。" = "A location connection must be restored.";

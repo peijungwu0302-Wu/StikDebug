@@ -3,6 +3,7 @@ import CoreLocation
 import Foundation
 import SwiftUI
 import UIKit
+import UserNotifications
 
 enum PlaybackRecoveryPreference: String, CaseIterable, Identifiable {
     case ask
@@ -133,8 +134,10 @@ final class RouteLocationModel: ObservableObject {
 
     private func performAssistedPlaybackRecovery(coordinate: RouteCoordinate?) async -> Bool {
         guard ShortcutBootstrapService.shared.isShortcutAssistedEnabled else { return false }
-        if playbackRecoveryPreference == .ask {
+        let appIsActive = UIApplication.shared.applicationState == .active
+        if playbackRecoveryPreference == .ask || !appIsActive {
             showPlaybackRecoveryConsent = true
+            if !appIsActive { schedulePlaybackRecoveryNotification() }
             let approved = await withCheckedContinuation { continuation in
                 playbackRecoveryContinuation = continuation
             }
@@ -147,6 +150,23 @@ final class RouteLocationModel: ObservableObject {
             ) { result in
                 continuation.resume(returning: (try? result.get()) != nil)
             }
+        }
+    }
+
+    private func schedulePlaybackRecoveryNotification() {
+        Task {
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
+            let content = UNMutableNotificationContent()
+            content.title = L10n.text("RouteLocation 路線已暫停")
+            content.body = L10n.text("需要重新建立定位連線。")
+            content.sound = .default
+            let request = UNNotificationRequest(
+                identifier: "RouteLocation.playback-recovery",
+                content: content,
+                trigger: nil
+            )
+            try? await UNUserNotificationCenter.current().add(request)
         }
     }
 
