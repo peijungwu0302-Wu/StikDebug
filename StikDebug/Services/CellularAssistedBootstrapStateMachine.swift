@@ -61,6 +61,11 @@ enum CellularAssistedState: String, Codable, CaseIterable {
 enum AssistedBootstrapReason: String, Codable, Equatable {
     case coldStart
     case playbackFailureRecovery
+    case stalePreparedSessionRecovery
+
+    var usesRecentSuccessEvidence: Bool {
+        self == .coldStart
+    }
 }
 
 @MainActor
@@ -198,8 +203,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         let preparedSession = LocationSimulationCommandQueue.shared.sync {
             location_simulation_session_snapshot().isPrepared
         }
-        let shouldUseColdStartEvidence = reason == .coldStart
-        if shouldUseColdStartEvidence && (monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess || preparedSession) {
+        if reason.usesRecentSuccessEvidence && (monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess || preparedSession) {
             LogManager.shared.addInfoLog("Pre-launch check: Active DVT session already present. Skipping shortcut.")
             completion(.success(.needsLocationWrite))
             return

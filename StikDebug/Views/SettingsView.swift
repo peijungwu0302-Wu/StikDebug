@@ -6,6 +6,7 @@ struct SettingsView: View {
     
     @AppStorage("RouteLocation.showMiniPlayer") private var showMiniPlayer = true
     @AppStorage(AppLanguage.defaultsKey) private var appLanguage = AppLanguage.traditionalChinese.rawValue
+    @AppStorage("RouteLocation.timeZoneComparisonBaseline") private var timeZoneBaselineRawValue = TimeZoneComparisonBaseline.taiwan.rawValue
     
     @ObservedObject private var tunnel = TunnelManager.shared
     @ObservedObject private var mounting = MountingProgress.shared
@@ -44,6 +45,12 @@ struct SettingsView: View {
                     Text(L10n.text("自動恢復可能短暫關閉行動數據；背景狀態仍會先暫停並等待你回到 App。"))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+
+                    Picker(L10n.text("時間比較基準"), selection: $timeZoneBaselineRawValue) {
+                        ForEach(TimeZoneComparisonBaseline.allCases) { baseline in
+                            Text(baseline.title).tag(baseline.rawValue)
+                        }
+                    }
                     
                     Toggle(L10n.text("顯示執行中的迷你控制器"), isOn: $showMiniPlayer)
                 }
@@ -226,7 +233,7 @@ struct SettingsView: View {
                             .accessibilityLabel(L10n.text("版本資訊"))
                     }
                     
-                    Text(L10n.text("沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求 MapKit 圖磚、搜尋及導航計算時才會連接 Apple 服務。"))
+                    Text(L10n.text("沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求 MapKit 圖磚、搜尋、導航計算或地點／地址查詢時才會連接 Apple 服務。"))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

@@ -80,6 +80,7 @@ final class RoutePlaybackEngine: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     @MainActor var assistedRecoveryAction: (@MainActor (_ coordinate: RouteCoordinate?) async -> Bool)?
     private var assistedRecoveryInProgress = false
+    private var recoveryGeneration = 0
 
     init(
         sink: any LocationSimulationSink,
@@ -143,11 +144,13 @@ final class RoutePlaybackEngine: ObservableObject {
     }
 
     func stop(clearMarker: Bool = true) {
+        recoveryGeneration &+= 1
         task?.cancel()
         task = nil
         transportHealthTask?.cancel()
         transportHealthTask = nil
         reconnectInProgress = false
+        assistedRecoveryInProgress = false
         lastReconnectError = nil
         lastReconnectWasPermanent = false
         state = .stopped
@@ -215,10 +218,12 @@ final class RoutePlaybackEngine: ObservableObject {
         while !Task.isCancelled {
             do { try await Task.sleep(for: .seconds(updateInterval)) } catch { return }
             guard !Task.isCancelled else { return }
+            let generation = recoveryGeneration
             updateDerivedState(now: uptime())
             guard let coordinate = currentCoordinate else { return }
             do {
                 try await sink.setCoordinate(coordinate)
+                guard recoveryGeneration == generation, !Task.isCancelled else { return }
                 consecutiveCommandFailures = 0
                 reportConnection(.connected)
                 state = .running
@@ -238,6 +243,7 @@ final class RoutePlaybackEngine: ObservableObject {
                 }
                 let recovered = await reconnect()
                 if !recovered {
+                    guard state != .stopped else { return }
                     handleReconnectFailure()
                     return
                 }
@@ -253,6 +259,7 @@ final class RoutePlaybackEngine: ObservableObject {
 
     private func reconnect(returnState: PlaybackRunState = .running) async -> Bool {
         guard !reconnectInProgress else { return false }
+        let generation = recoveryGeneration
         reconnectInProgress = true
         lastReconnectError = nil
         lastReconnectWasPermanent = false
@@ -263,6 +270,7 @@ final class RoutePlaybackEngine: ObservableObject {
         if let currentCoordinate {
             do {
                 try await sink.setCoordinate(currentCoordinate)
+                guard recoveryGeneration == generation, !Task.isCancelled else { return false }
                 consecutiveCommandFailures = 0
                 state = returnState
                 reportConnection(.connected)
@@ -275,16 +283,18 @@ final class RoutePlaybackEngine: ObservableObject {
         // toggles cellular data and must be exhausted before requesting the
         // user-consented Level 3 Assisted recovery.
         for (index, delay) in reconnectDelays.enumerated() {
-            guard !Task.isCancelled else { return false }
+            guard recoveryGeneration == generation, !Task.isCancelled else { return false }
             reportConnection(.reconnecting(attempt: index + 1))
             reconnectAction()
             do { try await Task.sleep(for: .seconds(delay)) } catch { return false }
+            guard recoveryGeneration == generation, !Task.isCancelled else { return false }
             if returnState != .paused {
                 updateDerivedState(now: uptime())
             }
             guard let currentCoordinate else { return false }
             do {
                 try await sink.setCoordinate(currentCoordinate)
+                guard recoveryGeneration == generation, !Task.isCancelled else { return false }
                 consecutiveCommandFailures = 0
                 state = returnState
                 reportConnection(.connected)
@@ -315,6 +325,7 @@ final class RoutePlaybackEngine: ObservableObject {
             assistedRecoveryInProgress = true
             let recovered = await assistedRecoveryAction(currentCoordinate)
             assistedRecoveryInProgress = false
+            guard recoveryGeneration == generation, !Task.isCancelled else { return false }
             guard recovered else {
                 lastReconnectWasPermanent = false
                 return false
@@ -367,7 +378,8 @@ final class RoutePlaybackEngine: ObservableObject {
     }
 
     func verifyConnectionAfterTransportChange() async {
-        guard geometry != nil, !reconnectInProgress else { return }
+        guard geometry != nil, !reconnectInProgress, state != .stopped else { return }
+        let generation = recoveryGeneration
         let isPaused = (state == .paused)
         if !isPaused {
             updateDerivedState(now: uptime())
@@ -375,6 +387,7 @@ final class RoutePlaybackEngine: ObservableObject {
         guard let currentCoordinate else { return }
         do {
             try await sink.setCoordinate(currentCoordinate)
+            guard recoveryGeneration == generation, !Task.isCancelled else { return }
             consecutiveCommandFailures = 0
             reportConnection(.connected)
             state = isPaused ? .paused : .running
@@ -394,6 +407,7 @@ final class RoutePlaybackEngine: ObservableObject {
             if await reconnect(returnState: isPaused ? .paused : .running) {
                 if !isPaused && task == nil { task = Task { [weak self] in await self?.runLoop() } }
             } else {
+                guard state != .stopped else { return }
                 handleReconnectFailure()
             }
         }

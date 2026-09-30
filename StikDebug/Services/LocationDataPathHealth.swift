@@ -21,6 +21,17 @@ enum LocationRecoveryPolicy {
     }
 }
 
+enum PreparedSessionRecoveryPolicy {
+    static func shouldForceAssistedRecovery(
+        preparedSession: Bool,
+        transport: NetworkTransport,
+        wifiAvailable: Bool,
+        shortcutAssistedEnabled: Bool
+    ) -> Bool {
+        preparedSession && transport == .cellular && !wifiAvailable && shortcutAssistedEnabled
+    }
+}
+
 @MainActor
 final class LocationDataPathHealth: ObservableObject {
     static let shared = LocationDataPathHealth()
@@ -49,6 +60,18 @@ final class LocationDataPathHealth: ObservableObject {
         lastLocationUpdateFailure = .now
         consecutiveLocationFailures += 1
         status = LocationRecoveryPolicy.shouldRecover(consecutiveFailures: consecutiveLocationFailures) ? .failed : .degraded
+        reconnectReason = error.localizedDescription
+    }
+
+    /// A confirmed failure of a prepared-session command invalidates the
+    /// short-lived success evidence used by cold-start eligibility. This is
+    /// intentionally narrower than resetting health globally: it only runs
+    /// after the caller has established that the prepared session is stale.
+    func invalidateAfterConfirmedStaleSessionFailure(_ error: Error) {
+        lastLocationUpdateFailure = .now
+        lastSuccessfulLocationUpdate = nil
+        consecutiveLocationFailures = LocationRecoveryPolicy.failureThreshold
+        status = .failed
         reconnectReason = error.localizedDescription
     }
 

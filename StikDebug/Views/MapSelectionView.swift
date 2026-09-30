@@ -93,6 +93,7 @@ struct RouteMapView: View {
                     model.requestSinglePointSimulation(at: coordinate)
                 }
             }
+            .presentationDetents([.medium])
         }
         .alert(L10n.text("儲存喜好地點"), isPresented: $showFavoriteName) {
             TextField(L10n.text("名稱"), text: $favoriteName)
@@ -310,6 +311,7 @@ struct QuickRouteMapView: View {
                 }
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
+            .presentationDetents([.medium])
         }
         .sheet(isPresented: $showMyRoutes) {
             MyRoutesSheet { route in

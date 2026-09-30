@@ -153,6 +153,17 @@ final class RouteLocationModel: ObservableObject {
         }
     }
 
+    private func performStalePreparedSessionRecovery(_ coordinate: RouteCoordinate) async throws -> BootstrapProceedDisposition {
+        try await withCheckedThrowingContinuation { continuation in
+            CellularAssistedBootstrapStateMachine.shared.startAssistedBootstrap(
+                targetCoordinate: coordinate,
+                reason: .stalePreparedSessionRecovery
+            ) { result in
+                continuation.resume(with: result)
+            }
+        }
+    }
+
     private func schedulePlaybackRecoveryNotification() {
         Task {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
@@ -182,6 +193,15 @@ final class RouteLocationModel: ObservableObject {
         let continuation = playbackRecoveryContinuation
         playbackRecoveryContinuation = nil
         continuation?.resume(returning: false)
+    }
+
+    /// Ends a route and invalidates any suspended recovery continuation. The
+    /// playback engine's generation guard makes this terminal even if a
+    /// transport callback returns after the user has dismissed the route.
+    func endPlaybackRecovery() {
+        declinePlaybackRecovery()
+        playback.stop()
+        showPlaybackRecoveryConsent = false
     }
 
     var estimatedLapDuration: TimeInterval? {
@@ -307,7 +327,8 @@ final class RouteLocationModel: ObservableObject {
         }
     }
 
-    func saveCurrentRoute(named requestedName: String? = nil, asCopy: Bool = false) async {
+    @discardableResult
+    func saveCurrentRoute(named requestedName: String? = nil, asCopy: Bool = false) async -> Bool {
         do {
             guard waypoints.count >= 2 else { throw RouteLocationError.insufficientWaypoints }
             if routeMode == .navigation, navigationGeometryNeedsRecalculation { throw RouteLocationError.navigationNeedsRecalculation }
@@ -332,7 +353,24 @@ final class RouteLocationModel: ObservableObject {
             routeName = finalName
             await reloadRoutes()
             statusMessage = L10n.text("路線已儲存，可離線播放。")
-        } catch { presentedError = error.localizedDescription }
+            return true
+        } catch {
+            presentedError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Favorites a route draft without replacing the normal Save Route flow.
+    /// Existing loaded routes are updated in place; new drafts are persisted
+    /// once and then marked favorite, so tapping the star never creates an
+    /// accidental duplicate copy.
+    @discardableResult
+    func favoriteCurrentRoute(named requestedName: String? = nil) async -> Bool {
+        guard await saveCurrentRoute(named: requestedName, asCopy: false),
+              let loadedRouteID,
+              let route = savedRoutes.first(where: { $0.id == loadedRouteID }) else { return false }
+        if !route.isFavorite { await toggleFavoriteRoute(route) }
+        return true
     }
 
     func renameRoute(_ route: SavedRoute, to requestedName: String) async {
@@ -707,12 +745,43 @@ final class RouteLocationModel: ObservableObject {
             return
         }
 
+        let hadPreparedSession = LocationSimulationCommandQueue.shared.sync {
+            location_simulation_session_snapshot().isPrepared
+        }
+        let forceStaleSessionRecovery = PreparedSessionRecoveryPolicy.shouldForceAssistedRecovery(
+            preparedSession: hadPreparedSession,
+            transport: connectionMonitor.currentTransport,
+            wifiAvailable: connectionMonitor.isWifiAvailable,
+            shortcutAssistedEnabled: ShortcutBootstrapService.shared.isShortcutAssistedEnabled
+        )
+
         do {
-            try await setCoordinateWithBoundedRecovery(target)
+            try await setCoordinateWithBoundedRecovery(target, skipLegacyTransportRecovery: forceStaleSessionRecovery)
             startSinglePointHold(at: target)
             statusMessage = L10n.text("已成功模擬所選位置。")
             await recordRecent(coordinate: target, kind: "simulate")
         } catch {
+            if forceStaleSessionRecovery {
+                LocationSimulationCommandQueue.shared.sync {
+                    cleanup_prepared_location_simulation_session()
+                }
+                LocationDataPathHealth.shared.invalidateAfterConfirmedStaleSessionFailure(error)
+                LocationSessionCoordinator.shared.endSession()
+                do {
+                    let disposition = try await performStalePreparedSessionRecovery(target)
+                    if disposition == .needsLocationWrite {
+                        try await simulationService.setCoordinate(target)
+                    }
+                    startSinglePointHold(at: target)
+                    statusMessage = L10n.text("已成功模擬所選位置。")
+                    await recordRecent(coordinate: target, kind: "simulate")
+                    return
+                } catch {
+                    LocationSessionCoordinator.shared.markSessionDegraded(error: error)
+                    presentedError = error.localizedDescription
+                    return
+                }
+            }
             LocationSessionCoordinator.shared.markSessionDegraded(error: error)
             presentedError = error.localizedDescription
         }
@@ -834,7 +903,10 @@ final class RouteLocationModel: ObservableObject {
         }
     }
 
-    private func setCoordinateWithBoundedRecovery(_ coordinate: RouteCoordinate) async throws {
+    private func setCoordinateWithBoundedRecovery(
+        _ coordinate: RouteCoordinate,
+        skipLegacyTransportRecovery: Bool = false
+    ) async throws {
         let delays: [TimeInterval] = [0, 0.5, 1, 2]
         var lastError: Error?
         for (index, delay) in delays.enumerated() {
@@ -848,6 +920,7 @@ final class RouteLocationModel: ObservableObject {
                 lastError = error
                 TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
                 guard PlaybackReconnectPolicy.shouldRetry(error) else { throw error }
+                if skipLegacyTransportRecovery { throw error }
                 connectionMonitor.reportSession(.reconnecting(attempt: index + 1))
                 markTunnelDisconnected()
                 startTunnelInBackground(showErrorUI: false)

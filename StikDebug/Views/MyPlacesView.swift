@@ -94,14 +94,50 @@ struct MyPlacesView: View {
 private struct PlaceInfoSummary: View {
     let coordinate: RouteCoordinate
     @State private var info: PlaceInfo?
+    @AppStorage("RouteLocation.timeZoneComparisonBaseline") private var baselineRawValue = TimeZoneComparisonBaseline.taiwan.rawValue
 
     var body: some View {
         Group {
-            if let info, let name = info.bestDisplayName {
-                Text(name).font(.subheadline).foregroundStyle(.secondary)
+            if let info {
+                VStack(alignment: .leading, spacing: 2) {
+                    let area = [info.administrativeArea, info.locality, info.subLocality]
+                        .compactMap { $0 }
+                        .filter { !$0.isEmpty }
+                    if !area.isEmpty {
+                        Text(area.joined(separator: " · "))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else if let name = info.bestDisplayName {
+                        Text(name).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    if let country = info.country, !country.isEmpty {
+                        Text(country).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let identifier = info.timeZoneIdentifier,
+                       let timeZone = TimeZone(identifier: identifier) {
+                        let now = Date.now
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "HH:mm"
+                        formatter.timeZone = timeZone
+                        let baseline = TimeZoneComparisonBaseline(rawValue: baselineRawValue) ?? .taiwan
+                        Text(L10n.format("%@ · GMT%+d", formatter.string(from: now), timeZone.secondsFromGMT(for: now) / 3600))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(identifier)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(PlaceTimeFormatter.offsetText(for: timeZone, at: now, baseline: baseline))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
-        .task(id: coordinate.id) { info = await PlaceInfoResolver.shared.resolve(coordinate) }
+        .task(id: coordinate.id) {
+            let resolved = await PlaceInfoResolver.shared.resolve(coordinate)
+            guard !Task.isCancelled else { return }
+            info = resolved
+        }
     }
 }
 

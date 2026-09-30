@@ -8,6 +8,7 @@ struct PlaceFloatingCard: View {
     let onSaveFavorite: () -> Void
     @State private var placeInfo: PlaceInfo?
     @State private var isResolving = false
+    @AppStorage("RouteLocation.timeZoneComparisonBaseline") private var baselineRawValue = TimeZoneComparisonBaseline.taiwan.rawValue
     
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -67,17 +68,21 @@ struct PlaceFloatingCard: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
         .task(id: coordinate.id) {
             isResolving = true
-            placeInfo = await PlaceInfoResolver.shared.resolve(coordinate)
+            let resolved = await PlaceInfoResolver.shared.resolve(coordinate, scope: .selected)
+            guard !Task.isCancelled else { return }
+            placeInfo = resolved
             isResolving = false
         }
     }
 
     private var countryFlag: String {
-        switch placeInfo?.countryCode {
-        case "TW": return " 🇹🇼"
-        case "JP": return " 🇯🇵"
-        default: return ""
-        }
+        guard let code = placeInfo?.countryCode?.uppercased(), code.count == 2,
+              code.unicodeScalars.allSatisfy({ $0.value >= 65 && $0.value <= 90 }) else { return "" }
+        let flag = code.unicodeScalars.compactMap { scalar -> String? in
+            guard let regional = UnicodeScalar(127397 + scalar.value) else { return nil }
+            return String(regional)
+        }.joined()
+        return flag.isEmpty ? "" : " \(flag)"
     }
 
     private var timeZoneDetails: (local: String, gmt: String, offset: String)? {
@@ -86,10 +91,12 @@ struct PlaceFloatingCard: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
         formatter.timeZone = timezone
+        let baseline = TimeZoneComparisonBaseline(rawValue: baselineRawValue) ?? .taiwan
+        let now = Date.now
         return (
-            L10n.format("當地時間 %@", formatter.string(from: .now)),
-            L10n.format("%@ · GMT%+d", identifier, timezone.secondsFromGMT() / 3600),
-            PlaceTimeFormatter.offsetText(for: timezone)
+            L10n.format("當地時間 %@", formatter.string(from: now)),
+            L10n.format("%@ · GMT%+d", identifier, timezone.secondsFromGMT(for: now) / 3600),
+            PlaceTimeFormatter.offsetText(for: timezone, at: now, baseline: baseline)
         )
     }
 }

@@ -15,9 +15,11 @@ struct MapHomeView: View {
     @State private var showSaveSheet = false
     @State private var showClearDraftAlert = false
     @State private var showFavoriteName = false
+    @State private var showFavoriteRouteName = false
     @State private var showEndRouteOptions = false
     @State private var showMoreActions = false
     @State private var favoriteName = ""
+    @State private var favoriteRouteName = ""
     @State private var favoriteCoordinate: RouteCoordinate?
     @FocusState private var isSpeedFieldFocused: Bool
 
@@ -124,6 +126,7 @@ struct MapHomeView: View {
                 }
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
+            .presentationDetents([.medium])
         }
         .sheet(isPresented: $showRouteInputChooser) {
             RouteInputChooser(
@@ -170,11 +173,25 @@ struct MapHomeView: View {
             Button(L10n.text("儲存")) { let coordinate = favoriteCoordinate; Task { await model.addFavorite(name: favoriteName, coordinate: coordinate); favoriteName = ""; favoriteCoordinate = nil } }
             Button(L10n.text("取消"), role: .cancel) {}
         }
+        .alert(L10n.text("收藏喜愛路線"), isPresented: $showFavoriteRouteName) {
+            TextField(L10n.text("名稱"), text: $favoriteRouteName)
+            Button(L10n.text("儲存")) {
+                let name = favoriteRouteName
+                favoriteRouteName = ""
+                Task {
+                    if await model.favoriteCurrentRoute(named: name) {
+                        ToastManager.shared.show(L10n.text("已加入喜愛路線。"), kind: .success)
+                    }
+                }
+            }
+            Button(L10n.text("取消"), role: .cancel) { favoriteRouteName = "" }
+        } message: {
+            Text(L10n.text("此路線會先儲存，再加入喜愛路線。"))
+        }
         .alert(L10n.text("定位連線已中斷"), isPresented: $model.showPlaybackRecoveryConsent) {
             Button(L10n.text("重新建立連線")) { model.approvePlaybackRecovery() }
             Button(L10n.text("結束路線"), role: .destructive) {
-                model.declinePlaybackRecovery()
-                playback.stop()
+                model.endPlaybackRecovery()
             }
         } message: {
             Text(L10n.text("路線已暫停在目前位置。重新建立定位需要暫時關閉行動數據。"))
@@ -424,6 +441,15 @@ struct MapHomeView: View {
                         Button(L10n.text("復原")) { model.undoLastWaypoint() }.buttonStyle(.bordered)
                         Button(L10n.text("清除路線"), role: .destructive) { showClearDraftAlert = true }.buttonStyle(.bordered)
                         Spacer()
+                        Button {
+                            favoriteRouteName = model.suggestedRouteName()
+                            showFavoriteRouteName = true
+                        } label: {
+                            Label(L10n.text("收藏路線"), systemImage: "star")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
+                        .accessibilityLabel(L10n.text("收藏路線"))
                         Button(L10n.text("儲存路線")) { showSaveSheet = true }
                             .buttonStyle(.bordered)
                             .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)

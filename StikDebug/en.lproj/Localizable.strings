@@ -277,6 +277,13 @@
 "比台灣快 %@" = "%@ ahead of Taiwan";
 "比台灣慢 %@" = "%@ behind Taiwan";
 "裝置目前時區" = "Current device time zone";
+"時間比較基準" = "Time comparison baseline";
+"與目前時間相同" = "Same as current time";
+"比目前快 %@" = "%@ ahead of current time";
+"比目前慢 %@" = "%@ behind current time";
+"%d 小時" = "%d hr";
+"%d 小時 %d 分鐘" = "%d hr %d min";
+"沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求 MapKit 圖磚、搜尋、導航計算或地點／地址查詢時才會連接 Apple 服務。" = "No accounts, analytics, telemetry, backend, CloudKit, or route uploads. Apple services are contacted only when you request MapKit tiles, search, navigation calculation, or place/address lookup.";
 "可以使用" = "Ready to use";
 "正在準備…" = "Preparing…";
 "需要處理" = "Action needed";
@@ -811,6 +818,9 @@
 "新地點" = "New Location";
 "已收藏「%@」" = "Saved \"%@\" to Favorites";
 "收藏目前模擬位置" = "Favorite Current Simulated Location";
+"收藏喜愛路線" = "Favorite Route";
+"收藏路線" = "Favorite Route";
+"此路線會先儲存，再加入喜愛路線。" = "This route will be saved first, then added to Favorites.";
 "已完成待恢復的行動數據復原。" = "Pending cellular-data recovery completed.";
 "偵測到未完成的行動數據恢復。請手動開啟行動數據，或完成 RouteLocationDataOn 捷徑設定。" = "An incomplete cellular-data recovery was detected. Turn Cellular Data on manually or finish configuring the RouteLocationDataOn shortcut.";
 "偵測到未完成的行動數據恢復。請手動開啟行動數據。" = "An incomplete cellular-data recovery was detected. Turn Cellular Data on manually.";
