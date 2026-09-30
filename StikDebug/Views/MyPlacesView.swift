@@ -115,7 +115,7 @@ private struct FavoriteEditor: View {
     init(favorite: FavoriteLocation?, onSave: @escaping (String, String?) -> Void) {
         self.favorite = favorite
         self.onSave = onSave
-        _name = State(initialValue: favorite?.name ?? "")
+        _name = State(initialValue: favorite?.name ?? L10n.text("新地點"))
         _note = State(initialValue: favorite?.note ?? "")
     }
 
