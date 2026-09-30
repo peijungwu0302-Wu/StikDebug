@@ -47,7 +47,7 @@ struct PlaceFloatingCard: View {
                 .accessibilityLabel(L10n.text("在此模擬"))
                 
                 Button {
-                    model.addSelectedWaypoint()
+                    model.addWaypoint(coordinate)
                 } label: {
                     Text(L10n.text("加入路線"))
                 }
