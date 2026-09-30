@@ -442,7 +442,7 @@ struct CellularAssistedBootstrapTests {
 
         sm.testSimulateCellularSettlementConfirmed = true
         callback?(true)
-        await Task.yield()
+        for _ in 0..<3 { await Task.yield() }
         #expect(!sm.hasPendingRecoveryIntent)
     }
 
