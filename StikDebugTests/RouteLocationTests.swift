@@ -433,7 +433,9 @@ struct PlaybackEngineTests {
         #expect(engine.state == .running)
         #expect(reconnects == 1)
         let finalCallCount = await sink.callCount()
-        #expect(finalCallCount == 5)
+        // The recovery path first retries the retained session once (Level 1),
+        // then performs the bounded legacy reconnect attempt.
+        #expect(finalCallCount == 6)
         engine.stop()
     }
 
@@ -482,7 +484,7 @@ struct PlaybackEngineTests {
         #expect(engine.state == .running)
         #expect(engine.traveledDistance > 36)
         let callCount = await sink.callCount()
-        #expect(callCount == 5)
+        #expect(callCount == 6)
         engine.stop()
     }
 
