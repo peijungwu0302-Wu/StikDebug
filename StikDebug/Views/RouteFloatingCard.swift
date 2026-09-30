@@ -65,12 +65,7 @@ struct RouteFloatingCard: View {
     @ViewBuilder
     private func previewContent(route: SavedRoute) -> some View {
         let geometryText = route.isClosedLoop ? L10n.text("封閉") : L10n.text("開放")
-        let repeatText: String
-        switch route.playbackMode {
-        case .once: repeatText = L10n.text("1 次")
-        case .infiniteLoop: repeatText = "∞"
-        case .finite(let count): repeatText = L10n.format("%d 圈", count)
-        }
+        let repeatText = playbackRepeatText(route.playbackMode)
 
         HStack {
             Image(systemName: "eye.fill").foregroundStyle(.blue)
@@ -106,6 +101,14 @@ struct RouteFloatingCard: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityLabel(L10n.text("取消預覽"))
+        }
+    }
+
+    private func playbackRepeatText(_ mode: RoutePlaybackMode) -> String {
+        switch mode {
+        case .once: return L10n.text("1 次")
+        case .infiniteLoop: return "∞"
+        case .finite(let count): return L10n.format("%d 圈", count)
         }
     }
 
