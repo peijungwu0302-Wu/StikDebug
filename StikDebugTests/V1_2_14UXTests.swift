@@ -127,9 +127,10 @@ struct V1_2_14UXTests {
             RouteCoordinate(latitude: 0, longitude: 0),
             RouteCoordinate(latitude: 0, longitude: 0.01)
         ])
-        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        let monitor = ConnectionMonitor()
+        monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
         let engine = RoutePlaybackEngine(
-            sink: sink, updateInterval: 60, uptime: { clock.get() },
+            sink: sink, connectionMonitor: monitor, updateInterval: 60, uptime: { clock.get() },
             acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: {},
             reconnectDelays: [0], transportDebounce: 0
         )
