@@ -79,6 +79,7 @@ final class RouteLocationModel: ObservableObject {
     private var teleportTask: Task<Void, Never>?
     private var loadedRouteID: UUID?
     private var cancellables: Set<AnyCancellable> = []
+    private var persistenceLoadTask: Task<Void, Never>?
     #if DEBUG
     var testPlaybackAfterBootstrapCompletion: (@MainActor () -> Void)?
     var testPlaybackStartInvocationCount: Int = 0
@@ -136,7 +137,9 @@ final class RouteLocationModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        Task { await loadPersistedData() }
+        persistenceLoadTask = Task { [weak self] in
+            await self?.loadPersistedData()
+        }
     }
 
     private func performAssistedPlaybackRecovery(coordinate: RouteCoordinate?) async -> Bool {
@@ -987,6 +990,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func recordRecent(coordinate: RouteCoordinate, title: String? = nil, kind: String = "simulate") async {
+        await waitForInitialPersistenceLoad()
         guard coordinate.isValid else { return }
         recentLocations.removeAll { existing in
             abs(existing.coordinate.latitude - coordinate.latitude) < 0.000001 &&
@@ -998,13 +1002,21 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func clearRecentLocations() async {
+        await waitForInitialPersistenceLoad()
         recentLocations = []
         try? await persistence.saveRecentLocations([])
     }
 
     func deleteRecentLocation(_ item: RecentLocation) async {
+        await waitForInitialPersistenceLoad()
         recentLocations.removeAll { $0.id == item.id }
         try? await persistence.saveRecentLocations(recentLocations)
+    }
+
+    private func waitForInitialPersistenceLoad() async {
+        guard let task = persistenceLoadTask else { return }
+        await task.value
+        persistenceLoadTask = nil
     }
 
     var sortedFavorites: [FavoriteLocation] {
