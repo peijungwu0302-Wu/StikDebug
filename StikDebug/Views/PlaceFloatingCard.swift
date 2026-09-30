@@ -44,7 +44,7 @@ struct MapBottomCardShell: View {
 }
 
 enum CoordinateClipboard {
-    static func copy(_ coordinate: RouteCoordinate) {
+    @MainActor static func copy(_ coordinate: RouteCoordinate) {
         UIPasteboard.general.string = String(format: "%.6f,%.6f", coordinate.latitude, coordinate.longitude)
         ToastManager.shared.show(L10n.text("已複製座標"), kind: .info)
     }
