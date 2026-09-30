@@ -306,8 +306,10 @@ final class RoutePlaybackEngine: ObservableObject {
         if connectionMonitor.currentTransport == .cellular,
            let assistedRecoveryAction,
            !assistedRecoveryInProgress {
-            updateDerivedState(now: uptime())
-            let assistedRecoveryDistance = traveledDistance
+            if returnState != .paused {
+                updateDerivedState(now: uptime())
+            }
+            let assistedRecoveryDistance = returnState == .paused ? pausedOffset : traveledDistance
             startingOffset = assistedRecoveryDistance
             startTime = uptime()
             assistedRecoveryInProgress = true
