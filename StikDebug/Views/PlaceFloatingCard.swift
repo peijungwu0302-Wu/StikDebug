@@ -14,7 +14,13 @@ struct PlaceFloatingCard: View {
             if let placeInfo {
                 if let name = placeInfo.bestDisplayName { Text(name).font(.headline) }
                 if let country = placeInfo.country {
-                    Text("\(country)\(placeInfo.countryCode == \"TW\" ? \" 🇹🇼\" : placeInfo.countryCode == \"JP\" ? \" 🇯🇵\" : \"\")")
+                    let flag: String
+                    switch placeInfo.countryCode {
+                    case "TW": flag = " 🇹🇼"
+                    case "JP": flag = " 🇯🇵"
+                    default: flag = ""
+                    }
+                    Text(country + flag)
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
             } else if isResolving {
