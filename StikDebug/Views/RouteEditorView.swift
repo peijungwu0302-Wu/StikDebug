@@ -64,8 +64,12 @@ struct RouteEditorView: View {
                             .focused($speedFieldFocused)
                         Text("km/h").foregroundStyle(.secondary)
                     }
-                    Picker(L10n.text("模式"), selection: $model.playbackMode) {
-                        ForEach(RoutePlaybackMode.allCases) { Text($0.title).tag($0) }
+                    Picker(L10n.text("播放次數"), selection: $model.playbackMode) {
+                        Text(L10n.text("1 圈")).tag(RoutePlaybackMode.once)
+                        Text(L10n.text("2 圈")).tag(RoutePlaybackMode.finite(2))
+                        Text(L10n.text("3 圈")).tag(RoutePlaybackMode.finite(3))
+                        Text(L10n.text("5 圈")).tag(RoutePlaybackMode.finite(5))
+                        Text(L10n.text("無限")).tag(RoutePlaybackMode.infiniteLoop)
                     }
                     LabeledContent(L10n.text("距離"), value: model.geometry.totalDistance.formattedRouteDistance)
                     LabeledContent(L10n.text("預估單圈時間"), value: model.estimatedLapDuration?.formattedDuration ?? "—")

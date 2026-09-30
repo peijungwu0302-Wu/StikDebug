@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct MyLibraryView: View {
+    @EnvironmentObject private var model: RouteLocationModel
     @Binding var selectedTab: RouteLocationTab
     @State private var selectedSection: MyLibrarySection = .places
     @AppStorage(LibraryDisplayDensity.preferenceKey) private var densityRawValue = LibraryDisplayDensity.compact.rawValue
+    @State private var showClearRecentConfirmation = false
     
     var body: some View {
         NavigationStack {
@@ -29,10 +31,25 @@ struct MyLibraryView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        if selectedSection == .places {
+                            Picker(L10n.text("排序方式"), selection: $model.librarySortOption) {
+                                ForEach(LibrarySortOption.allCases) { option in
+                                    Text(option.title).tag(option)
+                                }
+                            }
+                            Divider()
+                        }
                         Picker(L10n.text("顯示方式"), selection: $densityRawValue) {
                             ForEach(LibraryDisplayDensity.allCases) { density in
                                 Text(density.title).tag(density.rawValue)
                             }
+                        }
+                        if selectedSection == .recent {
+                            Divider()
+                            Button(L10n.text("清除所有最近位置"), role: .destructive) {
+                                showClearRecentConfirmation = true
+                            }
+                            .disabled(model.recentLocations.isEmpty)
                         }
                     } label: {
                         Image(systemName: "rectangle.compress.vertical")
@@ -42,6 +59,14 @@ struct MyLibraryView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .switchToRoutesTab)) { _ in
                 selectedSection = .routes
+            }
+            .confirmationDialog(L10n.text("要清除所有最近位置嗎？"), isPresented: $showClearRecentConfirmation, titleVisibility: .visible) {
+                Button(L10n.text("清除所有最近位置"), role: .destructive) {
+                    Task { await model.clearRecentLocations() }
+                }
+                Button(L10n.text("取消"), role: .cancel) {}
+            } message: {
+                Text(L10n.text("此操作不會影響收藏地點。"))
             }
         }
     }
@@ -63,7 +88,6 @@ private struct RecentLocationsView: View {
     @EnvironmentObject private var model: RouteLocationModel
     @Binding var selectedTab: RouteLocationTab
     @AppStorage(LibraryDisplayDensity.preferenceKey) private var densityRawValue = LibraryDisplayDensity.compact.rawValue
-    @State private var showClearConfirmation = false
 
     var body: some View {
         List {
@@ -86,26 +110,26 @@ private struct RecentLocationsView: View {
                     .swipeActions(edge: .trailing) {
                         Button(L10n.text("刪除"), role: .destructive) { Task { await model.deleteRecentLocation(item) } }
                     }
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                        if !model.isFavorite(coordinate: item.coordinate) {
+                            Button {
+                                Task { await model.addFavoriteIfNeeded(name: item.title ?? model.suggestedFavoriteName(), coordinate: item.coordinate) }
+                            } label: {
+                                Label(L10n.text("加入喜愛"), systemImage: "star")
+                            }
+                            .tint(.yellow)
+                        }
+                    }
                     .contextMenu {
                         Button { Task { await model.teleport(to: item.coordinate) } } label: { Label(L10n.text("再次模擬"), systemImage: "location.fill") }
                         Button { CoordinateClipboard.copy(item.coordinate) } label: { Label(L10n.text("複製座標"), systemImage: "doc.on.doc") }
-                        Button { Task { await model.addFavorite(name: model.suggestedFavoriteName(), coordinate: item.coordinate) } } label: { Label(L10n.text("加入喜愛"), systemImage: "star") }
+                        if !model.isFavorite(coordinate: item.coordinate) {
+                            Button { Task { await model.addFavoriteIfNeeded(name: item.title ?? model.suggestedFavoriteName(), coordinate: item.coordinate) } } label: { Label(L10n.text("加入喜愛"), systemImage: "star") }
+                        }
                         Button(role: .destructive) { Task { await model.deleteRecentLocation(item) } } label: { Label(L10n.text("刪除"), systemImage: "trash") }
                     }
                 }
             }
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(L10n.text("清除所有最近位置"), role: .destructive) { showClearConfirmation = true }
-                    .disabled(model.recentLocations.isEmpty)
-            }
-        }
-        .confirmationDialog(L10n.text("要清除所有最近位置嗎？"), isPresented: $showClearConfirmation, titleVisibility: .visible) {
-            Button(L10n.text("清除所有最近位置"), role: .destructive) { Task { await model.clearRecentLocations() } }
-            Button(L10n.text("取消"), role: .cancel) {}
-        } message: {
-            Text(L10n.text("此操作不會影響收藏地點。"))
         }
     }
 }

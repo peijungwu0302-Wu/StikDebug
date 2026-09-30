@@ -58,11 +58,11 @@ struct RouteMapView: View {
                     if let coordinate = proxy.convert(point, from: .local) { model.select(coordinate) }
                 }
             }
-            .safeAreaInset(edge: .bottom) { controlCard }
+            .overlay(alignment: .bottom) { controlCard }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
+                    Button { showMyRoutes = true } label: { Image(systemName: "list.bullet.rectangle") }
                         .accessibilityLabel(L10n.text("我的路線"))
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
                         .accessibilityLabel(L10n.text("搜尋地點"))
@@ -86,15 +86,15 @@ struct RouteMapView: View {
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
         }
-        .sheet(isPresented: $showCoordinateEntry) {
-            CoordinateTeleportView { coordinate, simulateImmediately in
+        .background {
+            CoordinateAlertPresenter(isPresented: $showCoordinateEntry) { coordinate, simulateImmediately in
                 model.selectedCoordinate = coordinate
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
                 if simulateImmediately {
                     model.requestSinglePointSimulation(at: coordinate)
                 }
             }
-            .presentationDetents([.height(280), .medium])
+            .frame(width: 1, height: 1)
         }
         .alert(L10n.text("儲存喜好地點"), isPresented: $showFavoriteName) {
             TextField(L10n.text("名稱"), text: $favoriteName)
@@ -182,7 +182,7 @@ struct RouteMapView: View {
                         .font(.footnote.monospaced()).textSelection(.enabled)
                     HStack {
                         Button(L10n.text("模擬此位置")) { model.requestSinglePointSimulation() }.buttonStyle(.borderedProminent)
-                        Button(L10n.text("加入航點")) { model.addSelectedWaypoint() }.buttonStyle(.bordered)
+                        Button(L10n.text("加入路線")) { model.addSelectedWaypointAndSwitchToRoute() }.buttonStyle(.bordered)
                         Button {
                             favoriteCoordinate = FavoriteCoordinateCapture.coordinate(
                                 for: .selectedPlace,
@@ -248,6 +248,8 @@ struct QuickRouteMapView: View {
     @State private var showClearDraftAlert = false
     @State private var showFavoriteName = false
     @State private var showMyRoutes = false
+    @State private var showCustomRepeat = false
+    @State private var customRepeatText = ""
     @State private var favoriteName = ""
     @State private var isCardExpanded = false
     @FocusState private var isSpeedFieldFocused: Bool
@@ -293,7 +295,7 @@ struct QuickRouteMapView: View {
                     }
                 }
             }
-            .safeAreaInset(edge: .bottom) { quickControlCard }
+            .overlay(alignment: .bottom) { quickControlCard }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -307,7 +309,7 @@ struct QuickRouteMapView: View {
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if model.quickRouteMode == .route {
-                        Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
+                        Button { showMyRoutes = true } label: { Image(systemName: "list.bullet.rectangle") }
                             .accessibilityLabel(L10n.text("我的路線"))
                     }
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
@@ -331,19 +333,18 @@ struct QuickRouteMapView: View {
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
         }
-        .sheet(isPresented: $showCoordinateEntry) {
-            CoordinateTeleportView { coordinate, simulateImmediately in
+        .background {
+            CoordinateAlertPresenter(isPresented: $showCoordinateEntry) { coordinate, simulateImmediately in
                 if simulateImmediately {
                     model.requestSinglePointSimulation(at: coordinate)
                 } else if model.quickRouteMode == .route {
-                    model.addWaypoint(coordinate)
-                    ToastManager.shared.show(L10n.text("已新增航點。"), kind: .success)
+                    model.addWaypointAndSwitchToRoute(coordinate)
                 } else {
                     model.selectedCoordinate = coordinate
                 }
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
-            .presentationDetents([.height(280), .medium])
+            .frame(width: 1, height: 1)
         }
         .sheet(isPresented: $showMyRoutes) {
             MyRoutesSheet { route in
@@ -366,6 +367,18 @@ struct QuickRouteMapView: View {
             Button(L10n.text("取消"), role: .cancel) {}
         } message: {
             Text(L10n.text("確定要清除目前的路線草稿嗎？"))
+        }
+        .alert(L10n.text("播放次數"), isPresented: $showCustomRepeat) {
+            TextField(L10n.text("圈數"), text: $customRepeatText)
+                .keyboardType(.numberPad)
+            Button(L10n.text("套用")) {
+                if let count = Int(customRepeatText.trimmingCharacters(in: .whitespacesAndNewlines)), (1...9999).contains(count) {
+                    model.playbackMode = model.isClosedLoop ? .finite(count) : .once
+                }
+            }
+            Button(L10n.text("取消"), role: .cancel) {}
+        } message: {
+            Text(L10n.text("請輸入 1 到 9999 圈。"))
         }
         .onChange(of: model.selectedCoordinate) { _, coordinate in
             guard let coordinate else { return }
@@ -559,7 +572,7 @@ struct QuickRouteMapView: View {
                         .buttonStyle(.borderedProminent)
 
                         Button(L10n.text("加入航點")) {
-                            model.addSelectedWaypoint()
+                            model.addSelectedWaypointAndSwitchToRoute()
                         }
                         .buttonStyle(.bordered)
 
@@ -632,7 +645,7 @@ struct QuickRouteMapView: View {
                         Button {
                             showMyRoutes = true
                         } label: {
-                            Label(L10n.text("我的路線"), systemImage: "star.circle.fill")
+                            Label(L10n.text("我的路線"), systemImage: "list.bullet.rectangle")
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -654,7 +667,7 @@ struct QuickRouteMapView: View {
                     Button {
                         showMyRoutes = true
                     } label: {
-                        Label(L10n.text("我的路線"), systemImage: "star.circle.fill")
+                            Label(L10n.text("我的路線"), systemImage: "list.bullet.rectangle")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -722,10 +735,23 @@ struct QuickRouteMapView: View {
                             .accessibilityLabel(L10n.text("提高速度 0.1 公里每小時"))
                         Text("km/h").font(.caption).foregroundStyle(.secondary)
                         Spacer()
-                        Toggle(isOn: $model.isClosedLoop) {
-                            Text(L10n.text("無限循環")).font(.caption)
+                        Menu {
+                            Toggle(L10n.text("封閉路線"), isOn: $model.isClosedLoop)
+                            Picker(L10n.text("播放次數"), selection: $model.playbackMode) {
+                                Text(L10n.text("1 圈")).tag(RoutePlaybackMode.once)
+                                Text(L10n.text("2 圈")).tag(RoutePlaybackMode.finite(2))
+                                Text(L10n.text("3 圈")).tag(RoutePlaybackMode.finite(3))
+                                Text(L10n.text("5 圈")).tag(RoutePlaybackMode.finite(5))
+                                Text(L10n.text("無限")).tag(RoutePlaybackMode.infiniteLoop)
+                            }
+                            Button(L10n.text("自訂…")) {
+                                customRepeatText = model.playbackMode.finiteCount.map(String.init) ?? ""
+                                showCustomRepeat = true
+                            }
+                        } label: {
+                            Label(routeRepeatSummary, systemImage: "repeat")
+                                .font(.caption)
                         }
-                        .toggleStyle(.button)
                     }
 
                     HStack {
@@ -759,7 +785,7 @@ struct QuickRouteMapView: View {
                         .font(.caption)
                         .lineLimit(1)
                     Spacer()
-                    Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
+                    Button { showMyRoutes = true } label: { Image(systemName: "list.bullet.rectangle") }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                     Button(L10n.text("開始路線")) { Task { await model.startPlayback() } }
@@ -781,6 +807,17 @@ struct QuickRouteMapView: View {
         camera = .rect(rect.insetBy(dx: -max(rect.width * 0.15, 500), dy: -max(rect.height * 0.15, 500)))
     }
 
+    private var routeRepeatSummary: String {
+        let geometry = model.isClosedLoop ? L10n.text("封閉") : L10n.text("開放")
+        let repeatText: String
+        switch model.playbackMode {
+        case .once: repeatText = L10n.text("1 次")
+        case .infiniteLoop: repeatText = "∞"
+        case .finite(let count): repeatText = L10n.format("%d 圈", count)
+        }
+        return "\(geometry) · \(repeatText)"
+    }
+
     private func formatDuration(_ duration: TimeInterval) -> String {
         let totalSeconds = Int(max(0, duration))
         let hours = totalSeconds / 3600
@@ -790,74 +827,6 @@ struct QuickRouteMapView: View {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         } else {
             return String(format: "%02d:%02d", minutes, seconds)
-        }
-    }
-}
-
-struct CoordinateTeleportView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var coordinateText = ""
-    @State private var errorMessage: String?
-    @FocusState private var isFocused: Bool
-    let onSubmit: (RouteCoordinate, Bool) -> Void
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 8) {
-                    TextField("25.033964,121.564468", text: $coordinateText, axis: .vertical)
-                        .keyboardType(.numbersAndPunctuation)
-                        .textInputAutocapitalization(.never)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($isFocused)
-                    PasteButton(payloadType: String.self) { strings in
-                        if let value = strings.first { coordinateText = value }
-                    }
-                    .labelStyle(.iconOnly)
-                    .frame(width: 44, height: 44)
-                    .accessibilityLabel(L10n.text("貼上座標"))
-                }
-                Text(L10n.text("支援座標或 Google Maps 連結"))
-                    .font(.footnote).foregroundStyle(.secondary)
-                if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
-                Spacer(minLength: 0)
-            }
-            .padding()
-            .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 10) {
-                    Button(L10n.text("地圖預覽")) { submit(simulateImmediately: false) }
-                        .buttonStyle(.bordered)
-                    Button(L10n.text("立即模擬")) { submit(simulateImmediately: true) }
-                        .buttonStyle(.borderedProminent)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.bar)
-            }
-            .navigationTitle(L10n.text("輸入位置"))
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(L10n.text("取消")) { dismiss() } }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button(L10n.text("完成")) {
-                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                    }
-                }
-            }
-            .onAppear { isFocused = true }
-        }
-    }
-
-    private func submit(simulateImmediately: Bool) {
-        do {
-            guard let coordinate = try CoordinateImportParser.parseInline(coordinateText).first else {
-                throw CoordinateImportError.noCoordinates
-            }
-            onSubmit(coordinate, simulateImmediately)
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 }

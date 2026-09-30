@@ -91,7 +91,18 @@ struct FavoritesView: View {
                     Button(L10n.text("編輯")) { editingFavorite = favorite }.tint(.blue)
                 }
             }
-            .onDelete { offsets in Task { await model.deleteFavorites(at: offsets) } }
+            .onDelete { offsets in
+                let displayed = model.sortedFavorites
+                let selectedIDs = offsets.compactMap { displayed.indices.contains($0) ? displayed[$0].id : nil }
+                let underlying = IndexSet(model.favorites.enumerated().compactMap { selectedIDs.contains($0.element.id) ? $0.offset : nil })
+                Task { await model.deleteFavorites(at: underlying) }
+            }
+            .onMove { offsets, destination in
+                guard model.librarySortOption == .manual else { return }
+                var ids = model.sortedFavorites.map(\.id)
+                ids.move(fromOffsets: offsets, toOffset: destination)
+                model.setManualFavoriteOrder(ids)
+            }
         }
     }
 

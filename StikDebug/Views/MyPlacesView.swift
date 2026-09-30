@@ -16,7 +16,7 @@ struct MyPlacesView: View {
                     description: Text(L10n.text("請先在地圖選擇位置，再儲存為喜愛地點。"))
                 )
             } else {
-                ForEach(model.favorites) { favorite in
+                ForEach(model.sortedFavorites) { favorite in
                     Button {
                         model.focusOnMap(favorite.coordinate)
                         selectedTab = .map
@@ -64,7 +64,16 @@ struct MyPlacesView: View {
                     }
                 }
                 .onDelete { offsets in
-                    Task { await model.deleteFavorites(at: offsets) }
+                    let displayed = model.sortedFavorites
+                    let selectedIDs = offsets.compactMap { displayed.indices.contains($0) ? displayed[$0].id : nil }
+                    let underlying = IndexSet(model.favorites.enumerated().compactMap { selectedIDs.contains($0.element.id) ? $0.offset : nil })
+                    Task { await model.deleteFavorites(at: underlying) }
+                }
+                .onMove { offsets, destination in
+                    guard model.librarySortOption == .manual else { return }
+                    var ids = model.sortedFavorites.map(\.id)
+                    ids.move(fromOffsets: offsets, toOffset: destination)
+                    model.setManualFavoriteOrder(ids)
                 }
             }
         }

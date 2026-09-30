@@ -3,6 +3,51 @@ import Testing
 @testable import RouteLocation
 
 struct V1_2_14UXTests {
+    @Test func playbackRepeatModesRoundTripAndMigrateLegacyValues() throws {
+        #expect(try JSONDecoder().decode(RoutePlaybackMode.self, from: Data(#""once""#.utf8)) == .once)
+        #expect(try JSONDecoder().decode(RoutePlaybackMode.self, from: Data(#""infiniteLoop""#.utf8)) == .infiniteLoop)
+        let finite = RoutePlaybackMode.finite(5)
+        let decoded = try JSONDecoder().decode(RoutePlaybackMode.self, from: JSONEncoder().encode(finite))
+        #expect(decoded == finite)
+        #expect(RoutePlaybackMode.infiniteLoop.normalized(isClosedLoop: false) == .once)
+        #expect(RoutePlaybackMode.finite(5).normalized(isClosedLoop: false) == .once)
+        #expect(RoutePlaybackMode.finite(0).normalized(isClosedLoop: true) == .once)
+    }
+
+    @Test func finitePlaybackMathCompletesExactlyAndReportsLaps() {
+        #expect(PlaybackMath.completionDistance(total: 100, mode: .finite(3)) == 300)
+        #expect(PlaybackMath.isComplete(traveled: 299.99, total: 100, mode: .finite(3)) == false)
+        #expect(PlaybackMath.isComplete(traveled: 300, total: 100, mode: .finite(3)))
+        #expect(PlaybackMath.lapNumber(traveled: 0, total: 100, mode: .finite(3)) == 1)
+        #expect(PlaybackMath.lapNumber(traveled: 100, total: 100, mode: .finite(3)) == 2)
+        #expect(PlaybackMath.lapNumber(traveled: 300, total: 100, mode: .finite(3)) == 3)
+    }
+
+    @Test @MainActor func singlePointRetargetWritesBWithoutClearingOrRestoring() async throws {
+        let sink = RetargetRecordingSink()
+        let model = RouteLocationModel(
+            persistence: RoutePersistenceStore(rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            simulationService: sink
+        )
+        let a = RouteCoordinate(latitude: 25, longitude: 121)
+        let b = RouteCoordinate(latitude: 35, longitude: 139)
+        await model.executeTeleport(to: a)
+        await model.executeTeleport(to: b)
+        #expect(model.activeSimulatedCoordinate == b)
+        #expect(await sink.clearCallCount() == 0)
+        #expect(await sink.updates().last == b)
+        model.stopRoutePlayback(clearMarker: false)
+    }
+
+    @Test func favoriteSortPolicySupportsManualAndDistance() {
+        let origin = RouteCoordinate(latitude: 25, longitude: 121)
+        let near = FavoriteLocation(name: "Near", coordinate: origin)
+        let far = FavoriteLocation(name: "Far", coordinate: RouteCoordinate(latitude: 35, longitude: 139))
+        let values = [far, near]
+        #expect(FavoriteSortPolicy.sort(values, option: .distance, manualOrder: [], deviceCoordinate: origin).first?.name == "Near")
+        #expect(FavoriteSortPolicy.sort(values, option: .manual, manualOrder: [near.id, far.id], deviceCoordinate: nil).map(\.name) == ["Near", "Far"])
+    }
+
     @Test @MainActor func favoriteCoordinateCaptureKeepsActionSource() async throws {
         let active = RouteCoordinate(latitude: 25.0, longitude: 121.0)
         let selected = RouteCoordinate(latitude: 35.0, longitude: 139.0)
@@ -85,6 +130,20 @@ struct V1_2_14UXTests {
         #expect(model.favorites.count == 1)
         let loadedRecent = try await RoutePersistenceStore(rootURL: root).loadRecentLocations()
         #expect(loadedRecent.isEmpty)
+    }
+
+    @Test @MainActor func recentFavoriteActionIsIdempotentAndManualOrderIsStable() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = RouteLocationModel(persistence: RoutePersistenceStore(rootURL: root), simulationService: NoopLocationSink())
+        let coordinate = RouteCoordinate(latitude: 25.033964, longitude: 121.564468)
+        await model.addFavoriteIfNeeded(name: "捷徑位置", coordinate: coordinate)
+        await model.addFavoriteIfNeeded(name: "捷徑位置", coordinate: coordinate)
+        #expect(model.favorites.count == 1)
+        let ids = model.favorites.map(\.id)
+        model.setManualFavoriteOrder(ids)
+        #expect(model.sortedFavorites.map(\.id) == ids)
+        let loaded = try await RoutePersistenceStore(rootURL: root).loadFavorites()
+        #expect(loaded.count == 1)
     }
 
     @Test func uniqueNamesUseIndependentSuffixesAndNormalizeWhitespace() {
@@ -300,6 +359,22 @@ private final class TestUptimeBox: @unchecked Sendable {
         self.value = value
         lock.unlock()
     }
+}
+
+private actor RetargetRecordingSink: LocationSimulationSink {
+    private var values: [RouteCoordinate] = []
+    private var clears = 0
+
+    func setCoordinate(_ coordinate: RouteCoordinate) async throws {
+        values.append(coordinate)
+    }
+
+    func clearSimulatedLocation() async throws {
+        clears += 1
+    }
+
+    func updates() -> [RouteCoordinate] { values }
+    func clearCallCount() -> Int { clears }
 }
 
 private actor TestPlaceGeocodingClient: PlaceGeocodingClient {

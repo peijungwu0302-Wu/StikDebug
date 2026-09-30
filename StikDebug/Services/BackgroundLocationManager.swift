@@ -14,6 +14,7 @@ final class BackgroundLocationManager: NSObject, ObservableObject, CLLocationMan
     private var activityCount = 0
     private var forcedActivityCount = 0
     @Published private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
+    @Published private(set) var latestCoordinate: RouteCoordinate?
 
     private override init() {
         super.init()
@@ -77,5 +78,17 @@ final class BackgroundLocationManager: NSObject, ObservableObject, CLLocationMan
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Location fixes may fail (e.g. no GPS indoors) — that's fine.
         // The manager just needs to be running, not actually fix a location.
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let coordinate = locations.last?.coordinate,
+              CLLocationCoordinate2DIsValid(coordinate) else { return }
+        if Thread.isMainThread {
+            latestCoordinate = RouteCoordinate(coordinate)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.latestCoordinate = RouteCoordinate(coordinate)
+            }
+        }
     }
 }

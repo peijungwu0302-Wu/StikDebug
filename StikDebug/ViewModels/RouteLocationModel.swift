@@ -20,8 +20,18 @@ final class RouteLocationModel: ObservableObject {
     @Published var routeName = L10n.text("新路線")
     @Published var routeMode: RouteMode = .straight { didSet { routeInputsChanged() } }
     @Published var navigationTransport: NavigationTransportMode = .automobile { didSet { routeInputsChanged() } }
-    @Published var isClosedLoop = true { didSet { routeInputsChanged() } }
-    @Published var playbackMode: RoutePlaybackMode = .infiniteLoop
+    @Published var isClosedLoop = true {
+        didSet {
+            if !isClosedLoop, playbackMode != .once { playbackMode = .once }
+            routeInputsChanged()
+        }
+    }
+    @Published var playbackMode: RoutePlaybackMode = .infiniteLoop {
+        didSet {
+            let normalized = playbackMode.normalized(isClosedLoop: isClosedLoop)
+            if normalized != playbackMode { playbackMode = normalized }
+        }
+    }
     @Published var speedKmh: Double {
         didSet {
             let normalized = PlaybackSpeedPolicy.clamp(speedKmh)
@@ -63,6 +73,7 @@ final class RouteLocationModel: ObservableObject {
     @Published var librarySortOption: LibrarySortOption {
         didSet { UserDefaults.standard.set(librarySortOption.rawValue, forKey: Self.librarySortKey) }
     }
+    @Published private(set) var manualFavoriteOrder: [UUID] = []
     @Published var showFavoriteTimestamps: Bool {
         didSet { UserDefaults.standard.set(showFavoriteTimestamps, forKey: Self.showFavoriteTimestampsKey) }
     }
@@ -77,6 +88,7 @@ final class RouteLocationModel: ObservableObject {
     private let navigationResolver = NavigationRouteResolver()
     private let simulationService: any LocationSimulationSink
     private var teleportTask: Task<Void, Never>?
+    private var singlePointHoldGeneration = 0
     private var loadedRouteID: UUID?
     private var cancellables: Set<AnyCancellable> = []
     private var persistenceLoadTask: Task<Void, Never>?
@@ -90,6 +102,7 @@ final class RouteLocationModel: ObservableObject {
     private static let librarySortKey = "RouteLocation.librarySortOption"
     private static let showFavoriteTimestampsKey = "RouteLocation.showFavoriteTimestamps"
     private static let playbackRecoveryPreferenceKey = "RouteLocation.playbackRecoveryPreference"
+    private static let manualFavoriteOrderKey = "RouteLocation.manualFavoriteOrder"
 
     var hasLoadedRoute: Bool { loadedRouteID != nil }
     var favoriteRoutes: [SavedRoute] { savedRoutes.filter(\.isFavorite) }
@@ -120,6 +133,10 @@ final class RouteLocationModel: ObservableObject {
             modeSwitchConfirmation = .askFirst
         }
         librarySortOption = LibrarySortOption(rawValue: UserDefaults.standard.string(forKey: Self.librarySortKey) ?? "newest") ?? .newest
+        if let data = UserDefaults.standard.data(forKey: Self.manualFavoriteOrderKey),
+           let values = try? JSONDecoder().decode([UUID].self, from: data) {
+            manualFavoriteOrder = values
+        }
         showFavoriteTimestamps = UserDefaults.standard.object(forKey: Self.showFavoriteTimestampsKey) as? Bool ?? true
         playbackRecoveryPreference = PlaybackRecoveryPreference(rawValue: UserDefaults.standard.string(forKey: Self.playbackRecoveryPreferenceKey) ?? "ask") ?? .ask
 
@@ -250,9 +267,21 @@ final class RouteLocationModel: ObservableObject {
         self.selectedCoordinate = nil
     }
 
+    func addSelectedWaypointAndSwitchToRoute() {
+        guard let selectedCoordinate else { return }
+        addWaypointAndSwitchToRoute(selectedCoordinate)
+        self.selectedCoordinate = nil
+    }
+
     func addWaypoint(_ coordinate: RouteCoordinate) {
         guard coordinate.isValid else { presentedError = RouteLocationError.insufficientWaypoints.localizedDescription; return }
         if waypoints.last != coordinate { waypoints.append(coordinate); routeInputsChanged() }
+    }
+
+    func addWaypointAndSwitchToRoute(_ coordinate: RouteCoordinate) {
+        addWaypoint(coordinate)
+        quickRouteMode = .route
+        ToastManager.shared.show(L10n.text("已加入路線"), kind: .success)
     }
 
     func replaceWaypoints(_ coordinates: [RouteCoordinate]) {
@@ -487,7 +516,7 @@ final class RouteLocationModel: ObservableObject {
         navigationTransport = route.navigationTransportMode
         isClosedLoop = route.isClosedLoop
         speedKmh = route.preferredSpeedKmh
-        playbackMode = route.playbackMode
+        playbackMode = route.playbackMode.normalized(isClosedLoop: route.isClosedLoop)
         geometry = route.resolvedGeometry
         navigationGeometryNeedsRecalculation = route.navigationGeometryNeedsRecalculation
         statusMessage = L10n.text("已載入快取路線，沒有重新計算導航。")
@@ -570,6 +599,44 @@ final class RouteLocationModel: ObservableObject {
         ToastManager.shared.show(L10n.format("已收藏「%@」", value.name), kind: .success)
     }
 
+    /// Adds a recent location without creating a second favorite for the same
+    /// coordinate.  Explicitly named favorites may still share names; the
+    /// coordinate identity is what makes this action idempotent.
+    func addFavoriteIfNeeded(name: String, note: String? = nil, coordinate: RouteCoordinate) async {
+        await waitForInitialPersistenceLoad()
+        guard coordinate.isValid else { return }
+        if let existing = favorites.first(where: {
+            abs($0.latitude - coordinate.latitude) < 0.000001 &&
+            abs($0.longitude - coordinate.longitude) < 0.000001
+        }) {
+            await markFavoriteUsed(existing)
+            ToastManager.shared.show(L10n.format("已在收藏中：%@", existing.name), kind: .info)
+            return
+        }
+        await addFavorite(name: name, note: note, coordinate: coordinate)
+    }
+
+    func isFavorite(coordinate: RouteCoordinate) -> Bool {
+        favorites.contains {
+            abs($0.latitude - coordinate.latitude) < 0.000001 &&
+            abs($0.longitude - coordinate.longitude) < 0.000001
+        }
+    }
+
+    func moveFavorites(from offsets: IndexSet, to destination: Int) async {
+        favorites.move(fromOffsets: offsets, toOffset: destination)
+        manualFavoriteOrder = favorites.map(\.id)
+        persistManualFavoriteOrder()
+        await saveFavorites()
+    }
+
+    func setManualFavoriteOrder(_ ids: [UUID]) {
+        let known = Set(favorites.map(\.id))
+        manualFavoriteOrder = ids.filter { known.contains($0) }
+        manualFavoriteOrder.append(contentsOf: favorites.map(\.id).filter { !manualFavoriteOrder.contains($0) })
+        persistManualFavoriteOrder()
+    }
+
     func suggestedFavoriteName() -> String {
         UniqueNameGenerator.makeUnique(base: L10n.text("新地點"), existing: favorites.map(\.name), fallback: L10n.text("新地點"))
     }
@@ -604,6 +671,9 @@ final class RouteLocationModel: ObservableObject {
 
     func deleteFavorites(at offsets: IndexSet) async {
         favorites.remove(atOffsets: offsets)
+        let ids = Set(favorites.map(\.id))
+        manualFavoriteOrder = manualFavoriteOrder.filter { ids.contains($0) }
+        persistManualFavoriteOrder()
         await saveFavorites()
     }
 
@@ -717,6 +787,13 @@ final class RouteLocationModel: ObservableObject {
                 return
             }
         }
+        if case .singlePoint = simulationMode {
+            // A single-point simulation is already a prepared target.  A new
+            // target is a direct retarget and must not clear the simulated
+            // location or re-enter cellular cold bootstrap.
+            Task { [weak self] in await self?.executeTeleport(to: target) }
+            return
+        }
         requestBootstrapIfCellular(targetCoordinate: target) { [weak self] in
             guard let self else { return }
             Task { await self.executeTeleport(to: target) }
@@ -736,6 +813,8 @@ final class RouteLocationModel: ObservableObject {
     }
 
     private func startSinglePointHold(at target: RouteCoordinate) {
+        singlePointHoldGeneration &+= 1
+        let generation = singlePointHoldGeneration
         teleportTask?.cancel()
         selectedCoordinate = target
         simulationMode = .singlePoint(target)
@@ -747,8 +826,10 @@ final class RouteLocationModel: ObservableObject {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(4)) } catch { return }
                 guard let self else { return }
+                guard !Task.isCancelled, generation == self.singlePointHoldGeneration else { return }
                 do {
                     try await self.simulationService.setCoordinate(target)
+                    guard !Task.isCancelled, generation == self.singlePointHoldGeneration else { return }
                     consecutiveFailures = 0
                     self.connectionMonitor.reportSession(.connected)
                     LocationSessionCoordinator.shared.markSessionHealthy()
@@ -771,6 +852,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func executeTeleport(to target: RouteCoordinate) async {
+        cancelSinglePointHold()
         stopRoutePlayback(clearMarker: false)
         let alreadyWritten = (locationAlreadyWrittenByBootstrap == target)
         locationAlreadyWrittenByBootstrap = nil
@@ -850,8 +932,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     private func startPlaybackAfterBootstrapPreparation() async {
-        teleportTask?.cancel()
-        teleportTask = nil
+        cancelSinglePointHold()
         locationAlreadyWrittenByBootstrap = nil
         #if DEBUG
         testPlaybackStartInvocationCount += 1
@@ -886,9 +967,22 @@ final class RouteLocationModel: ObservableObject {
         statusMessage = L10n.text("路線已結束，目前位置仍為模擬位置。")
     }
 
+    /// Stops route movement while intentionally keeping the last simulated
+    /// coordinate active.  Player overflow actions use this direct semantic;
+    /// it does not restore GPS and does not present a second confirmation.
+    func stopAndHoldCurrentLocation() {
+        guard let lastCoord = playback.currentCoordinate else {
+            stopRoutePlayback(clearMarker: false)
+            return
+        }
+        stopRoutePlayback(clearMarker: false)
+        startSinglePointHold(at: lastCoord)
+        showEndRouteOptions = false
+        statusMessage = L10n.text("路線已停止，目前位置仍為模擬位置。")
+    }
+
     func returnToRealLocation() async {
-        teleportTask?.cancel()
-        teleportTask = nil
+        cancelSinglePointHold()
         stopRoutePlayback(clearMarker: true)
         LocationSessionCoordinator.shared.markRestoringRealLocation()
         do {
@@ -973,6 +1067,10 @@ final class RouteLocationModel: ObservableObject {
             favorites = try await loadedFavorites
             savedRoutes = try await loadedRoutes
             recentLocations = try await loadedRecents
+            let loadedIDs = Set(favorites.map(\.id))
+            manualFavoriteOrder = manualFavoriteOrder.filter { loadedIDs.contains($0) }
+            manualFavoriteOrder.append(contentsOf: favorites.map(\.id).filter { !manualFavoriteOrder.contains($0) })
+            persistManualFavoriteOrder()
             let legacyRoutes = savedRoutes.filter { $0.name == "New Route" }
             for route in legacyRoutes {
                 var updated = route
@@ -1025,12 +1123,27 @@ final class RouteLocationModel: ObservableObject {
     }
 
     var sortedFavorites: [FavoriteLocation] {
-        switch librarySortOption {
-        case .newest: return favorites.sorted { $0.createdAt > $1.createdAt }
-        case .oldest: return favorites.sorted { $0.createdAt < $1.createdAt }
-        case .name: return favorites.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        case .recentlyUsed: return favorites.sorted { ($0.lastUsedAt ?? .distantPast) > ($1.lastUsedAt ?? .distantPast) }
-        }
+        FavoriteSortPolicy.sort(
+            favorites,
+            option: librarySortOption,
+            manualOrder: manualFavoriteOrder,
+            deviceCoordinate: BackgroundLocationManager.shared.latestCoordinate
+        )
+    }
+
+    private func cancelSinglePointHold() {
+        singlePointHoldGeneration &+= 1
+        teleportTask?.cancel()
+        teleportTask = nil
+    }
+
+    func sortedFavorites(from deviceCoordinate: RouteCoordinate?) -> [FavoriteLocation] {
+        FavoriteSortPolicy.sort(
+            favorites,
+            option: librarySortOption,
+            manualOrder: manualFavoriteOrder,
+            deviceCoordinate: deviceCoordinate
+        )
     }
 
     func setPlaybackSpeed(_ speed: Double) {
@@ -1050,4 +1163,9 @@ final class RouteLocationModel: ObservableObject {
         self.locationAlreadyWrittenByBootstrap = coord
     }
     #endif
+
+    private func persistManualFavoriteOrder() {
+        guard let data = try? JSONEncoder().encode(manualFavoriteOrder) else { return }
+        UserDefaults.standard.set(data, forKey: Self.manualFavoriteOrderKey)
+    }
 }

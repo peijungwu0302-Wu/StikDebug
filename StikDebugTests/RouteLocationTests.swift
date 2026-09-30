@@ -1816,7 +1816,7 @@ struct SideStoreSourceTests {
         let latestSemver = parseSemver(latestVerStr)
         #expect(latestSemver.count == 3, "Latest version must be a valid semver (x.y.z)")
 
-        let appTargetVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.14"
+        let appTargetVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.16"
         let appTargetSemver = parseSemver(appTargetVersion)
 
         var isHigherThanApp = false
@@ -2000,8 +2000,8 @@ struct PairingMaintenanceTests {
 struct InstallationIdentityTests {
     @Test func i1_installationIdentityHasCorrectVersionAndBuild() {
         let identity = DeveloperDiagnosticsStore.shared.installationIdentity
-        let expectedVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.14"
-        let expectedBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "10"
+        let expectedVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.16"
+        let expectedBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "12"
         #expect(identity.version == expectedVersion)
         #expect(identity.build == expectedBuild)
         #expect(identity.bundleIdentifier == "com.routelocation.app")

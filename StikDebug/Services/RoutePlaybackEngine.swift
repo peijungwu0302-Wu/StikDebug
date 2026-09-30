@@ -31,11 +31,33 @@ enum PlaybackMath {
         switch mode {
         case .once: return min(max(traveled, 0), total)
         case .infiniteLoop: return max(traveled, 0).truncatingRemainder(dividingBy: total)
+        case .finite(let count):
+            let limit = total * Double(min(RoutePlaybackMode.maximumFiniteCount, max(1, count)))
+            let value = max(traveled, 0)
+            if value >= limit { return total }
+            return value.truncatingRemainder(dividingBy: total)
         }
     }
     static func lapNumber(traveled: Double, total: Double) -> Int {
         guard total > 0 else { return 1 }
         return max(1, Int(floor(max(0, traveled) / total)) + 1)
+    }
+
+    static func lapNumber(traveled: Double, total: Double, mode: RoutePlaybackMode) -> Int {
+        let value = lapNumber(traveled: traveled, total: total)
+        guard let limit = mode.finiteCount else { return value }
+        return min(value, limit)
+    }
+
+    static func completionDistance(total: Double, mode: RoutePlaybackMode) -> Double {
+        guard total > 0 else { return 0 }
+        guard let count = mode.finiteCount else { return .infinity }
+        return total * Double(min(RoutePlaybackMode.maximumFiniteCount, max(1, count)))
+    }
+
+    static func isComplete(traveled: Double, total: Double, mode: RoutePlaybackMode) -> Bool {
+        let limit = completionDistance(total: total, mode: mode)
+        return limit.isFinite && traveled >= limit
     }
 }
 
@@ -262,7 +284,7 @@ final class RoutePlaybackEngine: ObservableObject {
                     return
                 }
             }
-            if mode == .once, traveledDistance >= (geometry?.totalDistance ?? .infinity) {
+            if PlaybackMath.isComplete(traveled: traveledDistance, total: geometry?.totalDistance ?? 0, mode: mode) {
                 state = .completed
                 task = nil
                 releaseKeepAlive()
@@ -432,7 +454,7 @@ final class RoutePlaybackEngine: ObservableObject {
         elapsedTime = max(0, now - startTime)
         traveledDistance = PlaybackMath.traveledDistance(startingOffset: startingOffset, elapsed: elapsedTime, speedKmh: speedKmh)
         distanceWithinLap = PlaybackMath.distanceOnRoute(traveled: traveledDistance, total: geometry.totalDistance, mode: mode)
-        lapNumber = PlaybackMath.lapNumber(traveled: traveledDistance, total: geometry.totalDistance)
+        lapNumber = PlaybackMath.lapNumber(traveled: traveledDistance, total: geometry.totalDistance, mode: mode)
         currentCoordinate = geometry.coordinate(atDistance: distanceWithinLap).map(RouteCoordinate.init)
     }
 

@@ -40,11 +40,85 @@ enum NavigationTransportMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum RoutePlaybackMode: String, Codable, CaseIterable, Identifiable {
+/// Playback repetition is intentionally independent from route geometry.
+/// `.once` and `.infiniteLoop` retain their historical Codable spellings;
+/// `.finite(Int)` is encoded as `{ "finite": N }` for new saved routes.
+enum RoutePlaybackMode: Codable, CaseIterable, Identifiable, Equatable, Hashable {
+    static let maximumFiniteCount = 9_999
     case once
     case infiniteLoop
-    var id: String { rawValue }
-    var title: String { L10n.text(self == .once ? "單次" : "無限循環") }
+    case finite(Int)
+
+    static var allCases: [RoutePlaybackMode] { [.once, .infiniteLoop] }
+
+    var id: String {
+        switch self {
+        case .once: return "once"
+        case .infiniteLoop: return "infiniteLoop"
+        case .finite(let count): return "finite:\(count)"
+        }
+    }
+
+    var rawValue: String { id }
+
+    var title: String {
+        switch self {
+        case .once: return L10n.text("單次")
+        case .infiniteLoop: return L10n.text("無限循環")
+        case .finite(let count): return L10n.format("%d 圈", count)
+        }
+    }
+
+    var finiteCount: Int? {
+        switch self {
+        case .once: return 1
+        case .infiniteLoop: return nil
+        case .finite(let count): return min(Self.maximumFiniteCount, max(1, count))
+        }
+    }
+
+    func normalized(isClosedLoop: Bool) -> RoutePlaybackMode {
+        guard isClosedLoop else { return .once }
+        switch self {
+        case .finite(let count) where count < 1: return .once
+        case .finite(let count) where count > Self.maximumFiniteCount: return .finite(Self.maximumFiniteCount)
+        default: return self
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        if let value = try? decoder.singleValueContainer().decode(String.self) {
+            switch value {
+            case "once": self = .once
+            case "infiniteLoop": self = .infiniteLoop
+            default:
+                if value.hasPrefix("finite:"),
+                   let suffix = value.split(separator: ":").last,
+                   let count = Int(suffix) {
+                    self = .finite(min(Self.maximumFiniteCount, max(1, count)))
+                } else {
+                    self = .once
+                }
+            }
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self = .finite(min(Self.maximumFiniteCount, max(1, try container.decode(Int.self, forKey: .finite))))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .once:
+            var container = encoder.singleValueContainer(); try container.encode("once")
+        case .infiniteLoop:
+            var container = encoder.singleValueContainer(); try container.encode("infiniteLoop")
+        case .finite(let count):
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(min(Self.maximumFiniteCount, max(1, count)), forKey: .finite)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey { case finite }
 }
 
 enum MapInteractionStyle: String, Codable, CaseIterable, Identifiable {
@@ -277,18 +351,65 @@ struct FavoriteLocation: Codable, Identifiable, Equatable {
 }
 
 enum LibrarySortOption: String, Codable, CaseIterable, Identifiable, Hashable {
+    case manual
     case newest
     case oldest
     case name
     case recentlyUsed
+    case distance
 
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .manual: return L10n.text("手動")
         case .newest: return L10n.text("最近收藏")
         case .oldest: return L10n.text("最早收藏")
         case .name: return L10n.text("名稱")
         case .recentlyUsed: return L10n.text("最近使用")
+        case .distance: return L10n.text("距離")
+        }
+    }
+}
+
+enum FavoriteSortPolicy {
+    static func sort(
+        _ favorites: [FavoriteLocation],
+        option: LibrarySortOption,
+        manualOrder: [UUID],
+        deviceCoordinate: RouteCoordinate?
+    ) -> [FavoriteLocation] {
+        switch option {
+        case .manual:
+            let positions = Dictionary(uniqueKeysWithValues: manualOrder.enumerated().map { ($1, $0) })
+            return favorites.sorted {
+                let left = positions[$0.id] ?? Int.max
+                let right = positions[$1.id] ?? Int.max
+                if left != right { return left < right }
+                return $0.createdAt > $1.createdAt
+            }
+        case .newest:
+            return favorites.sorted { $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt > $1.createdAt }
+        case .oldest:
+            return favorites.sorted { $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt }
+        case .name:
+            return favorites.sorted {
+                let comparison = $0.name.localizedCaseInsensitiveCompare($1.name)
+                return comparison == .orderedSame ? $0.id.uuidString < $1.id.uuidString : comparison == .orderedAscending
+            }
+        case .recentlyUsed:
+            return favorites.sorted {
+                let left = $0.lastUsedAt ?? .distantPast
+                let right = $1.lastUsedAt ?? .distantPast
+                return left == right ? $0.id.uuidString < $1.id.uuidString : left > right
+            }
+        case .distance:
+            guard let deviceCoordinate else { return sort(favorites, option: .newest, manualOrder: manualOrder, deviceCoordinate: nil) }
+            let origin = CLLocation(latitude: deviceCoordinate.latitude, longitude: deviceCoordinate.longitude)
+            return favorites.sorted {
+                let left = CLLocation(latitude: $0.latitude, longitude: $0.longitude).distance(from: origin)
+                let right = CLLocation(latitude: $1.latitude, longitude: $1.longitude).distance(from: origin)
+                return left == right ? $0.id.uuidString < $1.id.uuidString : left < right
+            }
         }
     }
 }
@@ -396,7 +517,7 @@ struct SavedRoute: Codable, Identifiable, Equatable {
         navigationTransportMode = try container.decodeIfPresent(NavigationTransportMode.self, forKey: .navigationTransportMode) ?? .automobile
         isClosedLoop = try container.decode(Bool.self, forKey: .isClosedLoop)
         preferredSpeedKmh = try container.decode(Double.self, forKey: .preferredSpeedKmh)
-        playbackMode = try container.decode(RoutePlaybackMode.self, forKey: .playbackMode)
+        playbackMode = try container.decode(RoutePlaybackMode.self, forKey: .playbackMode).normalized(isClosedLoop: isClosedLoop)
         navigationGeometryNeedsRecalculation = try container.decodeIfPresent(Bool.self, forKey: .navigationGeometryNeedsRecalculation) ?? false
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         lastUsedAt = try container.decodeIfPresent(Date.self, forKey: .lastUsedAt)

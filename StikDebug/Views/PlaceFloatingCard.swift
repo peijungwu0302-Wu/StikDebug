@@ -80,7 +80,7 @@ struct PlaceFloatingCard: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 if let flag = CountryFlagFormatter.flag(for: placeInfo?.countryCode) { Text(flag) }
                 Text(placeInfo?.bestDisplayName ?? (isResolving ? L10n.text("正在取得地點資訊…") : L10n.text("已選位置")))
-                    .font(expanded ? .headline : .subheadline.bold()).lineLimit(1)
+                    .font(.headline).lineLimit(1)
                 Spacer(minLength: 4)
             }
             if expanded, let placeInfo {
@@ -99,7 +99,7 @@ struct PlaceFloatingCard: View {
                     Text(L10n.text("在此模擬")).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent).accessibilityLabel(L10n.text("在此模擬"))
-                Button { model.addWaypoint(coordinate) } label: { Image(systemName: "plus") }
+                Button { model.addWaypointAndSwitchToRoute(coordinate) } label: { Image(systemName: "point.topleft.down.to.point.bottomright.curvepath") }
                     .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
                     .accessibilityLabel(L10n.text("加入路線"))
                 Button(action: onSaveFavorite) { Image(systemName: "star") }
@@ -160,7 +160,7 @@ struct ActiveSimulationFloatingCard: View {
             }
             HStack(spacing: 6) {
                 if let flag = CountryFlagFormatter.flag(for: placeInfo?.countryCode) { Text(flag) }
-                Text(placeInfo?.bestDisplayName ?? L10n.text("模擬位置")).font(expanded ? .subheadline : .caption.bold()).lineLimit(1)
+                Text(placeInfo?.bestDisplayName ?? L10n.text("模擬位置")).font(.subheadline).lineLimit(1)
             }
             if expanded, let placeInfo {
                 let hierarchy = [placeInfo.country, placeInfo.administrativeArea, placeInfo.locality, placeInfo.subLocality]

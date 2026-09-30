@@ -45,7 +45,12 @@ struct RouteFloatingCard: View {
             }
         }
         .confirmationDialog(L10n.text("更多操作"), isPresented: $showMoreActions, titleVisibility: .hidden) {
-            Button(L10n.text("結束路線"), role: .destructive) {
+            if let current = model.activeSimulatedCoordinate {
+                Button(L10n.text("收藏目前位置")) {
+                    Task { await model.addFavorite(name: model.suggestedFavoriteName(), coordinate: current) }
+                }
+            }
+            Button(L10n.text("停止並停留目前位置"), role: .destructive) {
                 onEndRoute()
             }
             Button(L10n.text("恢復真實位置"), role: .destructive) {
@@ -72,8 +77,14 @@ struct RouteFloatingCard: View {
                 .foregroundStyle(.blue)
         }
 
-        let loopText = route.isClosedLoop ? L10n.text("循環") : L10n.text("單次")
-        Text("\(route.totalDistance.formattedCardDistance) · \(route.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))) km/h · \(loopText)")
+        let geometryText = route.isClosedLoop ? L10n.text("封閉") : L10n.text("開放")
+        let repeatText: String
+        switch route.playbackMode {
+        case .once: repeatText = L10n.text("1 次")
+        case .infiniteLoop: repeatText = "∞"
+        case .finite(let count): repeatText = L10n.format("%d 圈", count)
+        }
+        Text("\(route.totalDistance.formattedCardDistance) · \(route.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))) km/h · \(geometryText) · \(repeatText)")
             .font(.caption)
             .foregroundStyle(.secondary)
 
@@ -121,8 +132,8 @@ struct RouteFloatingCard: View {
                 Text(L10n.text("重新連線中…"))
                     .font(.caption.bold())
                     .foregroundStyle(.orange)
-            } else if playback.lapNumber > 1 {
-                Text(L10n.format("第 %d 圈", playback.lapNumber))
+            } else if let lapText = playbackLapText {
+                Text(lapText)
                     .font(.caption.bold())
             }
         }
@@ -130,6 +141,11 @@ struct RouteFloatingCard: View {
         Text("\(playback.traveledDistance.formattedCardDistance) / \(model.geometry.totalDistance.formattedCardDistance) · \(playback.speedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
             .font(.footnote)
             .foregroundStyle(.secondary)
+
+        let progressTotal = PlaybackMath.completionDistance(total: model.geometry.totalDistance, mode: model.playbackMode)
+        let progressValue = progressTotal.isFinite ? playback.traveledDistance : playback.distanceWithinLap
+        ProgressView(value: min(max(progressValue, 0), progressTotal.isFinite ? progressTotal : model.geometry.totalDistance), total: progressTotal.isFinite ? progressTotal : model.geometry.totalDistance)
+            .tint(.blue)
 
         HStack(spacing: 8) {
             Button { model.adjustPlaybackSpeed(by: -0.1) } label: { Image(systemName: "minus") }
@@ -192,17 +208,6 @@ struct RouteFloatingCard: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let current = model.activeSimulatedCoordinate {
-                Button {
-                    Task { await model.addFavorite(name: model.suggestedFavoriteName(), coordinate: current) }
-                } label: {
-                    Image(systemName: "star")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityLabel(L10n.text("收藏目前模擬位置"))
-            }
-
             Spacer()
 
             Button(L10n.text("更多…")) { showMoreActions = true }
@@ -228,6 +233,15 @@ struct RouteFloatingCard: View {
         }
         speedFieldFocused = false
         isEditingSpeed = false
+    }
+
+    private var playbackLapText: String? {
+        guard model.isClosedLoop else { return nil }
+        switch model.playbackMode {
+        case .once: return L10n.format("第 %d 圈", playback.lapNumber)
+        case .infiniteLoop: return L10n.format("第 %d 圈 · ∞", playback.lapNumber)
+        case .finite(let count): return L10n.format("第 %d / %d 圈", playback.lapNumber, count)
+        }
     }
 }
 
