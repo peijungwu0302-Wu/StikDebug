@@ -100,11 +100,8 @@ private struct PlaceInfoSummary: View {
         Group {
             if let info {
                 VStack(alignment: .leading, spacing: 2) {
-                    let area = [info.administrativeArea, info.locality, info.subLocality]
-                        .compactMap { $0 }
-                        .filter { !$0.isEmpty }
-                    if !area.isEmpty {
-                        Text(area.joined(separator: " · "))
+                    if let areaText {
+                        Text(areaText)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } else if let name = info.bestDisplayName {
@@ -113,20 +110,14 @@ private struct PlaceInfoSummary: View {
                     if let country = info.country, !country.isEmpty {
                         Text(country).font(.caption).foregroundStyle(.secondary)
                     }
-                    if let identifier = info.timeZoneIdentifier,
-                       let timeZone = TimeZone(identifier: identifier) {
-                        let now = Date.now
-                        let formatter = DateFormatter()
-                        formatter.dateFormat = "HH:mm"
-                        formatter.timeZone = timeZone
-                        let baseline = TimeZoneComparisonBaseline(rawValue: baselineRawValue) ?? .taiwan
-                        Text(L10n.format("%@ · GMT%+d", formatter.string(from: now), timeZone.secondsFromGMT(for: now) / 3600))
+                    if let timezoneDetails {
+                        Text(timezoneDetails.localAndGMT)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(identifier)
+                        Text(timezoneDetails.identifier)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                        Text(PlaceTimeFormatter.offsetText(for: timeZone, at: now, baseline: baseline))
+                        Text(timezoneDetails.offset)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -138,6 +129,30 @@ private struct PlaceInfoSummary: View {
             guard !Task.isCancelled else { return }
             info = resolved
         }
+    }
+
+    private var areaText: String? {
+        guard let info else { return nil }
+        let values = [info.administrativeArea, info.locality, info.subLocality]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+        return values.isEmpty ? nil : values.joined(separator: " · ")
+    }
+
+    private var timezoneDetails: (localAndGMT: String, identifier: String, offset: String)? {
+        guard let info,
+              let identifier = info.timeZoneIdentifier,
+              let timeZone = TimeZone(identifier: identifier) else { return nil }
+        let now = Date.now
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        formatter.timeZone = timeZone
+        let baseline = TimeZoneComparisonBaseline(rawValue: baselineRawValue) ?? .taiwan
+        return (
+            L10n.format("%@ · GMT%+d", formatter.string(from: now), timeZone.secondsFromGMT(for: now) / 3600),
+            identifier,
+            PlaceTimeFormatter.offsetText(for: timeZone, at: now, baseline: baseline)
+        )
     }
 }
 
