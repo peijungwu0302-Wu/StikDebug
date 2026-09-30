@@ -118,11 +118,11 @@ struct V1_2_14UXTests {
         #expect(model.favoriteRoutes.first?.isFavorite == true)
     }
 
-    @Test func stopInvalidatesInFlightPlaybackRecovery() async throws {
+    @Test @MainActor func stopInvalidatesInFlightPlaybackRecovery() async throws {
         let sink = FailingSequenceSink()
         await sink.configureFailures([2, 3, 4, 5, 6])
         let gate = AsyncGate()
-        let clock = UptimeBox()
+        let clock = TestUptimeBox()
         let geometry = RouteGeometry(coordinates: [
             RouteCoordinate(latitude: 0, longitude: 0),
             RouteCoordinate(latitude: 0, longitude: 0.01)
@@ -134,12 +134,12 @@ struct V1_2_14UXTests {
             reconnectDelays: [0], transportDebounce: 0
         )
         let started = AsyncSignal()
-        engine.assistedRecoveryAction = { _ in
+        engine.assistedRecoveryAction = { (_: RouteCoordinate?) in
             await started.signal()
             await gate.wait()
             return true
         }
-        try await engine.start(routeName: "Cancel", geometry: geometry, speedKmh: 18.6, mode: .once)
+        try await engine.start(routeName: "Cancel", geometry: geometry, speedKmh: 18.6, mode: RoutePlaybackMode.once)
         clock.set(10)
         await engine.verifyConnectionAfterTransportChange()
         await engine.verifyConnectionAfterTransportChange()
@@ -148,8 +148,15 @@ struct V1_2_14UXTests {
         engine.stop()
         await gate.signal()
         await recoveryTask.value
-        #expect(engine.state == .stopped)
+        #expect(engine.state == PlaybackRunState.stopped)
     }
+}
+
+@MainActor
+private final class TestUptimeBox: @unchecked Sendable {
+    private var value: TimeInterval = 0
+    func get() -> TimeInterval { value }
+    func set(_ value: TimeInterval) { self.value = value }
 }
 
 private actor TestPlaceGeocodingClient: PlaceGeocodingClient {
@@ -229,7 +236,7 @@ private actor FailingSequenceSink: LocationSimulationSink {
 
     func setCoordinate(_ coordinate: RouteCoordinate) async throws {
         call += 1
-        if failures.contains(call) { throw LocationSimulationError.updateFailure(code: call) }
+        if failures.contains(call) { throw LocationSimulationError.updateFailure(code: Int32(call)) }
     }
 
     func clearSimulatedLocation() async throws {}
