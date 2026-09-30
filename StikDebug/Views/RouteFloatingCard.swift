@@ -64,6 +64,14 @@ struct RouteFloatingCard: View {
 
     @ViewBuilder
     private func previewContent(route: SavedRoute) -> some View {
+        let geometryText = route.isClosedLoop ? L10n.text("封閉") : L10n.text("開放")
+        let repeatText: String
+        switch route.playbackMode {
+        case .once: repeatText = L10n.text("1 次")
+        case .infiniteLoop: repeatText = "∞"
+        case .finite(let count): repeatText = L10n.format("%d 圈", count)
+        }
+
         HStack {
             Image(systemName: "eye.fill").foregroundStyle(.blue)
             Text(route.name)
@@ -77,13 +85,6 @@ struct RouteFloatingCard: View {
                 .foregroundStyle(.blue)
         }
 
-        let geometryText = route.isClosedLoop ? L10n.text("封閉") : L10n.text("開放")
-        let repeatText: String
-        switch route.playbackMode {
-        case .once: repeatText = L10n.text("1 次")
-        case .infiniteLoop: repeatText = "∞"
-        case .finite(let count): repeatText = L10n.format("%d 圈", count)
-        }
         Text("\(route.totalDistance.formattedCardDistance) · \(route.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))) km/h · \(geometryText) · \(repeatText)")
             .font(.caption)
             .foregroundStyle(.secondary)
