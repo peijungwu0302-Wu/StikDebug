@@ -170,6 +170,15 @@ struct MapHomeView: View {
             Button(L10n.text("儲存")) { let coordinate = favoriteCoordinate; Task { await model.addFavorite(name: favoriteName, coordinate: coordinate); favoriteName = ""; favoriteCoordinate = nil } }
             Button(L10n.text("取消"), role: .cancel) {}
         }
+        .alert(L10n.text("定位連線已中斷"), isPresented: $model.showPlaybackRecoveryConsent) {
+            Button(L10n.text("重新建立連線")) { model.approvePlaybackRecovery() }
+            Button(L10n.text("結束路線"), role: .destructive) {
+                model.declinePlaybackRecovery()
+                playback.stop()
+            }
+        } message: {
+            Text(L10n.text("路線已暫停在目前位置。重新建立定位需要暫時關閉行動數據。"))
+        }
         .alert(L10n.text("清除草稿"), isPresented: $showClearDraftAlert) {
             Button(L10n.text("清除草稿"), role: .destructive) { model.clearCurrentDraft() }
             Button(L10n.text("取消"), role: .cancel) {}

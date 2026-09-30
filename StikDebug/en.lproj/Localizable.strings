@@ -829,3 +829,10 @@
 "自動模式：Wi-Fi 使用 10.7.0.1；行動網路冷啟動直接使用已驗證的輔助流程（DataOff 後使用 10.7.0.1）。研究模式不會修改此設定。" = "Automatic mode uses 10.7.0.1 on Wi-Fi; cellular cold starts use the validated assisted flow, which uses 10.7.0.1 after DataOff. Research mode does not change this setting.";
 "行為事實說明：\n• Wi-Fi 自動模式使用 10.7.0.1；行動網路冷啟動使用 DataOff 輔助流程，完成後以 10.7.0.1 建立 DVT。\n• TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功；完整研究套件會分開記錄每個階段。\n• 已建立的 DVT Session 不應因新的輔助探測失敗而被摧毀。" = "Behavior notes:\n• Wi-Fi automatic mode uses 10.7.0.1; cellular cold starts use the DataOff assisted flow, then establish DVT through 10.7.0.1.\n• TCP or Bonjour success does not prove RPairing/RSD/DVT success; the full suite records each stage separately.\n• A prepared DVT session must not be destroyed because an auxiliary probe fails.";
 "Bonjour 僅提供觀測證據；TCP 或 Bonjour 成功不代表 RPairing/RSD/DVT 成功。Automatic 在 Wi-Fi 使用 10.7.0.1:49152；行動網路冷啟動使用輔助流程，完成後以 10.7.0.1:49152 建立 DVT。研究端點可另外測試 127.0.0.1:49152。" = "Bonjour is observational evidence only; TCP or Bonjour success does not prove RPairing/RSD/DVT. Automatic uses 10.7.0.1:49152 on Wi-Fi; cellular cold starts use the assisted flow and establish DVT through 10.7.0.1:49152. Research may test 127.0.0.1:49152 separately.";
+"路線連線中斷時" = "When route connection is interrupted";
+"自動恢復定位" = "Automatically restore location";
+"暫停並詢問" = "Pause and ask";
+"自動恢復可能短暫關閉行動數據；背景狀態仍會先暫停並等待你回到 App。" = "Automatic recovery may briefly turn off cellular data; while in the background, playback pauses until you return to the app.";
+"定位連線已中斷" = "Location connection interrupted";
+"重新建立連線" = "Reconnect";
+"路線已暫停在目前位置。重新建立定位需要暫時關閉行動數據。" = "The route is paused at its current position. Reconnecting requires temporarily turning off cellular data.";

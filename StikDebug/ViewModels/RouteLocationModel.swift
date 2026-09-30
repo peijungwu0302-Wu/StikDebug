@@ -2,6 +2,15 @@ import Combine
 import CoreLocation
 import Foundation
 import SwiftUI
+import UIKit
+
+enum PlaybackRecoveryPreference: String, CaseIterable, Identifiable {
+    case ask
+    case automatic
+
+    var id: String { rawValue }
+    var title: String { L10n.text(self == .ask ? "暫停並詢問" : "自動恢復定位") }
+}
 
 @MainActor
 final class RouteLocationModel: ObservableObject {
@@ -26,6 +35,10 @@ final class RouteLocationModel: ObservableObject {
     @Published var pendingSinglePointCoordinate: RouteCoordinate?
     @Published var showModeSwitchAlert = false
     @Published var showBootstrapPreflightSheet = false
+    @Published var showPlaybackRecoveryConsent = false
+    @Published var playbackRecoveryPreference: PlaybackRecoveryPreference {
+        didSet { UserDefaults.standard.set(playbackRecoveryPreference.rawValue, forKey: Self.playbackRecoveryPreferenceKey) }
+    }
     @Published private(set) var pendingBootstrapTargetCoordinate: RouteCoordinate?
     private(set) var locationAlreadyWrittenByBootstrap: RouteCoordinate?
     @Published var previewingRoute: SavedRoute?
@@ -33,6 +46,7 @@ final class RouteLocationModel: ObservableObject {
     @Published var pendingSwitchRoute: SavedRoute?
     @Published var showEndRouteOptions = false
     private var pendingBootstrapAction: (@MainActor () -> Void)?
+    private var playbackRecoveryContinuation: CheckedContinuation<Bool, Never>?
     @Published private(set) var geometry = RouteGeometry(coordinates: [])
     @Published private(set) var navigationGeometryNeedsRecalculation = false
     @Published private(set) var favorites: [FavoriteLocation] = []
@@ -66,6 +80,7 @@ final class RouteLocationModel: ObservableObject {
     private static let modeSwitchKey = "RouteLocation.modeSwitchConfirmation"
     private static let librarySortKey = "RouteLocation.librarySortOption"
     private static let showFavoriteTimestampsKey = "RouteLocation.showFavoriteTimestamps"
+    private static let playbackRecoveryPreferenceKey = "RouteLocation.playbackRecoveryPreference"
 
     var hasLoadedRoute: Bool { loadedRouteID != nil }
     var favoriteRoutes: [SavedRoute] { savedRoutes.filter(\.isFavorite) }
@@ -97,6 +112,7 @@ final class RouteLocationModel: ObservableObject {
         }
         librarySortOption = LibrarySortOption(rawValue: UserDefaults.standard.string(forKey: Self.librarySortKey) ?? "newest") ?? .newest
         showFavoriteTimestamps = UserDefaults.standard.object(forKey: Self.showFavoriteTimestampsKey) as? Bool ?? true
+        playbackRecoveryPreference = PlaybackRecoveryPreference(rawValue: UserDefaults.standard.string(forKey: Self.playbackRecoveryPreferenceKey) ?? "ask") ?? .ask
 
         playback = RoutePlaybackEngine(sink: simulationService, connectionMonitor: connectionMonitor)
         playback.assistedRecoveryAction = { [weak self] coordinate in
@@ -117,6 +133,13 @@ final class RouteLocationModel: ObservableObject {
 
     private func performAssistedPlaybackRecovery(coordinate: RouteCoordinate?) async -> Bool {
         guard ShortcutBootstrapService.shared.isShortcutAssistedEnabled else { return false }
+        if playbackRecoveryPreference == .ask {
+            showPlaybackRecoveryConsent = true
+            let approved = await withCheckedContinuation { continuation in
+                playbackRecoveryContinuation = continuation
+            }
+            guard approved else { return false }
+        }
         return await withCheckedContinuation { continuation in
             CellularAssistedBootstrapStateMachine.shared.startAssistedBootstrap(
                 targetCoordinate: coordinate,
@@ -125,6 +148,20 @@ final class RouteLocationModel: ObservableObject {
                 continuation.resume(returning: (try? result.get()) != nil)
             }
         }
+    }
+
+    func approvePlaybackRecovery() {
+        showPlaybackRecoveryConsent = false
+        let continuation = playbackRecoveryContinuation
+        playbackRecoveryContinuation = nil
+        continuation?.resume(returning: true)
+    }
+
+    func declinePlaybackRecovery() {
+        showPlaybackRecoveryConsent = false
+        let continuation = playbackRecoveryContinuation
+        playbackRecoveryContinuation = nil
+        continuation?.resume(returning: false)
     }
 
     var estimatedLapDuration: TimeInterval? {

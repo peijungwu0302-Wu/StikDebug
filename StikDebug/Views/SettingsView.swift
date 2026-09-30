@@ -35,6 +35,15 @@ struct SettingsView: View {
                             Text(conf.title).tag(conf)
                         }
                     }
+
+                    Picker(L10n.text("路線連線中斷時"), selection: $model.playbackRecoveryPreference) {
+                        ForEach(PlaybackRecoveryPreference.allCases) { preference in
+                            Text(preference.title).tag(preference)
+                        }
+                    }
+                    Text(L10n.text("自動恢復可能短暫關閉行動數據；背景狀態仍會先暫停並等待你回到 App。"))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     
                     Toggle(L10n.text("顯示執行中的迷你控制器"), isOn: $showMiniPlayer)
                 }
