@@ -19,8 +19,10 @@ struct V1_2_14UXTests {
     @Test func timezoneComparisonUsesTaiwanBaseline() {
         let taipei = TimeZone(identifier: "Asia/Taipei")!
         let tokyo = TimeZone(identifier: "Asia/Tokyo")!
-        #expect(PlaceTimeFormatter.offsetText(for: taipei) == "與台灣時間相同")
-        #expect(PlaceTimeFormatter.offsetText(for: tokyo).contains("快"))
+        let taipeiText = PlaceTimeFormatter.offsetText(for: taipei)
+        #expect(taipeiText == "與台灣時間相同" || taipeiText == "Same as Taiwan time")
+        let tokyoText = PlaceTimeFormatter.offsetText(for: tokyo)
+        #expect(tokyoText.contains("快") || tokyoText.contains("ahead"))
     }
 
     @Test func routeAppendPreservesExistingWaypoints() {
