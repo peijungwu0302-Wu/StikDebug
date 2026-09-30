@@ -28,6 +28,20 @@ enum TimeZoneComparisonBaseline: String, Codable, CaseIterable, Identifiable {
 }
 
 enum PlaceTimeFormatter {
+    /// Formats a timezone's actual offset at a specific instant without
+    /// discarding half-hour or quarter-hour offsets.
+    static func gmtOffsetText(for timeZone: TimeZone, at date: Date = .now) -> String {
+        let seconds = timeZone.secondsFromGMT(for: date)
+        let sign = seconds < 0 ? "-" : "+"
+        let absolute = abs(seconds)
+        let hours = absolute / 3600
+        let minutes = (absolute % 3600) / 60
+        if minutes == 0 {
+            return "GMT\(sign)\(hours)"
+        }
+        return String(format: "GMT%@%d:%02d", sign, hours, minutes)
+    }
+
     static func offsetText(
         for timeZone: TimeZone,
         at date: Date = .now,

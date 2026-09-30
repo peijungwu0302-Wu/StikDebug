@@ -181,7 +181,7 @@ struct RouteMapView: View {
                     }.font(.footnote)
                     HStack {
                         Button(L10n.text("開始路線")) { Task { await model.startPlayback() } }.buttonStyle(.borderedProminent)
-                        Button(L10n.text("停止")) { playback.stop(clearMarker: true) }.buttonStyle(.bordered).tint(.red)
+                        Button(L10n.text("停止")) { model.stopRoutePlayback(clearMarker: true) }.buttonStyle(.bordered).tint(.red)
                             .disabled(playback.state != .running && playback.state != .reconnecting)
                         Button(L10n.text("清除路線"), role: .destructive) { model.clearCurrentRoute() }.buttonStyle(.bordered)
                     }
@@ -460,7 +460,7 @@ struct QuickRouteMapView: View {
                     .controlSize(.small)
             }
             Button(L10n.text("停止")) {
-                playback.stop(clearMarker: true)
+                model.stopRoutePlayback(clearMarker: true)
             }
             .buttonStyle(.bordered)
             .tint(.red)

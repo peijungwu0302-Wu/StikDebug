@@ -188,14 +188,6 @@ struct MapHomeView: View {
         } message: {
             Text(L10n.text("此路線會先儲存，再加入喜愛路線。"))
         }
-        .alert(L10n.text("定位連線已中斷"), isPresented: $model.showPlaybackRecoveryConsent) {
-            Button(L10n.text("重新建立連線")) { model.approvePlaybackRecovery() }
-            Button(L10n.text("結束路線"), role: .destructive) {
-                model.endPlaybackRecovery()
-            }
-        } message: {
-            Text(L10n.text("路線已暫停在目前位置。重新建立定位需要暫時關閉行動數據。"))
-        }
         .alert(L10n.text("清除草稿"), isPresented: $showClearDraftAlert) {
             Button(L10n.text("清除草稿"), role: .destructive) { model.clearCurrentDraft() }
             Button(L10n.text("取消"), role: .cancel) {}
@@ -442,7 +434,7 @@ struct MapHomeView: View {
                         Button(L10n.text("清除路線"), role: .destructive) { showClearDraftAlert = true }.buttonStyle(.bordered)
                         Spacer()
                         Button {
-                            favoriteRouteName = model.suggestedRouteName()
+                            favoriteRouteName = model.suggestedFavoriteRouteName()
                             showFavoriteRouteName = true
                         } label: {
                             Label(L10n.text("收藏路線"), systemImage: "star")

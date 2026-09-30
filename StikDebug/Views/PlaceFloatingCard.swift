@@ -11,6 +11,20 @@ struct PlaceFloatingCard: View {
     @AppStorage("RouteLocation.timeZoneComparisonBaseline") private var baselineRawValue = TimeZoneComparisonBaseline.taiwan.rawValue
     
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            cardContent(now: context.date)
+        }
+        .task(id: coordinate.id) {
+            isResolving = true
+            let resolved = await PlaceInfoResolver.shared.resolve(coordinate, scope: .selected)
+            guard !Task.isCancelled else { return }
+            placeInfo = resolved
+            isResolving = false
+        }
+    }
+
+    @ViewBuilder
+    private func cardContent(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             if let placeInfo {
                 if let name = placeInfo.bestDisplayName { Text(name).font(.headline) }
@@ -32,7 +46,7 @@ struct PlaceFloatingCard: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(L10n.text("複製座標"))
             }
-            if let timeZoneDetails {
+            if let timeZoneDetails = timeZoneDetails(at: now) {
                 Text(timeZoneDetails.local).font(.footnote)
                 Text(timeZoneDetails.gmt).font(.caption).foregroundStyle(.secondary)
                 Text(timeZoneDetails.offset).font(.caption).foregroundStyle(.secondary)
@@ -66,13 +80,6 @@ struct PlaceFloatingCard: View {
         }
         .padding(12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .task(id: coordinate.id) {
-            isResolving = true
-            let resolved = await PlaceInfoResolver.shared.resolve(coordinate, scope: .selected)
-            guard !Task.isCancelled else { return }
-            placeInfo = resolved
-            isResolving = false
-        }
     }
 
     private var countryFlag: String {
@@ -85,17 +92,16 @@ struct PlaceFloatingCard: View {
         return flag.isEmpty ? "" : " \(flag)"
     }
 
-    private var timeZoneDetails: (local: String, gmt: String, offset: String)? {
+    private func timeZoneDetails(at now: Date) -> (local: String, gmt: String, offset: String)? {
         guard let identifier = placeInfo?.timeZoneIdentifier,
               let timezone = TimeZone(identifier: identifier) else { return nil }
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
         formatter.timeZone = timezone
         let baseline = TimeZoneComparisonBaseline(rawValue: baselineRawValue) ?? .taiwan
-        let now = Date.now
         return (
             L10n.format("當地時間 %@", formatter.string(from: now)),
-            L10n.format("%@ · GMT%+d", identifier, timezone.secondsFromGMT(for: now) / 3600),
+            L10n.format("%@ · %@", identifier, PlaceTimeFormatter.gmtOffsetText(for: timezone, at: now)),
             PlaceTimeFormatter.offsetText(for: timezone, at: now, baseline: baseline)
         )
     }

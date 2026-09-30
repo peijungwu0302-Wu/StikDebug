@@ -51,6 +51,12 @@ struct RouteLocationRootView: View {
             get: { model.presentedError != nil },
             set: { if !$0 { model.presentedError = nil } }
         )) { Button(L10n.text("好")) { model.presentedError = nil } } message: { Text(model.presentedError ?? "") }
+        .alert(L10n.text("定位連線已中斷"), isPresented: $model.showPlaybackRecoveryConsent) {
+            Button(L10n.text("重新建立連線")) { model.approvePlaybackRecovery() }
+            Button(L10n.text("結束路線"), role: .destructive) { model.endPlaybackRecovery() }
+        } message: {
+            Text(L10n.text("路線已暫停在目前位置。重新建立定位需要暫時關閉行動數據。"))
+        }
         .alert(L10n.text("目前正在執行路線"), isPresented: $model.showModeSwitchAlert) {
             Button(L10n.text("取消"), role: .cancel) {
                 model.cancelModeSwitch()

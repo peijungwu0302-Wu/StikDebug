@@ -112,10 +112,59 @@ struct V1_2_14UXTests {
         let model = RouteLocationModel(persistence: store, simulationService: NoopLocationSink())
         model.addWaypoint(RouteCoordinate(latitude: 25, longitude: 121))
         model.addWaypoint(RouteCoordinate(latitude: 25.01, longitude: 121.01))
+        #expect(model.suggestedFavoriteRouteName() == "新路線")
         #expect(await model.favoriteCurrentRoute(named: "新路線"))
         #expect(model.favoriteRoutes.count == 1)
         #expect(model.savedRoutes.count == 1)
         #expect(model.favoriteRoutes.first?.isFavorite == true)
+    }
+
+    @Test @MainActor func existingRouteFavoritePreservesNameAndID() async throws {
+        let store = RoutePersistenceStore(rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let model = RouteLocationModel(persistence: store, simulationService: NoopLocationSink())
+        model.addWaypoint(RouteCoordinate(latitude: 25, longitude: 121))
+        model.addWaypoint(RouteCoordinate(latitude: 25.01, longitude: 121.01))
+        #expect(await model.saveCurrentRoute(named: "回家"))
+        let original = try #require(model.savedRoutes.first)
+        #expect(model.suggestedFavoriteRouteName() == "回家")
+        #expect(await model.favoriteCurrentRoute(named: model.suggestedFavoriteRouteName()))
+        #expect(model.savedRoutes.count == 1)
+        #expect(model.favoriteRoutes.first?.id == original.id)
+        #expect(model.favoriteRoutes.first?.name == "回家")
+
+        #expect(await model.favoriteCurrentRoute(named: "新名稱"))
+        #expect(model.savedRoutes.count == 1)
+        #expect(model.favoriteRoutes.first?.id == original.id)
+        #expect(model.favoriteRoutes.first?.name == "新名稱")
+    }
+
+    @Test @MainActor func userStopRoutePlaybackIsTerminalAcrossMapStyles() {
+        let model = RouteLocationModel(simulationService: NoopLocationSink())
+        for style in MapInteractionStyle.allCases {
+            model.mapInteractionStyle = style
+            model.playback.testSetStateForTesting(.reconnecting)
+            model.showPlaybackRecoveryConsent = true
+            model.stopRoutePlayback()
+            #expect(model.playback.state == PlaybackRunState.stopped)
+            #expect(!model.showPlaybackRecoveryConsent)
+        }
+    }
+
+    @Test func timezoneOffsetFormatterPreservesFractionalOffsets() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(PlaceTimeFormatter.gmtOffsetText(for: TimeZone(identifier: "Asia/Taipei")!, at: date) == "GMT+8")
+        #expect(PlaceTimeFormatter.gmtOffsetText(for: TimeZone(identifier: "Asia/Tokyo")!, at: date) == "GMT+9")
+        #expect(PlaceTimeFormatter.gmtOffsetText(for: TimeZone(identifier: "Asia/Kolkata")!, at: date) == "GMT+5:30")
+        #expect(PlaceTimeFormatter.gmtOffsetText(for: TimeZone(identifier: "Asia/Kathmandu")!, at: date) == "GMT+5:45")
+        #expect(PlaceTimeFormatter.gmtOffsetText(for: TimeZone(identifier: "America/St_Johns")!, at: Date(timeIntervalSince1970: 1_704_067_200)) == "GMT-3:30")
+    }
+
+    @Test func timezoneOffsetFormatterUsesSuppliedDateForDST() {
+        let zone = TimeZone(identifier: "America/New_York")!
+        let winter = Date(timeIntervalSince1970: 1_704_067_200)
+        let summer = Date(timeIntervalSince1970: 1_720_000_000)
+        #expect(PlaceTimeFormatter.gmtOffsetText(for: zone, at: winter) == "GMT-5")
+        #expect(PlaceTimeFormatter.gmtOffsetText(for: zone, at: summer) == "GMT-4")
     }
 
     @Test @MainActor func stopInvalidatesInFlightPlaybackRecovery() async throws {

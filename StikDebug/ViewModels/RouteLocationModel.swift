@@ -195,13 +195,25 @@ final class RouteLocationModel: ObservableObject {
         continuation?.resume(returning: false)
     }
 
+    /// The single user-facing stop boundary for route playback. Resolving the
+    /// consent continuation before stopping increments the playback engine's
+    /// recovery generation, so no suspended recovery task can revive the
+    /// route or overwrite the terminal stopped state later.
+    func stopRoutePlayback(clearMarker: Bool = true) {
+        declinePlaybackRecovery()
+        pendingBootstrapAction = nil
+        pendingBootstrapTargetCoordinate = nil
+        showBootstrapPreflightSheet = false
+        CellularAssistedBootstrapStateMachine.shared.cancel()
+        playback.stop(clearMarker: clearMarker)
+        showPlaybackRecoveryConsent = false
+    }
+
     /// Ends a route and invalidates any suspended recovery continuation. The
     /// playback engine's generation guard makes this terminal even if a
     /// transport callback returns after the user has dismissed the route.
     func endPlaybackRecovery() {
-        declinePlaybackRecovery()
-        playback.stop()
-        showPlaybackRecoveryConsent = false
+        stopRoutePlayback()
     }
 
     var estimatedLapDuration: TimeInterval? {
@@ -294,7 +306,7 @@ final class RouteLocationModel: ObservableObject {
 
     func clearCurrentRoute() {
         navigationResolver.cancel()
-        playback.stop(clearMarker: true)
+        stopRoutePlayback(clearMarker: true)
         if simulationMode.isRouteSimulation {
             simulationMode = .idle
         }
@@ -506,7 +518,7 @@ final class RouteLocationModel: ObservableObject {
     func confirmSwitchToRoute(_ route: SavedRoute) async {
         showActiveRouteSwitchAlert = false
         pendingSwitchRoute = nil
-        playback.stop(clearMarker: false)
+        stopRoutePlayback(clearMarker: false)
         previewingRoute = nil
         loadRoute(route)
         await markRouteUsed(id: route.id)
@@ -549,6 +561,16 @@ final class RouteLocationModel: ObservableObject {
 
     func suggestedRouteName() -> String {
         UniqueNameGenerator.makeUnique(base: L10n.text("新路線"), existing: savedRoutes.map(\.name), fallback: L10n.text("新路線"))
+    }
+
+    /// The favorite action is an in-place update for a loaded route. Keep its
+    /// current name in the naming alert so tapping Favorite is never an
+    /// accidental rename; unsaved drafts still receive a unique suggestion.
+    func suggestedFavoriteRouteName() -> String {
+        if hasLoadedRoute, !routeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return routeName
+        }
+        return suggestedRouteName()
     }
 
     func updateFavorite(_ favorite: FavoriteLocation, name: String, note: String?) async {
@@ -734,7 +756,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func executeTeleport(to target: RouteCoordinate) async {
-        playback.stop(clearMarker: false)
+        stopRoutePlayback(clearMarker: false)
         let alreadyWritten = (locationAlreadyWrittenByBootstrap == target)
         locationAlreadyWrittenByBootstrap = nil
 
@@ -840,11 +862,10 @@ final class RouteLocationModel: ObservableObject {
     /// Does NOT restore real location. Shows options to keep position or restore.
     func endRoute() {
         guard let lastCoord = playback.currentCoordinate else {
-            playback.stop(clearMarker: false)
-            simulationMode = .idle
+            stopRoutePlayback(clearMarker: false)
             return
         }
-        playback.stop(clearMarker: false)
+        stopRoutePlayback(clearMarker: false)
         startSinglePointHold(at: lastCoord)
         showEndRouteOptions = true
         statusMessage = L10n.text("路線已結束，目前位置仍為模擬位置。")
@@ -853,7 +874,7 @@ final class RouteLocationModel: ObservableObject {
     func returnToRealLocation() async {
         teleportTask?.cancel()
         teleportTask = nil
-        playback.stop(clearMarker: true)
+        stopRoutePlayback(clearMarker: true)
         LocationSessionCoordinator.shared.markRestoringRealLocation()
         do {
             do {
