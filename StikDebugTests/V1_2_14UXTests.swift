@@ -152,11 +152,19 @@ struct V1_2_14UXTests {
     }
 }
 
-@MainActor
 private final class TestUptimeBox: @unchecked Sendable {
+    private let lock = NSLock()
     private var value: TimeInterval = 0
-    func get() -> TimeInterval { value }
-    func set(_ value: TimeInterval) { self.value = value }
+    func get() -> TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+    func set(_ value: TimeInterval) {
+        lock.lock()
+        self.value = value
+        lock.unlock()
+    }
 }
 
 private actor TestPlaceGeocodingClient: PlaceGeocodingClient {
