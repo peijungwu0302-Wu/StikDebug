@@ -3,6 +3,24 @@ import Testing
 @testable import RouteLocation
 
 struct V1_2_14UXTests {
+    @Test @MainActor func favoriteCoordinateCaptureKeepsActionSource() async throws {
+        let active = RouteCoordinate(latitude: 25.0, longitude: 121.0)
+        let selected = RouteCoordinate(latitude: 35.0, longitude: 139.0)
+        #expect(FavoriteCoordinateCapture.coordinate(for: .activeSimulation, active: active, selected: selected) == active)
+        #expect(FavoriteCoordinateCapture.coordinate(for: .selectedPlace, active: active, selected: selected) == selected)
+        #expect(FavoriteCoordinateCapture.coordinate(for: .activeSimulation, active: nil, selected: selected) == nil)
+
+        let model = RouteLocationModel(
+            persistence: RoutePersistenceStore(rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            simulationService: NoopLocationSink()
+        )
+        let capturedActive = FavoriteCoordinateCapture.coordinate(for: .activeSimulation, active: active, selected: selected)
+        let capturedSelected = FavoriteCoordinateCapture.coordinate(for: .selectedPlace, active: active, selected: selected)
+        await model.addFavorite(name: "Active", coordinate: capturedActive)
+        await model.addFavorite(name: "Selected", coordinate: capturedSelected)
+        #expect(model.favorites.map(\.coordinate) == [active, selected])
+    }
+
     @Test func playbackSpeedPolicyClampsAndStepsByPointOne() {
         #expect(abs(PlaybackSpeedPolicy.adjusted(18.6, by: 0.1) - 18.7) < 0.000001)
         #expect(abs(PlaybackSpeedPolicy.adjusted(18.6, by: -0.1) - 18.5) < 0.000001)
@@ -19,6 +37,7 @@ struct V1_2_14UXTests {
     }
 
     @Test func libraryDisplayDensityHasStablePersistenceValues() {
+        #expect(LibraryDisplayDensity.preferenceKey == "RouteLocation.libraryDisplayDensity")
         #expect(LibraryDisplayDensity(rawValue: "compact") == .compact)
         #expect(LibraryDisplayDensity(rawValue: "detailed") == .detailed)
         #expect(LibraryDisplayDensity(rawValue: "other") == nil)
@@ -49,6 +68,23 @@ struct V1_2_14UXTests {
         #expect(model.recentLocations.count == 1)
         #expect(model.recentLocations.first?.coordinate == first)
         #expect(model.favorites.count == favoriteCount)
+    }
+
+    @Test @MainActor func clearingRecentLocationsDoesNotTouchFavorites() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = RouteLocationModel(
+            persistence: RoutePersistenceStore(rootURL: root),
+            simulationService: NoopLocationSink()
+        )
+        let favoriteCoordinate = RouteCoordinate(latitude: 25, longitude: 121)
+        let recentCoordinate = RouteCoordinate(latitude: 26, longitude: 122)
+        await model.addFavorite(name: "Favorite", coordinate: favoriteCoordinate)
+        await model.recordRecent(coordinate: recentCoordinate)
+        await model.clearRecentLocations()
+        #expect(model.recentLocations.isEmpty)
+        #expect(model.favorites.count == 1)
+        let loadedRecent = try await RoutePersistenceStore(rootURL: root).loadRecentLocations()
+        #expect(loadedRecent.isEmpty)
     }
 
     @Test func uniqueNamesUseIndependentSuffixesAndNormalizeWhitespace() {

@@ -66,6 +66,26 @@ enum MapInteractionStyle: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum FavoriteCoordinateSource {
+    case activeSimulation
+    case selectedPlace
+}
+
+enum FavoriteCoordinateCapture {
+    static func coordinate(
+        for source: FavoriteCoordinateSource,
+        active: RouteCoordinate?,
+        selected: RouteCoordinate?
+    ) -> RouteCoordinate? {
+        switch source {
+        case .activeSimulation:
+            return active
+        case .selectedPlace:
+            return selected
+        }
+    }
+}
+
 enum ModeSwitchConfirmation: String, Codable, CaseIterable, Identifiable {
     case askFirst
     case directSwitch
@@ -279,6 +299,8 @@ enum LibrarySortOption: String, Codable, CaseIterable, Identifiable, Hashable {
 enum LibraryDisplayDensity: String, CaseIterable, Identifiable {
     case compact
     case detailed
+
+    static let preferenceKey = "RouteLocation.libraryDisplayDensity"
 
     var id: String { rawValue }
     var title: String {

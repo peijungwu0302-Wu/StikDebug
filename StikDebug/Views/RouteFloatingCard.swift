@@ -18,6 +18,9 @@ struct RouteFloatingCard: View {
     let onRestoreRealLocation: () -> Void
 
     @State private var showMoreActions = false
+    @State private var isEditingSpeed = false
+    @State private var editedSpeed = ""
+    @FocusState private var speedFieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -30,6 +33,17 @@ struct RouteFloatingCard: View {
         }
         .padding(12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .onChange(of: playback.state) { _, state in
+            guard state == .reconnecting else { return }
+            isEditingSpeed = false
+            speedFieldFocused = false
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(L10n.text("完成")) { commitSpeedEdit() }
+            }
+        }
         .confirmationDialog(L10n.text("更多操作"), isPresented: $showMoreActions, titleVisibility: .hidden) {
             Button(L10n.text("結束路線"), role: .destructive) {
                 onEndRoute()
@@ -122,9 +136,28 @@ struct RouteFloatingCard: View {
                 .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
                 .disabled(isReconnecting)
                 .accessibilityLabel(L10n.text("降低速度 0.1 公里每小時"))
-            Text(playback.speedKmh.formatted(.number.precision(.fractionLength(1))))
-                .monospacedDigit().frame(minWidth: 48)
+            if isEditingSpeed && !isReconnecting {
+                TextField(L10n.text("速度"), text: $editedSpeed)
+                    .keyboardType(.decimalPad)
+                    .focused($speedFieldFocused)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 68)
+                    .onSubmit { commitSpeedEdit() }
+                    .accessibilityLabel(L10n.text("播放速度"))
+            } else {
+                Button {
+                    beginSpeedEdit()
+                } label: {
+                    Text(playback.speedKmh.formatted(.number.precision(.fractionLength(1))))
+                        .monospacedDigit()
+                        .frame(minWidth: 48, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .disabled(isReconnecting)
                 .accessibilityLabel(L10n.text("播放速度"))
+                .accessibilityHint(L10n.text("點一下編輯速度"))
+            }
             Button { model.adjustPlaybackSpeed(by: 0.1) } label: { Image(systemName: "plus") }
                 .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
                 .disabled(isReconnecting)
@@ -177,6 +210,24 @@ struct RouteFloatingCard: View {
                 .controlSize(.small)
                 .accessibilityLabel(L10n.text("更多操作"))
         }
+    }
+
+    private func beginSpeedEdit() {
+        guard playback.state == .running || playback.state == .paused else { return }
+        editedSpeed = String(format: "%.1f", playback.speedKmh)
+        isEditingSpeed = true
+        speedFieldFocused = true
+    }
+
+    private func commitSpeedEdit() {
+        let normalized = editedSpeed.replacingOccurrences(of: ",", with: ".")
+        if let value = Double(normalized), value.isFinite {
+            model.setPlaybackSpeed(value)
+        } else {
+            editedSpeed = String(format: "%.1f", playback.speedKmh)
+        }
+        speedFieldFocused = false
+        isEditingSpeed = false
     }
 }
 

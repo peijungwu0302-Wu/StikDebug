@@ -471,7 +471,7 @@
 "App 內簽名重新整理目前僅支援 Wi-Fi + LocalDevVPN；這不影響行動網路 + LocalDevVPN 的定位模擬。請使用 SideStore 重新整理。" = "In-app signing refresh currently supports Wi-Fi + LocalDevVPN only; this does not affect cellular + LocalDevVPN location simulation. Use SideStore to refresh.";
 /* English coverage for all literal L10n keys used by SwiftUI views. */
 "模擬位置 · 單點" = "Simulated Location · Single Point";
-"%@ · %@" = "RouteLocation message";
+"%@ · %@" = "%@ · %@";
 "重新連線中…" = "Reconnecting…";
 "%@ · %.1f km/h" = "%@ · %.1f km/h";
 "返回地圖並查看模擬狀態" = "Return to Map and View Simulation Status";
@@ -870,3 +870,5 @@
 "再次模擬" = "Simulate Again";
 "模擬位置" = "Simulated Location";
 "沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求地圖圖磚、搜尋、導航計算或地點／地址查詢時才會連接 Apple 服務。" = "No accounts, analytics, telemetry, backend, CloudKit, or route uploads. Apple services are contacted only when you request map tiles, search, navigation calculation, or place/address lookup.";
+"點一下編輯速度" = "Tap to edit speed";
+"最近使用：%@" = "Recently used: %@";

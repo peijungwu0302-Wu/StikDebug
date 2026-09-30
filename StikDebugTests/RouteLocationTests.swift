@@ -636,6 +636,55 @@ struct PlaybackEngineTests {
         #expect(engine.traveledDistance == before)
         engine.stop()
     }
+
+    @Test func runningSpeedChangePreservesDistanceAndContinuesFromSamePoint() async throws {
+        let sink = FakeLocationSink()
+        let clock = UptimeBox()
+        let geometry = RouteGeometry(coordinates: [
+            RouteCoordinate(latitude: 0, longitude: 0),
+            RouteCoordinate(latitude: 0, longitude: 0.01)
+        ])
+        let engine = RoutePlaybackEngine(
+            sink: sink, updateInterval: 60, uptime: { clock.get() },
+            acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: {}, reconnectDelays: [0.001]
+        )
+        try await engine.start(routeName: "RunningSpeed", geometry: geometry, speedKmh: 18.6, mode: .once)
+        clock.set(10)
+        await engine.verifyConnectionAfterTransportChange()
+        let before = engine.traveledDistance
+        try engine.setSpeed(42.5)
+        #expect(abs(engine.traveledDistance - before) < 0.000001)
+        clock.set(11)
+        await engine.verifyConnectionAfterTransportChange()
+        #expect(engine.traveledDistance > before)
+        engine.stop()
+    }
+
+    @Test func pausedSpeedChangePreservesPausedDistanceAndResumeUsesNewSpeed() async throws {
+        let sink = FakeLocationSink()
+        let clock = UptimeBox()
+        let geometry = RouteGeometry(coordinates: [
+            RouteCoordinate(latitude: 0, longitude: 0),
+            RouteCoordinate(latitude: 0, longitude: 0.01)
+        ])
+        let engine = RoutePlaybackEngine(
+            sink: sink, updateInterval: 60, uptime: { clock.get() },
+            acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: {}, reconnectDelays: [0.001]
+        )
+        try await engine.start(routeName: "PausedSpeed", geometry: geometry, speedKmh: 18.6, mode: .once)
+        clock.set(10)
+        await engine.verifyConnectionAfterTransportChange()
+        engine.pause()
+        let pausedDistance = engine.traveledDistance
+        clock.set(100)
+        try engine.setSpeed(42.5)
+        #expect(abs(engine.traveledDistance - pausedDistance) < 0.000001)
+        await engine.resume()
+        clock.set(101)
+        await engine.verifyConnectionAfterTransportChange()
+        #expect(engine.traveledDistance > pausedDistance)
+        engine.stop()
+    }
 }
 
 fileprivate extension SavedRoute {

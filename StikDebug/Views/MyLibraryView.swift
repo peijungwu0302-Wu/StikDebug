@@ -3,7 +3,7 @@ import SwiftUI
 struct MyLibraryView: View {
     @Binding var selectedTab: RouteLocationTab
     @State private var selectedSection: MyLibrarySection = .places
-    @AppStorage("RouteLocation.libraryDisplayDensity") private var densityRawValue = LibraryDisplayDensity.compact.rawValue
+    @AppStorage(LibraryDisplayDensity.preferenceKey) private var densityRawValue = LibraryDisplayDensity.compact.rawValue
     
     var body: some View {
         NavigationStack {
@@ -62,7 +62,7 @@ private enum MyLibrarySection: String, CaseIterable, Identifiable, Hashable {
 private struct RecentLocationsView: View {
     @EnvironmentObject private var model: RouteLocationModel
     @Binding var selectedTab: RouteLocationTab
-    @AppStorage("RouteLocation.libraryDisplayDensity") private var densityRawValue = LibraryDisplayDensity.compact.rawValue
+    @AppStorage(LibraryDisplayDensity.preferenceKey) private var densityRawValue = LibraryDisplayDensity.compact.rawValue
     @State private var showClearConfirmation = false
 
     var body: some View {
@@ -72,23 +72,16 @@ private struct RecentLocationsView: View {
             } else {
                 ForEach(model.recentLocations) { item in
                     let density = LibraryDisplayDensity(rawValue: densityRawValue) ?? .compact
-                    VStack(alignment: .leading, spacing: density == .compact ? 4 : 6) {
-                        HStack(spacing: 5) {
-                            Text(item.title ?? L10n.text("最近位置")).font(.headline)
-                            Spacer()
-                            Text(item.createdAt, style: .time).font(.caption).foregroundStyle(.secondary)
-                        }
-                        if density == .detailed {
-                            RecentPlaceInfo(coordinate: item.coordinate)
-                        }
-                        Text(String(format: "%.6f, %.6f", item.coordinate.latitude, item.coordinate.longitude))
-                            .font(.caption.monospaced()).foregroundStyle(.secondary)
-                        HStack {
-                            Button(L10n.text("模擬")) { Task { await model.teleport(to: item.coordinate) } }
-                            Button(L10n.text("加入喜愛")) { Task { await model.addFavorite(name: model.suggestedFavoriteName(), coordinate: item.coordinate) } }
-                            Button(L10n.text("顯示於地圖")) { model.focusOnMap(item.coordinate); selectedTab = .map }
-                        }
-                        .buttonStyle(.bordered).controlSize(.small)
+                    RecentPlaceInfo(
+                        coordinate: item.coordinate,
+                        title: item.title ?? L10n.text("最近位置"),
+                        density: density,
+                        createdAt: item.createdAt
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        model.focusOnMap(item.coordinate)
+                        selectedTab = .map
                     }
                     .swipeActions(edge: .trailing) {
                         Button(L10n.text("刪除"), role: .destructive) { Task { await model.deleteRecentLocation(item) } }
@@ -119,24 +112,67 @@ private struct RecentLocationsView: View {
 
 private struct RecentPlaceInfo: View {
     let coordinate: RouteCoordinate
+    let title: String
+    let density: LibraryDisplayDensity
+    let createdAt: Date
     @State private var info: PlaceInfo?
-    @AppStorage("RouteLocation.timeZoneComparisonBaseline") private var baselineRawValue = TimeZoneComparisonBaseline.taiwan.rawValue
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            if let info {
-                let area = [info.administrativeArea, info.locality, info.subLocality].compactMap { $0 }.joined(separator: " · ")
+            VStack(alignment: .leading, spacing: density == .compact ? 2 : 4) {
                 HStack(spacing: 5) {
-                    if let flag = CountryFlagFormatter.flag(for: info.countryCode) { Text(flag) }
-                    Text(area.isEmpty ? (info.country ?? "") : area).font(.caption).foregroundStyle(.secondary)
-                    if let id = info.timeZoneIdentifier, let zone = TimeZone(identifier: id) {
-                        Text(PlaceTimeFormatter.gmtOffsetText(for: zone, at: context.date)).font(.caption2).foregroundStyle(.secondary)
+                    if let flag = CountryFlagFormatter.flag(for: info?.countryCode) { Text(flag) }
+                    Text(title).font(.headline).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(createdAt, style: .time).font(.caption).foregroundStyle(.secondary)
+                }
+                if let info {
+                    let area = [info.administrativeArea, info.locality, info.subLocality]
+                        .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                    if !area.isEmpty {
+                        Text(area).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                     }
+                    if density == .detailed {
+                        if let country = info.country, !country.isEmpty {
+                            Text(country).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Text(String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude))
+                            .font(.caption.monospaced()).foregroundStyle(.secondary)
+                        if let details = timezoneDetails(at: context.date) {
+                            Text(details.localAndGMT).font(.caption).foregroundStyle(.secondary)
+                            Text(details.identifier).font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Text(L10n.format("最近使用：%@", relativeDate(createdAt)))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text(String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude))
+                        .font(.caption.monospaced()).foregroundStyle(.secondary)
                 }
             }
         }
         .task(id: coordinate.id) {
             info = await PlaceInfoResolver.shared.resolve(coordinate)
         }
+    }
+
+    private func timezoneDetails(at date: Date) -> (localAndGMT: String, identifier: String)? {
+        guard let identifier = info?.timeZoneIdentifier,
+              let zone = TimeZone(identifier: identifier) else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        formatter.timeZone = zone
+        return (
+            L10n.format("%@ · %@", formatter.string(from: date), PlaceTimeFormatter.gmtOffsetText(for: zone, at: date)),
+            identifier
+        )
+    }
+
+    private func relativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        let language = UserDefaults.standard.string(forKey: AppLanguage.defaultsKey) ?? AppLanguage.traditionalChinese.rawValue
+        formatter.locale = Locale(identifier: language)
+        return formatter.localizedString(for: date, relativeTo: .now)
     }
 }

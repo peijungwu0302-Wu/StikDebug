@@ -299,7 +299,11 @@ struct MapHomeView: View {
             PlaceFloatingCard(
                 coordinate: candidate,
                 onSaveFavorite: {
-                    favoriteCoordinate = model.activeSimulatedCoordinate ?? candidate
+                    favoriteCoordinate = FavoriteCoordinateCapture.coordinate(
+                        for: .selectedPlace,
+                        active: model.activeSimulatedCoordinate,
+                        selected: candidate
+                    )
                     favoriteName = model.suggestedFavoriteName()
                     showFavoriteName = true
                 }

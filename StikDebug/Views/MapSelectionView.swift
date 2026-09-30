@@ -23,6 +23,7 @@ struct RouteMapView: View {
     @State private var showCoordinateEntry = false
     @State private var showMyRoutes = false
     @State private var favoriteName = ""
+    @State private var favoriteCoordinate: RouteCoordinate?
     @State private var isCardExpanded = true
 
     var body: some View {
@@ -97,8 +98,17 @@ struct RouteMapView: View {
         }
         .alert(L10n.text("儲存喜好地點"), isPresented: $showFavoriteName) {
             TextField(L10n.text("名稱"), text: $favoriteName)
-            Button(L10n.text("儲存")) { Task { await model.addFavorite(name: favoriteName); favoriteName = "" } }
-            Button(L10n.text("取消"), role: .cancel) {}
+            Button(L10n.text("儲存")) {
+                let coordinate = favoriteCoordinate
+                Task {
+                    await model.addFavorite(name: favoriteName, coordinate: coordinate)
+                    favoriteName = ""
+                    favoriteCoordinate = nil
+                }
+            }
+            Button(L10n.text("取消"), role: .cancel) {
+                favoriteCoordinate = nil
+            }
         }
         .onChange(of: model.selectedCoordinate) { _, coordinate in
             guard let coordinate else { return }
@@ -135,7 +145,15 @@ struct RouteMapView: View {
                 if let active = model.activeSimulatedCoordinate, !model.simulationMode.isRouteSimulation {
                     ActiveSimulationFloatingCard(
                         coordinate: active,
-                        onSaveFavorite: { favoriteName = model.suggestedFavoriteName(); showFavoriteName = true },
+                        onSaveFavorite: {
+                            favoriteCoordinate = FavoriteCoordinateCapture.coordinate(
+                                for: .activeSimulation,
+                                active: active,
+                                selected: model.selectedCoordinate
+                            )
+                            favoriteName = model.suggestedFavoriteName()
+                            showFavoriteName = true
+                        },
                         onRestore: { Task { await model.returnToRealLocation() } }
                     )
                 } else if let previewing = model.previewingRoute {
@@ -165,7 +183,15 @@ struct RouteMapView: View {
                     HStack {
                         Button(L10n.text("模擬此位置")) { model.requestSinglePointSimulation() }.buttonStyle(.borderedProminent)
                         Button(L10n.text("加入航點")) { model.addSelectedWaypoint() }.buttonStyle(.bordered)
-                        Button { favoriteName = model.suggestedFavoriteName(); showFavoriteName = true } label: { Image(systemName: "star") }.buttonStyle(.bordered)
+                        Button {
+                            favoriteCoordinate = FavoriteCoordinateCapture.coordinate(
+                                for: .selectedPlace,
+                                active: model.activeSimulatedCoordinate,
+                                selected: selected
+                            )
+                            favoriteName = model.suggestedFavoriteName()
+                            showFavoriteName = true
+                        } label: { Image(systemName: "star") }.buttonStyle(.bordered)
                     }
                 } else {
                     Text(L10n.text("點選地圖、搜尋地點、輸入座標，或選擇喜愛地點。")).font(.footnote).foregroundStyle(.secondary)
