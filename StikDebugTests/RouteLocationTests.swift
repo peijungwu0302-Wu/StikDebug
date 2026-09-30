@@ -431,11 +431,11 @@ struct PlaybackEngineTests {
         #expect(engine.traveledDistance > 51)
         #expect((engine.currentCoordinate?.longitude ?? 0) > 0)
         #expect(engine.state == .running)
-        #expect(reconnects == 1)
+        #expect(reconnects == 0)
         let finalCallCount = await sink.callCount()
-        // The recovery path first retries the retained session once (Level 1),
-        // then performs the bounded legacy reconnect attempt.
-        #expect(finalCallCount == 6)
+        // The retained-session retry succeeds at Level 1, so no legacy
+        // reconnect action is needed.
+        #expect(finalCallCount == 5)
         engine.stop()
     }
 
@@ -480,11 +480,11 @@ struct PlaybackEngineTests {
         await engine.verifyConnectionAfterTransportChange()
         await engine.verifyConnectionAfterTransportChange()
         await engine.verifyConnectionAfterTransportChange()
-        #expect(reconnects == 1)
+        #expect(reconnects == 0)
         #expect(engine.state == .running)
         #expect(engine.traveledDistance > 36)
         let callCount = await sink.callCount()
-        #expect(callCount == 6)
+        #expect(callCount == 5)
         engine.stop()
     }
 
@@ -579,7 +579,9 @@ struct PlaybackEngineTests {
 
     @Test func assistedRecoverySuccessDoesNotRunLegacyReconnectLoop() async throws {
         let sink = FakeLocationSink()
-        await sink.configureFailures([2, 3, 4])
+        // Fail the initial health writes and the Level 1 retained-session
+        // retry so this test exercises the Assisted path itself.
+        await sink.configureFailures([2, 3, 4, 5])
         let clock = UptimeBox()
         var legacyReconnects = 0
         let geometry = RouteGeometry(coordinates: [
