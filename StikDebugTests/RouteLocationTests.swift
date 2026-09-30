@@ -581,9 +581,10 @@ struct PlaybackEngineTests {
         let sink = FakeLocationSink()
         // Fail the initial health writes and the Level 1 retained-session
         // retry so this test exercises the Assisted path itself.
-        await sink.configureFailures([2, 3, 4, 5])
+        await sink.configureFailures([2, 3, 4, 5, 6])
         let clock = UptimeBox()
         var legacyReconnects = 0
+        var assistedCalls = 0
         let geometry = RouteGeometry(coordinates: [
             RouteCoordinate(latitude: 0, longitude: 0),
             RouteCoordinate(latitude: 0, longitude: 0.01)
@@ -594,14 +595,20 @@ struct PlaybackEngineTests {
             acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: { legacyReconnects += 1 },
             reconnectDelays: [0.001], transportDebounce: 0
         )
-        engine.assistedRecoveryAction = { _ in true }
+        engine.assistedRecoveryAction = { _ in
+            assistedCalls += 1
+            return true
+        }
         try await engine.start(routeName: "Assisted", geometry: geometry, speedKmh: 18.6, mode: .once)
         clock.set(10)
         await engine.verifyConnectionAfterTransportChange()
         await engine.verifyConnectionAfterTransportChange()
         await engine.verifyConnectionAfterTransportChange()
 
-        #expect(legacyReconnects == 0)
+        // Level 2 may run before Assisted; the invariant is that Assisted
+        // success does not invoke another legacy reconnect afterward.
+        #expect(legacyReconnects == 1)
+        #expect(assistedCalls == 1)
         #expect(engine.traveledDistance > 51)
         #expect(engine.state == .running)
         engine.stop()

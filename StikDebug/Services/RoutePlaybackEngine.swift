@@ -258,7 +258,6 @@ final class RoutePlaybackEngine: ObservableObject {
         lastReconnectWasPermanent = false
         defer { reconnectInProgress = false }
         state = .reconnecting
-        var assistedRecoveryDistance: Double?
         // Level 1: a retained/prepared session may only need one command
         // retry. This avoids toggling cellular data for transient writes.
         if let currentCoordinate {
@@ -272,34 +271,9 @@ final class RoutePlaybackEngine: ObservableObject {
                 lastReconnectError = error
             }
         }
-        if connectionMonitor.currentTransport == .cellular,
-           let assistedRecoveryAction,
-           !assistedRecoveryInProgress {
-            updateDerivedState(now: uptime())
-            assistedRecoveryDistance = traveledDistance
-            startingOffset = traveledDistance
-            startTime = uptime()
-            assistedRecoveryInProgress = true
-            let recovered = await assistedRecoveryAction(currentCoordinate)
-            assistedRecoveryInProgress = false
-            guard recovered else {
-                lastReconnectWasPermanent = false
-                return false
-            }
-            if let assistedRecoveryDistance {
-                startingOffset = assistedRecoveryDistance
-                pausedOffset = assistedRecoveryDistance
-                startTime = uptime()
-                updateDerivedState(now: startTime)
-            }
-            // Assisted recovery already performed the retained-session first
-            // location write. Do not fall through into the legacy tunnel
-            // reconnect loop, which would start a second recovery path.
-            state = returnState
-            reportConnection(.connected)
-            consecutiveCommandFailures = 0
-            return true
-        }
+        // Level 2: bounded normal transport/tunnel reconnect. This path never
+        // toggles cellular data and must be exhausted before requesting the
+        // user-consented Level 3 Assisted recovery.
         for (index, delay) in reconnectDelays.enumerated() {
             guard !Task.isCancelled else { return false }
             reportConnection(.reconnecting(attempt: index + 1))
@@ -324,6 +298,33 @@ final class RoutePlaybackEngine: ObservableObject {
                 }
                 continue
             }
+        }
+
+        // Level 3: cellular Assisted recovery. It owns DataOff/DataOn and the
+        // first-location-write validation. If it succeeds, return directly;
+        // never run the legacy reconnect loop a second time afterward.
+        if connectionMonitor.currentTransport == .cellular,
+           let assistedRecoveryAction,
+           !assistedRecoveryInProgress {
+            updateDerivedState(now: uptime())
+            let assistedRecoveryDistance = traveledDistance
+            startingOffset = assistedRecoveryDistance
+            startTime = uptime()
+            assistedRecoveryInProgress = true
+            let recovered = await assistedRecoveryAction(currentCoordinate)
+            assistedRecoveryInProgress = false
+            guard recovered else {
+                lastReconnectWasPermanent = false
+                return false
+            }
+            startingOffset = assistedRecoveryDistance
+            pausedOffset = assistedRecoveryDistance
+            startTime = uptime()
+            updateDerivedState(now: startTime)
+            state = returnState
+            reportConnection(.connected)
+            consecutiveCommandFailures = 0
+            return true
         }
         return false
     }
