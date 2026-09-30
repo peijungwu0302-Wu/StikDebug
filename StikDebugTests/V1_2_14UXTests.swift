@@ -128,7 +128,7 @@ struct V1_2_14UXTests {
             RouteCoordinate(latitude: 0, longitude: 0.01)
         ])
         let monitor = ConnectionMonitor()
-        monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: DeviceSessionStatus.idle)
         let engine = RoutePlaybackEngine(
             sink: sink, connectionMonitor: monitor, updateInterval: 60, uptime: { clock.get() },
             acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: {},
