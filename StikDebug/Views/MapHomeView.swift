@@ -292,6 +292,18 @@ struct MapHomeView: View {
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                 }
+                HStack {
+                    Button {
+                        favoriteCoordinate = activeCoord
+                        favoriteName = model.suggestedFavoriteName()
+                        showFavoriteName = true
+                    } label: {
+                        Label(L10n.text("收藏目前模擬位置"), systemImage: "star")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel(L10n.text("收藏目前模擬位置"))
+                    Spacer()
+                }
                 Button(L10n.text("恢復真實位置"), role: .destructive) {
                     Task { await model.returnToRealLocation() }
                 }
