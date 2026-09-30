@@ -39,10 +39,13 @@ actor RoutePersistenceStore {
         try ensureDirectories()
         guard fileManager.fileExists(atPath: favoritesURL.path) else { return migrateLegacyFavorites() }
         let data = try Data(contentsOf: favoritesURL)
-        let favorites = try decoder.decode([FavoriteLocation].self, from: data)
+        var favorites = try decoder.decode([FavoriteLocation].self, from: data)
         guard favorites.allSatisfy({ $0.coordinate.isValid }) else { throw PersistenceError.invalidFavorite }
         if requiresTimestampMigration(inArrayData: data) {
             try saveFavorites(favorites)
+            // Return the same encoded precision that subsequent launches will
+            // decode, keeping legacy migration timestamps stable immediately.
+            favorites = try decoder.decode([FavoriteLocation].self, from: Data(contentsOf: favoritesURL))
         }
         return favorites.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -72,12 +75,13 @@ actor RoutePersistenceStore {
         for file in files {
             do {
                 let data = try Data(contentsOf: file)
-                let route = try decoder.decode(SavedRoute.self, from: data)
+                var route = try decoder.decode(SavedRoute.self, from: data)
                 guard route.waypoints.allSatisfy(\.isValid), !route.resolvedGeometry.coordinates.isEmpty else {
                     throw PersistenceError.corruptedRoute(file.lastPathComponent)
                 }
                 if requiresTimestampMigration(inObjectData: data) {
                     try encoder.encode(route).write(to: file, options: [.atomic, .completeFileProtection])
+                    route = try decoder.decode(SavedRoute.self, from: Data(contentsOf: file))
                 }
                 routes.append(route)
             } catch {
