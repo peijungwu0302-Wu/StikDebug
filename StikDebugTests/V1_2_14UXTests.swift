@@ -3,6 +3,54 @@ import Testing
 @testable import RouteLocation
 
 struct V1_2_14UXTests {
+    @Test func playbackSpeedPolicyClampsAndStepsByPointOne() {
+        #expect(abs(PlaybackSpeedPolicy.adjusted(18.6, by: 0.1) - 18.7) < 0.000001)
+        #expect(abs(PlaybackSpeedPolicy.adjusted(18.6, by: -0.1) - 18.5) < 0.000001)
+        #expect(PlaybackSpeedPolicy.clamp(-4) == 0.1)
+        #expect(PlaybackSpeedPolicy.clamp(999) == 300.0)
+    }
+
+    @Test func countryFlagsUseGenericIsoConversion() {
+        #expect(CountryFlagFormatter.flag(for: "TW") == "🇹🇼")
+        #expect(CountryFlagFormatter.flag(for: "jp") == "🇯🇵")
+        #expect(CountryFlagFormatter.flag(for: "US") == "🇺🇸")
+        #expect(CountryFlagFormatter.flag(for: "XXX") == nil)
+        #expect(CountryFlagFormatter.flag(for: "?") == nil)
+    }
+
+    @Test func libraryDisplayDensityHasStablePersistenceValues() {
+        #expect(LibraryDisplayDensity(rawValue: "compact") == .compact)
+        #expect(LibraryDisplayDensity(rawValue: "detailed") == .detailed)
+        #expect(LibraryDisplayDensity(rawValue: "other") == nil)
+    }
+
+    @Test func bottomCardSnapsOnlyToFixedDetents() {
+        var state = MapBottomCardExpansion.collapsed
+        state.snap(for: -80)
+        #expect(state == .expanded)
+        state.snap(for: 80)
+        #expect(state == .collapsed)
+        state.snap(for: 10)
+        #expect(state == .collapsed)
+    }
+
+    @Test @MainActor func deletingOneRecentLocationDoesNotTouchFavorites() async throws {
+        let model = RouteLocationModel(
+            persistence: RoutePersistenceStore(rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            simulationService: NoopLocationSink()
+        )
+        let first = RouteCoordinate(latitude: 25, longitude: 121)
+        let second = RouteCoordinate(latitude: 26, longitude: 122)
+        await model.recordRecent(coordinate: first)
+        await model.recordRecent(coordinate: second)
+        let favoriteCount = model.favorites.count
+        let target = try #require(model.recentLocations.first)
+        await model.deleteRecentLocation(target)
+        #expect(model.recentLocations.count == 1)
+        #expect(model.recentLocations.first?.coordinate == first)
+        #expect(model.favorites.count == favoriteCount)
+    }
+
     @Test func uniqueNamesUseIndependentSuffixesAndNormalizeWhitespace() {
         #expect(UniqueNameGenerator.makeUnique(base: " 新地點 ", existing: ["新地點", "新地點1", "新地點2"], fallback: "新地點") == "新地點3")
         #expect(UniqueNameGenerator.makeUnique(base: "公司", existing: ["公司", "公司1"], fallback: "新地點") == "公司2")

@@ -273,6 +273,34 @@ enum LibrarySortOption: String, Codable, CaseIterable, Identifiable, Hashable {
     }
 }
 
+/// One shared density preference is used by Favorites and Recent Locations.
+/// It is intentionally a small value type so the UI can persist it without
+/// changing the saved-location schema.
+enum LibraryDisplayDensity: String, CaseIterable, Identifiable {
+    case compact
+    case detailed
+
+    var id: String { rawValue }
+    var title: String {
+        L10n.text(self == .compact ? "精簡" : "詳細")
+    }
+}
+
+enum CountryFlagFormatter {
+    /// Converts a two-letter ISO country code to a regional-indicator flag.
+    /// Invalid or unknown values intentionally produce no flag.
+    static func flag(for countryCode: String?) -> String? {
+        guard let countryCode,
+              countryCode.count == 2,
+              countryCode.unicodeScalars.allSatisfy({ $0.value >= 65 && $0.value <= 90 || $0.value >= 97 && $0.value <= 122 }) else {
+            return nil
+        }
+        return countryCode.uppercased().unicodeScalars.compactMap { scalar in
+            UnicodeScalar(127397 + scalar.value).map(String.init)
+        }.joined()
+    }
+}
+
 struct RecentLocation: Codable, Identifiable, Equatable {
     let id: UUID
     let coordinate: RouteCoordinate

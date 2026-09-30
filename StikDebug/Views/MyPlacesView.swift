@@ -5,6 +5,7 @@ struct MyPlacesView: View {
     @Binding var selectedTab: RouteLocationTab
     @State private var editingFavorite: FavoriteLocation?
     @State private var showAdd = false
+    @AppStorage("RouteLocation.libraryDisplayDensity") private var densityRawValue = LibraryDisplayDensity.compact.rawValue
     
     var body: some View {
         List {
@@ -20,11 +21,16 @@ struct MyPlacesView: View {
                         model.focusOnMap(favorite.coordinate)
                         selectedTab = .map
                     } label: {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(favorite.name).font(.headline).foregroundStyle(.primary)
-                            PlaceInfoSummary(coordinate: favorite.coordinate)
-                            Text(String(format: "%.6f, %.6f", favorite.latitude, favorite.longitude))
-                                .font(.caption.monospaced()).foregroundStyle(.secondary)
+                        let density = LibraryDisplayDensity(rawValue: densityRawValue) ?? .compact
+                        VStack(alignment: .leading, spacing: density == .compact ? 3 : 5) {
+                            HStack(spacing: 5) {
+                                Text(favorite.name).font(.headline).foregroundStyle(.primary)
+                            }
+                            PlaceInfoSummary(coordinate: favorite.coordinate, density: density)
+                            if density == .detailed {
+                                Text(String(format: "%.6f, %.6f", favorite.latitude, favorite.longitude))
+                                    .font(.caption.monospaced()).foregroundStyle(.secondary)
+                            }
                             if let note = favorite.note, !note.isEmpty {
                                 Text(note).font(.caption).foregroundStyle(.secondary)
                             }
@@ -72,6 +78,16 @@ struct MyPlacesView: View {
         .listStyle(.plain)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                Menu {
+                    Picker(L10n.text("顯示方式"), selection: $densityRawValue) {
+                        ForEach(LibraryDisplayDensity.allCases) { density in
+                            Text(density.title).tag(density.rawValue)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "rectangle.compress.vertical")
+                }
+                .accessibilityLabel(L10n.text("顯示方式"))
                 EditButton()
                 Button { showAdd = true } label: { Image(systemName: "plus") }
                     .disabled(model.selectedCoordinate == nil)
@@ -93,6 +109,7 @@ struct MyPlacesView: View {
 
 private struct PlaceInfoSummary: View {
     let coordinate: RouteCoordinate
+    var density: LibraryDisplayDensity = .detailed
     @State private var info: PlaceInfo?
     @AppStorage("RouteLocation.timeZoneComparisonBaseline") private var baselineRawValue = TimeZoneComparisonBaseline.taiwan.rawValue
 
@@ -113,16 +130,16 @@ private struct PlaceInfoSummary: View {
             if let info {
                 VStack(alignment: .leading, spacing: 2) {
                     if let areaText {
-                        Text(areaText)
+                        Text(areaText + (CountryFlagFormatter.flag(for: info.countryCode).map { " \($0)" } ?? ""))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } else if let name = info.bestDisplayName {
                         Text(name).font(.subheadline).foregroundStyle(.secondary)
                     }
-                    if let country = info.country, !country.isEmpty {
+                    if density == .detailed, let country = info.country, !country.isEmpty {
                         Text(country).font(.caption).foregroundStyle(.secondary)
                     }
-                    if let timezoneDetails = timezoneDetails(at: now) {
+                    if density == .detailed, let timezoneDetails = timezoneDetails(at: now) {
                         Text(timezoneDetails.localAndGMT)
                             .font(.caption)
                             .foregroundStyle(.secondary)

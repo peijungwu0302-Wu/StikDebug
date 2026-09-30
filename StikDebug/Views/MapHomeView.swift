@@ -101,6 +101,10 @@ struct MapHomeView: View {
                             .accessibilityLabel(L10n.text("顯示完整路線"))
                     }
                 }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button(L10n.text("完成")) { isSpeedFieldFocused = false }
+                }
             }
         }
         .sheet(isPresented: $showSearch) {
@@ -126,7 +130,7 @@ struct MapHomeView: View {
                 }
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.height(280), .medium])
         }
         .sheet(isPresented: $showRouteInputChooser) {
             RouteInputChooser(
@@ -139,8 +143,8 @@ struct MapHomeView: View {
         .sheet(isPresented: $showRoutePaste) {
             RoutePasteView(
                 hasExistingWaypoints: !model.waypoints.isEmpty,
-                onReplace: { values in model.replaceWaypoints(values); statusAfterImport(values.count) },
-                onAppend: { values in model.appendWaypoints(values); statusAfterImport(values.count) }
+                onReplace: { values in model.replaceWaypoints(values); fitRoute(); statusAfterImport(values.count) },
+                onAppend: { values in model.appendWaypoints(values); fitRoute(); statusAfterImport(values.count) }
             )
         }
         .fileImporter(isPresented: $showRouteImporter, allowedContentTypes: CoordinateImportParser.supportedContentTypes) { result in
@@ -148,7 +152,7 @@ struct MapHomeView: View {
             Task.detached {
                 do {
                     let values = try CoordinateImportParser.parse(url: url)
-                    await MainActor.run { model.replaceWaypoints(values); statusAfterImport(values.count) }
+                    await MainActor.run { model.replaceWaypoints(values); fitRoute(); statusAfterImport(values.count) }
                 } catch { await MainActor.run { model.presentedError = error.localizedDescription } }
             }
         }
@@ -281,7 +285,17 @@ struct MapHomeView: View {
 
     @ViewBuilder
     private var singlePointFloatingContent: some View {
-        if let candidate = candidateCoordinate {
+        if let active = model.activeSimulatedCoordinate, !model.simulationMode.isRouteSimulation {
+            ActiveSimulationFloatingCard(
+                coordinate: active,
+                onSaveFavorite: {
+                    favoriteCoordinate = active
+                    favoriteName = model.suggestedFavoriteName()
+                    showFavoriteName = true
+                },
+                onRestore: { Task { await model.returnToRealLocation() } }
+            )
+        } else if let candidate = candidateCoordinate {
             PlaceFloatingCard(
                 coordinate: candidate,
                 onSaveFavorite: {
@@ -290,37 +304,6 @@ struct MapHomeView: View {
                     showFavoriteName = true
                 }
             )
-        } else if case .singlePoint(let activeCoord) = model.simulationMode {
-            // Active single point simulation
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Image(systemName: "location.fill").foregroundStyle(.green)
-                    Text(L10n.text("模擬位置中")).font(.subheadline.bold())
-                    Spacer()
-                    Text(String(format: "%.6f, %.6f", activeCoord.latitude, activeCoord.longitude))
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                }
-                HStack {
-                    Button {
-                        favoriteCoordinate = activeCoord
-                        favoriteName = model.suggestedFavoriteName()
-                        showFavoriteName = true
-                    } label: {
-                        Label(L10n.text("收藏目前模擬位置"), systemImage: "star")
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel(L10n.text("收藏目前模擬位置"))
-                    Spacer()
-                }
-                Button(L10n.text("恢復真實位置"), role: .destructive) {
-                    Task { await model.returnToRealLocation() }
-                }
-                .font(.footnote)
-                .accessibilityLabel(L10n.text("恢復真實定位"))
-            }
-            .padding(12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
         } else if model.simulationMode.isSimulating {
             // Active route simulation while in single point view
             VStack(alignment: .leading, spacing: 8) {
@@ -414,37 +397,41 @@ struct MapHomeView: View {
                         }
                     }
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: 10) {
                         Text(L10n.text("速度")).font(.caption).foregroundStyle(.secondary)
-                        TextField("18.6", value: $model.speedKmh, format: .number)
-                            .keyboardType(.decimalPad)
-                            .focused($isSpeedFieldFocused)
-                            .frame(width: 55)
-                            .textFieldStyle(.roundedBorder)
+                        Button { model.adjustPlaybackSpeed(by: -0.1) } label: { Image(systemName: "minus") }
+                            .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
                             .disabled(playback.state == .reconnecting)
+                            .accessibilityLabel(L10n.text("降低速度 0.1 公里每小時"))
+                        TextField("18.6", value: $model.speedKmh, format: .number.precision(.fractionLength(1)))
+                            .keyboardType(.decimalPad).focused($isSpeedFieldFocused).frame(width: 58)
+                            .textFieldStyle(.roundedBorder).disabled(playback.state == .reconnecting)
+                            .accessibilityLabel(L10n.text("播放速度"))
+                        Button { model.adjustPlaybackSpeed(by: 0.1) } label: { Image(systemName: "plus") }
+                            .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
+                            .disabled(playback.state == .reconnecting)
+                            .accessibilityLabel(L10n.text("提高速度 0.1 公里每小時"))
                         Text("km/h").font(.caption).foregroundStyle(.secondary)
                         Spacer()
-                        Toggle(isOn: $model.isClosedLoop) {
-                            Text(L10n.text("無限循環")).font(.caption)
-                        }.toggleStyle(.button)
+                        Toggle(isOn: $model.isClosedLoop) { Text(L10n.text("無限循環")).font(.caption) }
+                            .toggleStyle(.button)
                     }
 
                     HStack {
-                        Button(L10n.text("復原")) { model.undoLastWaypoint() }.buttonStyle(.bordered)
-                        Button(L10n.text("清除路線"), role: .destructive) { showClearDraftAlert = true }.buttonStyle(.bordered)
-                        Spacer()
-                        Button {
-                            favoriteRouteName = model.suggestedFavoriteRouteName()
-                            showFavoriteRouteName = true
-                        } label: {
-                            Label(L10n.text("收藏路線"), systemImage: "star")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
-                        .accessibilityLabel(L10n.text("收藏路線"))
+                        Button { model.undoLastWaypoint() } label: { Image(systemName: "arrow.uturn.backward") }
+                            .buttonStyle(.plain).frame(minWidth: 44, minHeight: 44)
+                            .accessibilityLabel(L10n.text("復原"))
                         Button(L10n.text("儲存路線")) { showSaveSheet = true }
-                            .buttonStyle(.bordered)
-                            .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
+                            .buttonStyle(.bordered).disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
+                        Spacer()
+                        Menu {
+                            Button(L10n.text("清除路線"), role: .destructive) { showClearDraftAlert = true }
+                            Button(L10n.text("我的路線")) { showFavoriteRoutePicker = true }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel(L10n.text("更多路線操作"))
                         Button(L10n.text("開始路線")) { Task { await model.startPlayback() } }
                             .buttonStyle(.borderedProminent)
                             .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)

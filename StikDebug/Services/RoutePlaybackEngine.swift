@@ -45,6 +45,20 @@ enum PlaybackReconnectPolicy {
     }
 }
 
+enum PlaybackSpeedPolicy {
+    static let minimum: Double = 0.1
+    static let maximum: Double = 300.0
+
+    static func clamp(_ value: Double) -> Double {
+        guard value.isFinite else { return minimum }
+        return min(max(value, minimum), maximum)
+    }
+
+    static func adjusted(_ value: Double, by delta: Double) -> Double {
+        clamp((value.isFinite ? value : minimum) + delta)
+    }
+}
+
 @MainActor
 final class RoutePlaybackEngine: ObservableObject {
     @Published private(set) var state: PlaybackRunState = .stopped
@@ -117,7 +131,7 @@ final class RoutePlaybackEngine: ObservableObject {
         guard speedKmh.isFinite, speedKmh > 0 else { throw RouteLocationError.invalidSpeed }
         self.routeName = routeName
         self.geometry = geometry
-        self.speedKmh = speedKmh
+        self.speedKmh = PlaybackSpeedPolicy.clamp(speedKmh)
         self.mode = mode
         self.startingOffset = max(0, startingOffset)
         startTime = uptime()
@@ -207,7 +221,7 @@ final class RoutePlaybackEngine: ObservableObject {
         default:
             currentDistance = startingOffset
         }
-        speedKmh = newSpeed
+        speedKmh = PlaybackSpeedPolicy.clamp(newSpeed)
         startingOffset = currentDistance
         pausedOffset = currentDistance
         startTime = now

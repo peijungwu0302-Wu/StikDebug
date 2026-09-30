@@ -34,7 +34,7 @@ struct SetupDiagnosticsView: View {
                     status(L10n.text("裝置 Bootstrap"), tunnel.bootstrapAvailable ? L10n.text("可用") : L10n.text("目前傳輸不可用"), tunnel.bootstrapAvailable ? .green : .orange, info: L10n.text("表示能否開啟新的裝置連線。新連線被拒絕不代表既有 DVT 定位工作階段已失效。"))
                     status(L10n.text("裝置通道"), tunnelStatus, effectiveTunnelHealthy ? .green : .orange, info: L10n.text("顯示既有裝置通道狀態；真實定位指令成功時，不會因輔助 Bootstrap 探測失敗而拆除工作階段。"))
                     status(L10n.text("RSD"), rsdStatus, effectiveTunnelHealthy ? .green : .orange, info: L10n.text("RSD 是 DVT 服務發現層。既有 DVT 工作階段可在新的 RSD 探測暫時失敗時繼續工作。"))
-                    status(L10n.text("開發者磁碟映像"), ddiStatus, mounting.coolisMounted ? .green : .orange, info: L10n.text("DDI 提供 Apple 開發者裝置服務。位置模擬前必須準備並掛載；首次下載需要網際網路。"))
+                    status(L10n.text("開發者磁碟映像"), mounting.coolisMounted ? ddiStatus : L10n.text("未掛載 · 不影響目前定位功能"), mounting.coolisMounted ? .green : .gray, info: L10n.text("DDI 是其他開發者與 JIT 工具的選用功能，不是 RouteLocation 核心定位的必要條件。"))
                     status(L10n.text("位置模擬"), simulationStatus, simulationIsActive ? .green : .gray, info: L10n.text("顯示目前是否正在傳送單點或路線位置。按下「恢復真實位置」可停止模擬並清除開發者位置。"))
                     status(L10n.text("DVT 工作階段"), model.connectionMonitor.deviceSession.label, dvtColor, info: L10n.text("DVT 是實際傳送開發者位置指令的工作階段。若中斷，路線會保留單調時鐘的經過時間並進行有限次重新連線。"))
                     status(L10n.text("定位更新"), dataPath.status.label, dataPath.status == .healthy ? .green : .orange, info: L10n.text("真實 setLocation 指令的結果是最高優先健康訊號；連續三次真實失敗後才會開始恢復。"))
@@ -90,8 +90,12 @@ struct SetupDiagnosticsView: View {
                             tunnel.checkHealthNow(transport: model.connectionMonitor.currentTransport)
                         }
                     }
-                    Button(L10n.text("檢查／掛載 DDI")) { MountingProgress.shared.pubMount() }
                     Text(L10n.text("請啟動 LocalDevVPN，使用 Wi-Fi 或行動網路皆可。設定期間保持裝置喚醒及解鎖，並確認配對檔案屬於目前這台 iPhone 或 iPad。"))
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section(L10n.text("開發者工具")) {
+                    Button(L10n.text("檢查／掛載 DDI")) { MountingProgress.shared.pubMount() }
+                    Text(L10n.text("DDI 未掛載時，RouteLocation 的核心定位仍可正常使用。"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if tunnel.cellularBootstrapRequested {
@@ -314,7 +318,7 @@ struct SetupDiagnosticsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section(L10n.text("隱私權")) {
-                    Text(L10n.text("沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求 MapKit 圖磚、搜尋及導航計算時才會連接 Apple 服務。"))
+                    Text(L10n.text("沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求地圖圖磚、搜尋、導航計算或地點／地址查詢時才會連接 Apple 服務。"))
                         .font(.footnote)
                 }
                 SigningAndRefreshSectionView(

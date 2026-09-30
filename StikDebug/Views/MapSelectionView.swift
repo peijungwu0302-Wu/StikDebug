@@ -93,7 +93,7 @@ struct RouteMapView: View {
                     model.requestSinglePointSimulation(at: coordinate)
                 }
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.height(280), .medium])
         }
         .alert(L10n.text("儲存喜好地點"), isPresented: $showFavoriteName) {
             TextField(L10n.text("名稱"), text: $favoriteName)
@@ -132,7 +132,13 @@ struct RouteMapView: View {
                 }
             }
             if isCardExpanded {
-                if let previewing = model.previewingRoute {
+                if let active = model.activeSimulatedCoordinate, !model.simulationMode.isRouteSimulation {
+                    ActiveSimulationFloatingCard(
+                        coordinate: active,
+                        onSaveFavorite: { favoriteName = model.suggestedFavoriteName(); showFavoriteName = true },
+                        onRestore: { Task { await model.returnToRealLocation() } }
+                    )
+                } else if let previewing = model.previewingRoute {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Image(systemName: "eye.fill").foregroundStyle(.blue)
@@ -311,7 +317,7 @@ struct QuickRouteMapView: View {
                 }
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.height(280), .medium])
         }
         .sheet(isPresented: $showMyRoutes) {
             MyRoutesSheet { route in
@@ -475,10 +481,30 @@ struct QuickRouteMapView: View {
                     Spacer()
                     Label(formatDuration(playback.elapsedTime), systemImage: "clock")
                     Spacer()
-                    Text("\(playback.speedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
+                    Button { model.adjustPlaybackSpeed(by: -0.1) } label: { Image(systemName: "minus") }
+                        .buttonStyle(.bordered).frame(minWidth: 40, minHeight: 40)
+                        .disabled(playback.state == .reconnecting)
+                        .accessibilityLabel(L10n.text("降低速度 0.1 公里每小時"))
+                    Text("\(playback.speedKmh.formatted(.number.precision(.fractionLength(1))))")
+                        .monospacedDigit()
+                    Button { model.adjustPlaybackSpeed(by: 0.1) } label: { Image(systemName: "plus") }
+                        .buttonStyle(.bordered).frame(minWidth: 40, minHeight: 40)
+                        .disabled(playback.state == .reconnecting)
+                        .accessibilityLabel(L10n.text("提高速度 0.1 公里每小時"))
+                    Text("km/h").font(.caption)
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+
+                if let current = model.activeSimulatedCoordinate {
+                    HStack {
+                        Text(L10n.text("目前位置")).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button { CoordinateClipboard.copy(current) } label: { Image(systemName: "doc.on.doc") }
+                            .buttonStyle(.plain).frame(minWidth: 44, minHeight: 44)
+                            .accessibilityLabel(L10n.text("複製座標"))
+                    }
+                }
 
                 if model.simulationMode.isSimulating {
                     Button(L10n.text("恢復真實位置"), role: .destructive) {
@@ -654,12 +680,20 @@ struct QuickRouteMapView: View {
 
                     HStack(spacing: 8) {
                         Text(L10n.text("速度")).font(.caption).foregroundStyle(.secondary)
+                        Button { model.adjustPlaybackSpeed(by: -0.1) } label: { Image(systemName: "minus") }
+                            .buttonStyle(.bordered).frame(minWidth: 40, minHeight: 40)
+                            .disabled(playback.state == .reconnecting)
+                            .accessibilityLabel(L10n.text("降低速度 0.1 公里每小時"))
                         TextField("18.6", value: $model.speedKmh, format: .number)
                             .keyboardType(.decimalPad)
                             .focused($isSpeedFieldFocused)
                             .frame(width: 55)
                             .textFieldStyle(.roundedBorder)
                             .disabled(playback.state == .reconnecting)
+                        Button { model.adjustPlaybackSpeed(by: 0.1) } label: { Image(systemName: "plus") }
+                            .buttonStyle(.bordered).frame(minWidth: 40, minHeight: 40)
+                            .disabled(playback.state == .reconnecting)
+                            .accessibilityLabel(L10n.text("提高速度 0.1 公里每小時"))
                         Text("km/h").font(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Toggle(isOn: $model.isClosedLoop) {
@@ -671,10 +705,12 @@ struct QuickRouteMapView: View {
                     HStack {
                         Button(L10n.text("復原")) { model.undoLastWaypoint() }
                             .buttonStyle(.bordered)
-                        Button(L10n.text("清除"), role: .destructive) { showClearDraftAlert = true }
-                            .buttonStyle(.bordered)
-                        Button { showMyRoutes = true } label: { Image(systemName: "star.circle.fill") }
-                            .buttonStyle(.bordered)
+                        Menu {
+                            Button(L10n.text("清除路線"), role: .destructive) { showClearDraftAlert = true }
+                            Button(L10n.text("我的路線")) { showMyRoutes = true }
+                        } label: { Image(systemName: "ellipsis.circle") }
+                            .frame(minWidth: 44, minHeight: 44)
+                            .accessibilityLabel(L10n.text("更多路線操作"))
                         Spacer()
                         Button(L10n.text("儲存路線")) { showSaveSheet = true }
                             .buttonStyle(.bordered)
@@ -742,17 +778,20 @@ struct CoordinateTeleportView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 14) {
-                Text(L10n.text("輸入精確位置")).font(.title3.bold())
-                TextField("25.033964,121.564468", text: $coordinateText, axis: .vertical)
-                    .keyboardType(.numbersAndPunctuation)
-                    .textInputAutocapitalization(.never)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isFocused)
-                PasteButton(payloadType: String.self) { strings in
-                    if let value = strings.first { coordinateText = value }
+                HStack(spacing: 8) {
+                    TextField("25.033964,121.564468", text: $coordinateText, axis: .vertical)
+                        .keyboardType(.numbersAndPunctuation)
+                        .textInputAutocapitalization(.never)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($isFocused)
+                    PasteButton(payloadType: String.self) { strings in
+                        if let value = strings.first { coordinateText = value }
+                    }
+                    .labelStyle(.iconOnly)
+                    .frame(width: 44, height: 44)
+                    .accessibilityLabel(L10n.text("貼上座標"))
                 }
-                .labelStyle(.titleAndIcon)
-                Text(L10n.text("支援逗號、空白、分號、latitude/longitude 與 Google Maps 長網址。"))
+                Text(L10n.text("支援座標或 Google Maps 連結"))
                     .font(.footnote).foregroundStyle(.secondary)
                 if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
                 Spacer(minLength: 0)
@@ -770,7 +809,7 @@ struct CoordinateTeleportView: View {
                 .padding(.vertical, 8)
                 .background(.bar)
             }
-            .navigationTitle(L10n.text("輸入精確座標"))
+            .navigationTitle(L10n.text("輸入位置"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(L10n.text("取消")) { dismiss() } }
                 ToolbarItemGroup(placement: .keyboard) {

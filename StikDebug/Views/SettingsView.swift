@@ -70,16 +70,6 @@ struct SettingsView: View {
                     }
 
                     HStack {
-                        Text(L10n.text("開發者磁碟映像 (DDI)"))
-                        Spacer()
-                        Circle()
-                            .fill(mounting.coolisMounted ? .green : .orange)
-                            .frame(width: 8, height: 8)
-                        Text(mounting.coolisMounted ? L10n.text("已掛載") : (mounting.mountingThread != nil ? L10n.text("準備中") : L10n.text("未掛載")))
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    HStack {
                         Text(L10n.text("模擬狀態"))
                         Spacer()
                         Text(model.simulationMode.label)
@@ -104,10 +94,20 @@ struct SettingsView: View {
                     }
                     .accessibilityLabel(L10n.text("檢查或重試裝置通道"))
                     
-                    Button(L10n.text("檢查／掛載 DDI")) {
-                        MountingProgress.shared.pubMount()
+                }
+
+                Section(L10n.text("開發者工具")) {
+                    HStack {
+                        Text(L10n.text("開發者磁碟映像 (DDI)"))
+                        Spacer()
+                        Circle().fill(mounting.coolisMounted ? .green : .gray).frame(width: 8, height: 8)
+                        Text(mounting.coolisMounted ? L10n.text("已掛載") : (mounting.mountingThread != nil ? L10n.text("準備中") : L10n.text("未掛載 · 不影響目前定位功能")))
+                            .foregroundStyle(.secondary)
                     }
-                    .accessibilityLabel(L10n.text("檢查或掛載 DDI"))
+                    Text(L10n.text("DDI 是其他開發者與 JIT 工具的選用功能，不是 RouteLocation 核心定位的必要條件。"))
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button(L10n.text("檢查／掛載 DDI")) { MountingProgress.shared.pubMount() }
+                        .accessibilityLabel(L10n.text("檢查或掛載 DDI"))
                 }
                 
                 Section(L10n.text("健康同步")) {
@@ -286,7 +286,6 @@ struct SettingsView: View {
 
 private struct RouteLocationSetupCheckView: View {
     @ObservedObject private var tunnel = TunnelManager.shared
-    @ObservedObject private var mounting = MountingProgress.shared
     @ObservedObject private var monitor = ConnectionMonitor.shared
     @ObservedObject private var dataPath = LocationDataPathHealth.shared
 
@@ -295,7 +294,8 @@ private struct RouteLocationSetupCheckView: View {
             Section(L10n.text("可由 App 確認")) {
                 check(L10n.text("配對檔案"), FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path), L10n.text("匯入目前裝置的配對檔案"))
                 check(L10n.text("LocalDevVPN"), monitor.localDevVPNAvailable, L10n.text("啟動 LocalDevVPN 以建立本機裝置服務路徑"))
-                check(L10n.text("DDI"), mounting.coolisMounted, L10n.text("位置模擬需要可用的 Developer Disk Image"))
+                // DDI remains useful for developer tooling but is not a core
+                // RouteLocation readiness requirement.
                 check(L10n.text("位置工作階段"), monitor.activeDVTSessionAvailable || dataPath.hasRecentSuccess, L10n.text("尚未確認可用的裝置定位工作階段"))
             }
             Section(L10n.text("需要在 iPhone 設定中確認")) {

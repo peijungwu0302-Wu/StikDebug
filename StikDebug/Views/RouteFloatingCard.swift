@@ -117,6 +117,31 @@ struct RouteFloatingCard: View {
             .font(.footnote)
             .foregroundStyle(.secondary)
 
+        HStack(spacing: 8) {
+            Button { model.adjustPlaybackSpeed(by: -0.1) } label: { Image(systemName: "minus") }
+                .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
+                .disabled(isReconnecting)
+                .accessibilityLabel(L10n.text("降低速度 0.1 公里每小時"))
+            Text(playback.speedKmh.formatted(.number.precision(.fractionLength(1))))
+                .monospacedDigit().frame(minWidth: 48)
+                .accessibilityLabel(L10n.text("播放速度"))
+            Button { model.adjustPlaybackSpeed(by: 0.1) } label: { Image(systemName: "plus") }
+                .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
+                .disabled(isReconnecting)
+                .accessibilityLabel(L10n.text("提高速度 0.1 公里每小時"))
+            Text("km/h").font(.caption).foregroundStyle(.secondary)
+            Spacer()
+        }
+        if let current = model.activeSimulatedCoordinate {
+            HStack {
+                Text(L10n.text("目前位置")).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button { CoordinateClipboard.copy(current) } label: { Image(systemName: "doc.on.doc") }
+                    .buttonStyle(.plain).frame(minWidth: 44, minHeight: 44)
+                    .accessibilityLabel(L10n.text("複製座標"))
+            }
+        }
+
         HStack {
             if isRunning {
                 Button(L10n.text("暫停移動")) { playback.pause() }
@@ -136,7 +161,7 @@ struct RouteFloatingCard: View {
 
             if let current = model.activeSimulatedCoordinate {
                 Button {
-                    Task { await model.addFavorite(name: "", coordinate: current) }
+                    Task { await model.addFavorite(name: model.suggestedFavoriteName(), coordinate: current) }
                 } label: {
                     Image(systemName: "star")
                 }

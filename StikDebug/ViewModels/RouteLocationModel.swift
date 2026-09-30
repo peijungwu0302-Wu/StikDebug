@@ -23,7 +23,14 @@ final class RouteLocationModel: ObservableObject {
     @Published var isClosedLoop = true { didSet { routeInputsChanged() } }
     @Published var playbackMode: RoutePlaybackMode = .infiniteLoop
     @Published var speedKmh: Double {
-        didSet { if speedKmh.isFinite, speedKmh > 0 { UserDefaults.standard.set(speedKmh, forKey: Self.speedKey) } }
+        didSet {
+            let normalized = PlaybackSpeedPolicy.clamp(speedKmh)
+            if normalized != speedKmh {
+                speedKmh = normalized
+                return
+            }
+            UserDefaults.standard.set(normalized, forKey: Self.speedKey)
+        }
     }
     @Published var mapInteractionStyle: MapInteractionStyle {
         didSet { UserDefaults.standard.set(mapInteractionStyle.rawValue, forKey: Self.mapStyleKey) }
@@ -995,6 +1002,11 @@ final class RouteLocationModel: ObservableObject {
         try? await persistence.saveRecentLocations([])
     }
 
+    func deleteRecentLocation(_ item: RecentLocation) async {
+        recentLocations.removeAll { $0.id == item.id }
+        try? await persistence.saveRecentLocations(recentLocations)
+    }
+
     var sortedFavorites: [FavoriteLocation] {
         switch librarySortOption {
         case .newest: return favorites.sorted { $0.createdAt > $1.createdAt }
@@ -1006,9 +1018,14 @@ final class RouteLocationModel: ObservableObject {
 
     func setPlaybackSpeed(_ speed: Double) {
         do {
-            try playback.setSpeed(speed)
-            speedKmh = speed
+            let clamped = PlaybackSpeedPolicy.clamp(speed)
+            try playback.setSpeed(clamped)
+            speedKmh = clamped
         } catch { presentedError = error.localizedDescription }
+    }
+
+    func adjustPlaybackSpeed(by delta: Double) {
+        setPlaybackSpeed(PlaybackSpeedPolicy.adjusted(playback.speedKmh > 0 ? playback.speedKmh : speedKmh, by: delta))
     }
 
     #if DEBUG
