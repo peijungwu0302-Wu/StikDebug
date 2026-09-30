@@ -254,6 +254,7 @@
 "請至少加入兩個航點。" = "Add at least two waypoints.";
 "這條路線沒有可播放的幾何資料。" = "This route has no playable geometry.";
 "請輸入大於 0 km/h 的速度。" = "Enter a speed greater than 0 km/h.";
+"重新連線期間暫停調整速度，連線恢復後即可繼續。" = "Speed changes are paused during reconnection and can resume when the connection is restored.";
 "導航路線已變更，請先重新計算再儲存或播放。" = "The navigation route changed. Recalculate it before saving or playing.";
 "無限循環需要封閉路線，才能沿著實際路徑回到起點。" = "Infinite Loop requires a closed route with geometry returning to the start.";
 "錯誤：%@" = "Error: %@";

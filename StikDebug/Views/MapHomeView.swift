@@ -212,7 +212,7 @@ struct MapHomeView: View {
         .padding(.horizontal)
         .padding(.bottom, 4)
         .onChange(of: model.speedKmh) { _, newSpeed in
-            guard playback.state == .running || playback.state == .paused || playback.state == .reconnecting else { return }
+            guard playback.state == .running || playback.state == .paused else { return }
             if abs(playback.speedKmh - newSpeed) > 0.0001 { model.setPlaybackSpeed(newSpeed) }
         }
     }
@@ -359,6 +359,7 @@ struct MapHomeView: View {
                             .focused($isSpeedFieldFocused)
                             .frame(width: 55)
                             .textFieldStyle(.roundedBorder)
+                            .disabled(playback.state == .reconnecting)
                         Text("km/h").font(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Toggle(isOn: $model.isClosedLoop) {

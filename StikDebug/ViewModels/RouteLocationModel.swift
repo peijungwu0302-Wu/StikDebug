@@ -118,7 +118,10 @@ final class RouteLocationModel: ObservableObject {
     private func performAssistedPlaybackRecovery(coordinate: RouteCoordinate?) async -> Bool {
         guard ShortcutBootstrapService.shared.isShortcutAssistedEnabled else { return false }
         return await withCheckedContinuation { continuation in
-            CellularAssistedBootstrapStateMachine.shared.startAssistedBootstrap(targetCoordinate: coordinate) { result in
+            CellularAssistedBootstrapStateMachine.shared.startAssistedBootstrap(
+                targetCoordinate: coordinate,
+                reason: .playbackFailureRecovery
+            ) { result in
                 continuation.resume(returning: (try? result.get()) != nil)
             }
         }

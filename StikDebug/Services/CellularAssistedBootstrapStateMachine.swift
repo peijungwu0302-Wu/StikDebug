@@ -58,6 +58,11 @@ enum CellularAssistedState: String, Codable, CaseIterable {
     }
 }
 
+enum AssistedBootstrapReason: String, Codable, Equatable {
+    case coldStart
+    case playbackFailureRecovery
+}
+
 @MainActor
 final class CellularAssistedBootstrapStateMachine: ObservableObject {
     static let shared = CellularAssistedBootstrapStateMachine()
@@ -83,12 +88,19 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var stateTimeoutTask: Task<Void, Never>?
     private var recoveryAttemptedInForeground = false
+    private let foregroundRecoveryProcessID = UUID().uuidString
     var simulationSink: any LocationSimulationSink = DeviceLocationSimulationService.shared
 
     private struct RecoveryIntent: Codable {
         let transactionID: String
         let startedAt: Date
         var phase: String
+    }
+
+    private struct RecoveryAttemptMarker: Codable {
+        let transactionID: String
+        let processID: String
+        let attemptedAt: Date
     }
 
     private init() {}
@@ -98,6 +110,10 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
     }
 
     func beginForegroundRecoveryCycle() {
+        // A Shortcut round-trip re-enters the app as active while the
+        // persistent intent is still present. Never reset the in-flight guard
+        // during that round-trip; it would launch a duplicate DataOn.
+        guard !hasPendingRecoveryIntent else { return }
         recoveryAttemptedInForeground = false
     }
 
@@ -105,13 +121,27 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         guard !state.isRunning, !recoveryAttemptedInForeground,
               let data = UserDefaults.standard.data(forKey: Self.recoveryIntentKey),
               let intent = try? JSONDecoder().decode(RecoveryIntent.self, from: data) else { return }
+        if let markerData = UserDefaults.standard.data(forKey: Self.recoveryAttemptKey),
+           let marker = try? JSONDecoder().decode(RecoveryAttemptMarker.self, from: markerData),
+           marker.processID == foregroundRecoveryProcessID {
+            recoveryAttemptedInForeground = true
+            return
+        }
         recoveryAttemptedInForeground = true
+        let marker = RecoveryAttemptMarker(
+            transactionID: intent.transactionID,
+            processID: foregroundRecoveryProcessID,
+            attemptedAt: .now
+        )
+        if let markerData = try? JSONEncoder().encode(marker) {
+            UserDefaults.standard.set(markerData, forKey: Self.recoveryAttemptKey)
+        }
         BootstrapTraceStore.shared.recordEvent(.staleRecoveryDetected, details: [
             "transactionID": intent.transactionID,
             "phase": intent.phase,
             "startedAt": intent.startedAt.ISO8601Format()
         ])
-        let recoveryTx = "recovery-\(UUID().uuidString)"
+        let recoveryTx = UUID().uuidString
         BootstrapTraceStore.shared.recordEvent(.staleRecoveryDataOnStarted, details: ["transactionID": recoveryTx])
         let opened = ShortcutBootstrapService.shared.runDataOnShortcut(txId: recoveryTx) { [weak self] success in
             Task { @MainActor [weak self] in
@@ -150,6 +180,7 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
 
     func startAssistedBootstrap(
         targetCoordinate: RouteCoordinate? = nil,
+        reason: AssistedBootstrapReason = .coldStart,
         completion: @escaping (Result<BootstrapProceedDisposition, Error>) -> Void
     ) {
         guard !state.isRunning else {
@@ -167,7 +198,8 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         let preparedSession = LocationSimulationCommandQueue.shared.sync {
             location_simulation_session_snapshot().isPrepared
         }
-        if monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess || preparedSession {
+        let shouldUseColdStartEvidence = reason == .coldStart
+        if shouldUseColdStartEvidence && (monitor.activeDVTSessionAvailable || LocationDataPathHealth.shared.hasRecentSuccess || preparedSession) {
             LogManager.shared.addInfoLog("Pre-launch check: Active DVT session already present. Skipping shortcut.")
             completion(.success(.needsLocationWrite))
             return
@@ -546,9 +578,10 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
             }
         } else {
             self.locationWriteSuccessConfirmed = false
-            LogManager.shared.addInfoLog("No verification coordinate provided; skipping mock location injection in bootstrap.")
-            await Task.yield()
-            await proceedToDataOn()
+            handleFailure(
+                stage: "FirstLocationWrite",
+                reason: "Missing verification coordinate; refusing to enable cellular data before the first location write."
+            )
         }
     }
 
@@ -831,6 +864,10 @@ final class CellularAssistedBootstrapStateMachine: ObservableObject {
         stabilizationTask = nil
         recoveryAttemptedInForeground = false
         clearRecoveryIntent()
+    }
+
+    func seedRecoveryIntentForTesting(transactionID: String, phase: String) {
+        persistRecoveryIntent(transactionID: transactionID, phase: phase)
     }
 
     func forceStateForTesting(_ newState: CellularAssistedState) {

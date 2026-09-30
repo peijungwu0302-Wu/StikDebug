@@ -192,10 +192,11 @@ final class RoutePlaybackEngine: ObservableObject {
     /// continues smoothly instead of jumping by the old/new speed delta.
     func setSpeed(_ newSpeed: Double) throws {
         guard newSpeed.isFinite, newSpeed > 0 else { throw RouteLocationError.invalidSpeed }
+        guard state != .reconnecting else { throw RouteLocationError.speedChangeUnavailableDuringRecovery }
         let now = uptime()
         let currentDistance: Double
         switch state {
-        case .running, .reconnecting:
+        case .running:
             updateDerivedState(now: now)
             currentDistance = traveledDistance
         case .paused:
@@ -278,6 +279,13 @@ final class RoutePlaybackEngine: ObservableObject {
                 startTime = uptime()
                 updateDerivedState(now: startTime)
             }
+            // Assisted recovery already performed the retained-session first
+            // location write. Do not fall through into the legacy tunnel
+            // reconnect loop, which would start a second recovery path.
+            state = returnState
+            reportConnection(.connected)
+            consecutiveCommandFailures = 0
+            return true
         }
         for (index, delay) in reconnectDelays.enumerated() {
             guard !Task.isCancelled else { return false }
@@ -388,12 +396,19 @@ final class RoutePlaybackEngine: ObservableObject {
         connectionStatus = status
         connectionMonitor.reportSession(status)
     }
+
+    #if DEBUG
+    func testSetStateForTesting(_ newState: PlaybackRunState) {
+        state = newState
+    }
+    #endif
 }
 
-enum RouteLocationError: LocalizedError {
+enum RouteLocationError: LocalizedError, Equatable {
     case insufficientWaypoints
     case emptyGeometry
     case invalidSpeed
+    case speedChangeUnavailableDuringRecovery
     case navigationNeedsRecalculation
     case loopRequiresClosedRoute
 
@@ -402,6 +417,7 @@ enum RouteLocationError: LocalizedError {
         case .insufficientWaypoints: return L10n.text("請至少加入兩個航點。")
         case .emptyGeometry: return L10n.text("這條路線沒有可播放的幾何資料。")
         case .invalidSpeed: return L10n.text("請輸入大於 0 km/h 的速度。")
+        case .speedChangeUnavailableDuringRecovery: return L10n.text("重新連線期間暫停調整速度，連線恢復後即可繼續。")
         case .navigationNeedsRecalculation: return L10n.text("導航路線已變更，請先重新計算再儲存或播放。")
         case .loopRequiresClosedRoute: return L10n.text("無限循環需要封閉路線，才能沿著實際路徑回到起點。")
         }

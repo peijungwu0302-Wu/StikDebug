@@ -108,7 +108,7 @@ struct RouteMapView: View {
             camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
         }
         .onChange(of: model.speedKmh) { _, newSpeed in
-            guard playback.state == .running || playback.state == .paused || playback.state == .reconnecting else { return }
+            guard playback.state == .running || playback.state == .paused else { return }
             if abs(playback.speedKmh - newSpeed) > 0.0001 { model.setPlaybackSpeed(newSpeed) }
         }
     }
@@ -657,6 +657,7 @@ struct QuickRouteMapView: View {
                             .focused($isSpeedFieldFocused)
                             .frame(width: 55)
                             .textFieldStyle(.roundedBorder)
+                            .disabled(playback.state == .reconnecting)
                         Text("km/h").font(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Toggle(isOn: $model.isClosedLoop) {

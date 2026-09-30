@@ -390,12 +390,59 @@ struct CellularAssistedBootstrapTests {
         sm.resetForTesting()
         ShortcutBootstrapService.shared.testMockShortcutRunner = { _, _, _ in true }
         BootstrapTraceStore.shared.startTrace(txId: "tx-no-coord", mode: "AssistedBeta")
+        sm.setFlagsForTesting(dataOffRequested: true, cellularOffObserved: true, restoreRequired: true)
 
         await sm.testVerifyLocation(coordinate: nil)
 
         let events = BootstrapTraceStore.shared.latestTrace?.events ?? []
         let locEvent = events.first { $0.type == .firstLocationWriteSuccess }
-        #expect(locEvent == nil || locEvent?.details["coord"]?.contains("25.0330") == false)
+        #expect(locEvent == nil)
+        #expect(events.contains { $0.type == .recoveryDataOnStarted })
+        #expect(!events.contains { $0.type == .dataOnRequested })
+        #expect(sm.lastErrorMessage?.contains("FirstLocationWrite") == true)
+    }
+
+    @Test func playbackFailureRecoveryDoesNotSkipForRecentSuccess() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        let monitor = ConnectionMonitor.shared
+        monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        LocationDataPathHealth.shared.recordSuccess()
+        var dataOffInvocations = 0
+        ShortcutBootstrapService.shared.testMockShortcutRunner = { phase, _, _ in
+            if phase == .dataOff { dataOffInvocations += 1 }
+            return true
+        }
+
+        sm.startAssistedBootstrap(
+            targetCoordinate: RouteCoordinate(latitude: 25, longitude: 121),
+            reason: .playbackFailureRecovery
+        ) { _ in }
+
+        #expect(dataOffInvocations == 1)
+        #expect(sm.state == .waitingForDataOffCallback)
+    }
+
+    @Test func staleRecoveryForegroundIsSingleFlightAndClearsAfterCallback() async {
+        let sm = CellularAssistedBootstrapStateMachine.shared
+        sm.resetForTesting()
+        sm.seedRecoveryIntentForTesting(transactionID: "stale-tx", phase: "ffi-preparing")
+        var dataOnInvocations = 0
+        var callback: ((Bool) -> Void)?
+        ShortcutBootstrapService.shared.testMockShortcutRunner = { phase, _, completion in
+            if phase == .dataOn { dataOnInvocations += 1; callback = completion }
+            return true
+        }
+
+        sm.beginForegroundRecoveryCycle()
+        sm.handleStaleRecoveryIfNeeded()
+        sm.handleStaleRecoveryIfNeeded()
+        #expect(dataOnInvocations == 1)
+        #expect(sm.hasPendingRecoveryIntent)
+
+        callback?(true)
+        await Task.yield()
+        #expect(!sm.hasPendingRecoveryIntent)
     }
 
     @Test func test_removeHardcodedGPS_withCoordinate_setsLocation() async {

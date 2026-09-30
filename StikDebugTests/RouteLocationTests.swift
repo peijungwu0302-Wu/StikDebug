@@ -321,6 +321,64 @@ struct StraightRouteAndPersistenceTests {
         let loaded = try await store.loadRoutes()
         #expect(loaded.first?.resolvedGeometry.coordinates == points)
     }
+
+    @Test func legacyFavoriteTimestampsArePersistedAfterFirstLoad() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let support = directory.appendingPathComponent(ProductIdentity.supportDirectoryName, isDirectory: true)
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        let id = UUID()
+        let legacy: [[String: Any]] = [[
+            "id": id.uuidString,
+            "name": "Legacy Favorite",
+            "latitude": 25.0,
+            "longitude": 121.0
+        ]]
+        let data = try JSONSerialization.data(withJSONObject: legacy)
+        try data.write(to: support.appendingPathComponent("locations.json"))
+
+        let store = RoutePersistenceStore(rootURL: directory)
+        let first = try await store.loadFavorites()
+        let firstDate = try #require(first.first?.createdAt)
+        let persisted = try Data(contentsOf: support.appendingPathComponent("locations.json"))
+        let object = try #require(JSONSerialization.jsonObject(with: persisted) as? [[String: Any]])
+        #expect(object.first?["createdAt"] != nil)
+        #expect(object.first?["updatedAt"] != nil)
+
+        let second = try await store.loadFavorites()
+        #expect(second.first?.createdAt == firstDate)
+        #expect(second.first?.updatedAt == first.first?.updatedAt)
+    }
+
+    @Test func legacyRouteTimestampsArePersistedAfterFirstLoad() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let support = directory.appendingPathComponent(ProductIdentity.supportDirectoryName, isDirectory: true)
+        let routesURL = support.appendingPathComponent("routes", isDirectory: true)
+        try FileManager.default.createDirectory(at: routesURL, withIntermediateDirectories: true)
+        let points = [RouteCoordinate(latitude: 25, longitude: 121), RouteCoordinate(latitude: 25.001, longitude: 121.001)]
+        let route = SavedRoute(name: "Legacy Route", waypoints: points, resolvedGeometry: RouteGeometry(coordinates: points), routeMode: .straight, isClosedLoop: false, preferredSpeedKmh: 18.6, playbackMode: .once)
+        let legacyEncoder = JSONEncoder()
+        legacyEncoder.dateEncodingStrategy = .iso8601
+        let encoded = try legacyEncoder.encode(route)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "createdAt")
+        object.removeValue(forKey: "updatedAt")
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+        try legacy.write(to: routesURL.appendingPathComponent(route.id.uuidString).appendingPathExtension("json"))
+
+        let store = RoutePersistenceStore(rootURL: directory)
+        let first = try await store.loadRoutes()
+        let firstCreated = try #require(first.first?.createdAt)
+        let persisted = try Data(contentsOf: routesURL.appendingPathComponent(route.id.uuidString).appendingPathExtension("json"))
+        let persistedObject = try #require(JSONSerialization.jsonObject(with: persisted) as? [String: Any])
+        #expect(persistedObject["createdAt"] != nil)
+        #expect(persistedObject["updatedAt"] != nil)
+
+        let second = try await store.loadRoutes()
+        #expect(second.first?.createdAt == firstCreated)
+        #expect(second.first?.updatedAt == first.first?.updatedAt)
+    }
 }
 
 private actor FakeLocationSink: LocationSimulationSink {
@@ -514,6 +572,57 @@ struct PlaybackEngineTests {
         #expect(engine.state == .running)
         #expect(engine.canPause == true)
 
+        engine.stop()
+    }
+
+    @Test func assistedRecoverySuccessDoesNotRunLegacyReconnectLoop() async throws {
+        let sink = FakeLocationSink()
+        await sink.configureFailures([2, 3, 4])
+        let clock = UptimeBox()
+        var legacyReconnects = 0
+        let geometry = RouteGeometry(coordinates: [
+            RouteCoordinate(latitude: 0, longitude: 0),
+            RouteCoordinate(latitude: 0, longitude: 0.01)
+        ])
+        ConnectionMonitor.shared.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .idle)
+        let engine = RoutePlaybackEngine(
+            sink: sink, updateInterval: 60, uptime: { clock.get() },
+            acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: { legacyReconnects += 1 },
+            reconnectDelays: [0.001], transportDebounce: 0
+        )
+        engine.assistedRecoveryAction = { _ in true }
+        try await engine.start(routeName: "Assisted", geometry: geometry, speedKmh: 18.6, mode: .once)
+        clock.set(10)
+        await engine.verifyConnectionAfterTransportChange()
+        await engine.verifyConnectionAfterTransportChange()
+        await engine.verifyConnectionAfterTransportChange()
+
+        #expect(legacyReconnects == 0)
+        #expect(engine.traveledDistance > 51)
+        #expect(engine.state == .running)
+        engine.stop()
+    }
+
+    @Test func reconnectingSpeedChangeIsRejectedWithoutChangingTimeline() async throws {
+        let sink = FakeLocationSink()
+        let clock = UptimeBox()
+        let geometry = RouteGeometry(coordinates: [
+            RouteCoordinate(latitude: 0, longitude: 0),
+            RouteCoordinate(latitude: 0, longitude: 0.01)
+        ])
+        let engine = RoutePlaybackEngine(
+            sink: sink, updateInterval: 60, uptime: { clock.get() },
+            acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: {}, reconnectDelays: [0.001]
+        )
+        try await engine.start(routeName: "Speed", geometry: geometry, speedKmh: 18.6, mode: .once)
+        clock.set(5)
+        engine.testSetStateForTesting(.reconnecting)
+        let before = engine.traveledDistance
+        #expect(throws: RouteLocationError.speedChangeUnavailableDuringRecovery) {
+            try engine.setSpeed(9.3)
+        }
+        #expect(engine.speedKmh == 18.6)
+        #expect(engine.traveledDistance == before)
         engine.stop()
     }
 }

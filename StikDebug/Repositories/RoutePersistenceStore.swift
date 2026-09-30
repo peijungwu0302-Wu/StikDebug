@@ -38,8 +38,12 @@ actor RoutePersistenceStore {
     func loadFavorites() throws -> [FavoriteLocation] {
         try ensureDirectories()
         guard fileManager.fileExists(atPath: favoritesURL.path) else { return migrateLegacyFavorites() }
-        let favorites = try decoder.decode([FavoriteLocation].self, from: Data(contentsOf: favoritesURL))
+        let data = try Data(contentsOf: favoritesURL)
+        let favorites = try decoder.decode([FavoriteLocation].self, from: data)
         guard favorites.allSatisfy({ $0.coordinate.isValid }) else { throw PersistenceError.invalidFavorite }
+        if requiresTimestampMigration(inArrayData: data) {
+            try saveFavorites(favorites)
+        }
         return favorites.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
@@ -67,9 +71,13 @@ actor RoutePersistenceStore {
         var routes: [SavedRoute] = []
         for file in files {
             do {
-                let route = try decoder.decode(SavedRoute.self, from: Data(contentsOf: file))
+                let data = try Data(contentsOf: file)
+                let route = try decoder.decode(SavedRoute.self, from: data)
                 guard route.waypoints.allSatisfy(\.isValid), !route.resolvedGeometry.coordinates.isEmpty else {
                     throw PersistenceError.corruptedRoute(file.lastPathComponent)
+                }
+                if requiresTimestampMigration(inObjectData: data) {
+                    try encoder.encode(route).write(to: file, options: [.atomic, .completeFileProtection])
                 }
                 routes.append(route)
             } catch {
@@ -116,5 +124,15 @@ actor RoutePersistenceStore {
 
     private func saveFavoritesSynchronouslyForMigration(_ favorites: [FavoriteLocation]) throws {
         try encoder.encode(favorites).write(to: favoritesURL, options: [.atomic, .completeFileProtection])
+    }
+
+    private func requiresTimestampMigration(inArrayData data: Data) -> Bool {
+        guard let values = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return false }
+        return values.contains { $0["createdAt"] == nil || $0["updatedAt"] == nil }
+    }
+
+    private func requiresTimestampMigration(inObjectData data: Data) -> Bool {
+        guard let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return value["createdAt"] == nil || value["updatedAt"] == nil
     }
 }
