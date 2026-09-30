@@ -14,13 +14,7 @@ struct PlaceFloatingCard: View {
             if let placeInfo {
                 if let name = placeInfo.bestDisplayName { Text(name).font(.headline) }
                 if let country = placeInfo.country {
-                    let flag: String
-                    switch placeInfo.countryCode {
-                    case "TW": flag = " 🇹🇼"
-                    case "JP": flag = " 🇯🇵"
-                    default: flag = ""
-                    }
-                    Text(country + flag)
+                    Text(country + countryFlag)
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
             } else if isResolving {
@@ -37,11 +31,10 @@ struct PlaceFloatingCard: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(L10n.text("複製座標"))
             }
-            if let identifier = placeInfo?.timeZoneIdentifier, let timezone = TimeZone(identifier: identifier) {
-                let formatter = DateFormatter(); formatter.dateFormat = "HH:mm"; formatter.timeZone = timezone
-                Text(L10n.format("當地時間 %@", formatter.string(from: .now))).font(.footnote)
-                Text(L10n.format("%@ · GMT%+d", identifier, timezone.secondsFromGMT() / 3600)).font(.caption).foregroundStyle(.secondary)
-                Text(PlaceTimeFormatter.offsetText(for: timezone)).font(.caption).foregroundStyle(.secondary)
+            if let timeZoneDetails {
+                Text(timeZoneDetails.local).font(.footnote)
+                Text(timeZoneDetails.gmt).font(.caption).foregroundStyle(.secondary)
+                Text(timeZoneDetails.offset).font(.caption).foregroundStyle(.secondary)
             }
             
             HStack {
@@ -77,5 +70,26 @@ struct PlaceFloatingCard: View {
             placeInfo = await PlaceInfoResolver.shared.resolve(coordinate)
             isResolving = false
         }
+    }
+
+    private var countryFlag: String {
+        switch placeInfo?.countryCode {
+        case "TW": return " 🇹🇼"
+        case "JP": return " 🇯🇵"
+        default: return ""
+        }
+    }
+
+    private var timeZoneDetails: (local: String, gmt: String, offset: String)? {
+        guard let identifier = placeInfo?.timeZoneIdentifier,
+              let timezone = TimeZone(identifier: identifier) else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        formatter.timeZone = timezone
+        return (
+            L10n.format("當地時間 %@", formatter.string(from: .now)),
+            L10n.format("%@ · GMT%+d", identifier, timezone.secondsFromGMT() / 3600),
+            PlaceTimeFormatter.offsetText(for: timezone)
+        )
     }
 }
