@@ -228,8 +228,16 @@ private actor AsyncSignal {
 
 private actor AsyncGate {
     private var continuation: CheckedContinuation<Void, Never>?
-    func signal() { continuation?.resume(); continuation = nil }
-    func wait() async { await withCheckedContinuation { continuation = $0 } }
+    private var signaled = false
+    func signal() {
+        signaled = true
+        continuation?.resume()
+        continuation = nil
+    }
+    func wait() async {
+        if signaled { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
 }
 
 private actor NoopLocationSink: LocationSimulationSink {
