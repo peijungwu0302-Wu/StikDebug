@@ -46,7 +46,8 @@ actor PlaceInfoResolver {
     private let quantization = 10_000.0
 
     init(cacheURL: URL? = nil) {
-        let base = cacheURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("RouteLocation", isDirectory: true)
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let base = cacheURL ?? support.appendingPathComponent("RouteLocation", isDirectory: true)
         self.cacheURL = base.appendingPathComponent("place-info.json")
         if let data = try? Data(contentsOf: self.cacheURL), let values = try? JSONDecoder().decode([String: PlaceInfo].self, from: data) { memory = values }
     }
