@@ -124,6 +124,24 @@ final class LocationSessionCoordinator: ObservableObject {
         )
     }
 
+    /// The simulated coordinate is idle, but the queue-owned DVT/location
+    /// session remains prepared and can be reused without a new bootstrap.
+    func markPreparedSessionRetained() {
+        let prepared = LocationSimulationCommandQueue.shared.sync {
+            location_simulation_session_snapshot().isPrepared
+        }
+        guard prepared else { endSession(); return }
+        let sid = currentSessionId ?? UUID().uuidString
+        currentSessionId = sid
+        consecutiveFailures = 0
+        sessionState = .activeHealthy(sessionId: sid)
+        DeveloperDiagnosticsStore.shared.record(
+            category: .dvtSession,
+            action: "SESSION_PREPARED_RETAINED",
+            details: ["sessionId": sid]
+        )
+    }
+
     func endSession() {
         let oldSid = currentSessionId
         currentSessionId = nil

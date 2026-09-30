@@ -7,6 +7,9 @@ struct MapHomeView: View {
     @State private var camera: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var showSearch = false
     @State private var showCoordinateEntry = false
+    @State private var showRouteInputChooser = false
+    @State private var showRoutePaste = false
+    @State private var showRouteImporter = false
     @State private var showFavoritePlacePicker = false
     @State private var showFavoriteRoutePicker = false
     @State private var showSaveSheet = false
@@ -15,6 +18,7 @@ struct MapHomeView: View {
     @State private var showEndRouteOptions = false
     @State private var showMoreActions = false
     @State private var favoriteName = ""
+    @State private var favoriteCoordinate: RouteCoordinate?
     @FocusState private var isSpeedFieldFocused: Bool
 
     var body: some View {
@@ -86,7 +90,9 @@ struct MapHomeView: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
                         .accessibilityLabel(L10n.text("搜尋地點"))
-                    Button { showCoordinateEntry = true } label: { Image(systemName: "location.viewfinder") }
+                    Button {
+                        if model.quickRouteMode == .route { showRouteInputChooser = true } else { showCoordinateEntry = true }
+                    } label: { Image(systemName: "location.viewfinder") }
                         .accessibilityLabel(L10n.text("輸入座標"))
                     if !displayCoordinates.isEmpty {
                         Button { fitRoute() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
@@ -119,6 +125,30 @@ struct MapHomeView: View {
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
         }
+        .sheet(isPresented: $showRouteInputChooser) {
+            RouteInputChooser(
+                hasExistingWaypoints: !model.waypoints.isEmpty,
+                onSingle: { showCoordinateEntry = true },
+                onPaste: { showRoutePaste = true },
+                onImport: { showRouteImporter = true }
+            )
+        }
+        .sheet(isPresented: $showRoutePaste) {
+            RoutePasteView(
+                hasExistingWaypoints: !model.waypoints.isEmpty,
+                onReplace: { values in model.replaceWaypoints(values); statusAfterImport(values.count) },
+                onAppend: { values in model.appendWaypoints(values); statusAfterImport(values.count) }
+            )
+        }
+        .fileImporter(isPresented: $showRouteImporter, allowedContentTypes: CoordinateImportParser.supportedContentTypes) { result in
+            guard case .success(let url) = result else { return }
+            Task.detached {
+                do {
+                    let values = try CoordinateImportParser.parse(url: url)
+                    await MainActor.run { model.replaceWaypoints(values); statusAfterImport(values.count) }
+                } catch { await MainActor.run { model.presentedError = error.localizedDescription } }
+            }
+        }
         .sheet(isPresented: $showFavoritePlacePicker) {
             MapFavoritePlacePicker { favorite in
                 model.focusOnMap(favorite.coordinate)
@@ -137,7 +167,7 @@ struct MapHomeView: View {
         }
         .alert(L10n.text("儲存喜好地點"), isPresented: $showFavoriteName) {
             TextField(L10n.text("名稱"), text: $favoriteName)
-            Button(L10n.text("儲存")) { Task { await model.addFavorite(name: favoriteName); favoriteName = "" } }
+            Button(L10n.text("儲存")) { let coordinate = favoriteCoordinate; Task { await model.addFavorite(name: favoriteName, coordinate: coordinate); favoriteName = ""; favoriteCoordinate = nil } }
             Button(L10n.text("取消"), role: .cancel) {}
         }
         .alert(L10n.text("清除草稿"), isPresented: $showClearDraftAlert) {
@@ -172,6 +202,10 @@ struct MapHomeView: View {
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
         }
+    }
+
+    private func statusAfterImport(_ count: Int) {
+        ToastManager.shared.show(L10n.format("已匯入 %d 個航點。", count), kind: .success)
     }
 
     // MARK: - Floating Card Area
@@ -233,7 +267,9 @@ struct MapHomeView: View {
             PlaceFloatingCard(
                 coordinate: candidate,
                 onSaveFavorite: {
-                    Task { await model.addFavorite(name: "", coordinate: model.activeSimulatedCoordinate ?? candidate) }
+                    favoriteCoordinate = model.activeSimulatedCoordinate ?? candidate
+                    favoriteName = model.suggestedFavoriteName()
+                    showFavoriteName = true
                 }
             )
         } else if case .singlePoint(let activeCoord) = model.simulationMode {
@@ -276,9 +312,7 @@ struct MapHomeView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Circle().fill(model.connectionMonitor.effectiveTunnelHealthy ? .green : .orange).frame(width: 8, height: 8)
-                    Text(model.connectionMonitor.effectiveTunnelHealthy
-                         ? L10n.text("定位通道 · 已就緒")
-                         : L10n.text("定位通道 · 需要處理"))
+                    Text(model.connectionMonitor.mapConnectionSummary)
                         .font(.caption2)
                     Spacer()
                 }
@@ -297,9 +331,7 @@ struct MapHomeView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Circle().fill(model.connectionMonitor.effectiveTunnelHealthy ? .green : .orange).frame(width: 8, height: 8)
-                Text(model.connectionMonitor.effectiveTunnelHealthy
-                     ? L10n.text("定位通道 · 已就緒")
-                     : L10n.text("定位通道 · 需要處理"))
+                Text(model.connectionMonitor.mapConnectionSummary)
                     .font(.caption2)
                 Spacer()
             }

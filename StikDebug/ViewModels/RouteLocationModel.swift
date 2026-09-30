@@ -165,6 +165,17 @@ final class RouteLocationModel: ObservableObject {
         statusMessage = L10n.text("已匯入路線預覽。")
     }
 
+    func appendWaypoints(_ coordinates: [RouteCoordinate]) {
+        let values = coordinates.filter(\.isValid)
+        guard !values.isEmpty else { return }
+        for coordinate in values where waypoints.last != coordinate { waypoints.append(coordinate) }
+        routeInputsChanged()
+        quickRouteMode = .route
+        previewingRoute = nil
+        mapFocusRevision = UUID()
+        statusMessage = L10n.text("已附加航點並預覽路線。")
+    }
+
     func removeWaypoints(at offsets: IndexSet) {
         waypoints.remove(atOffsets: offsets)
         routeInputsChanged()
@@ -247,7 +258,9 @@ final class RouteLocationModel: ObservableObject {
             let now = Date()
             let existing = asCopy ? nil : savedRoutes.first { $0.id == loadedRouteID }
             let trimmedName = (requestedName ?? routeName).trimmingCharacters(in: .whitespacesAndNewlines)
-            let finalName = trimmedName.isEmpty ? L10n.text("未命名路線") : trimmedName
+            let desiredName = trimmedName.isEmpty ? L10n.text("新路線") : trimmedName
+            let existingNames = savedRoutes.filter { $0.id != existing?.id }.map(\.name)
+            let finalName = UniqueNameGenerator.makeUnique(base: desiredName, existing: existingNames, fallback: L10n.text("新路線"))
             let route = SavedRoute(
                 id: existing?.id ?? UUID(), name: finalName,
                 waypoints: waypoints, resolvedGeometry: geometry, routeMode: routeMode,
@@ -427,11 +440,20 @@ final class RouteLocationModel: ObservableObject {
 
     func addFavorite(name: String, note: String? = nil, coordinate: RouteCoordinate? = nil) async {
         guard let coordinate = coordinate ?? selectedCoordinate, coordinate.isValid else { presentedError = L10n.text("請先選擇有效座標。"); return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let value = FavoriteLocation(name: trimmed.isEmpty ? L10n.text("新地點") : trimmed, coordinate: coordinate, note: note)
+        let existingNames = favorites.map(\.name)
+        let finalName = UniqueNameGenerator.makeUnique(base: name, existing: existingNames, fallback: L10n.text("新地點"))
+        let value = FavoriteLocation(name: finalName, coordinate: coordinate, note: note)
         favorites.append(value)
         await saveFavorites()
         ToastManager.shared.show(L10n.format("已收藏「%@」", value.name), kind: .success)
+    }
+
+    func suggestedFavoriteName() -> String {
+        UniqueNameGenerator.makeUnique(base: L10n.text("新地點"), existing: favorites.map(\.name), fallback: L10n.text("新地點"))
+    }
+
+    func suggestedRouteName() -> String {
+        UniqueNameGenerator.makeUnique(base: L10n.text("新路線"), existing: savedRoutes.map(\.name), fallback: L10n.text("新路線"))
     }
 
     func updateFavorite(_ favorite: FavoriteLocation, name: String, note: String?) async {
@@ -716,10 +738,20 @@ final class RouteLocationModel: ObservableObject {
                 try await simulationService.clearSimulatedLocation()
             }
             BackgroundKeepAliveService.shared.release()
-            connectionMonitor.reportSession(.idle)
-            LocationSessionCoordinator.shared.endSession()
+            let retained = LocationSimulationCommandQueue.shared.sync {
+                location_simulation_session_snapshot().isPrepared
+            }
+            if retained {
+                connectionMonitor.reportSession(.connected)
+                LocationSessionCoordinator.shared.markPreparedSessionRetained()
+            } else {
+                connectionMonitor.reportSession(.idle)
+                LocationSessionCoordinator.shared.endSession()
+            }
             simulationMode = .idle
-            statusMessage = L10n.text("已恢復裝置的真實位置。")
+            statusMessage = retained
+                ? L10n.text("已恢復真實位置。下一次模擬可快速開始。")
+                : L10n.text("已恢復裝置的真實位置。")
             DeveloperDiagnosticsStore.shared.record(
                 category: .lifecycle,
                 action: "RESTORE_REAL_LOCATION_SUCCESS",

@@ -40,6 +40,9 @@ struct SettingsView: View {
                 }
                 
                 Section(L10n.text("定位設定")) {
+                    NavigationLink(L10n.text("RouteLocation 使用準備")) {
+                        RouteLocationSetupCheckView()
+                    }
                     HStack {
                         Text(L10n.text("定位通道"))
                         Spacer()
@@ -262,6 +265,49 @@ struct SettingsView: View {
         """
         UIPasteboard.general.string = report
         ToastManager.shared.show(L10n.text("已複製安全診斷報告。"), kind: .success)
+    }
+}
+
+private struct RouteLocationSetupCheckView: View {
+    @ObservedObject private var tunnel = TunnelManager.shared
+    @ObservedObject private var mounting = MountingProgress.shared
+    @ObservedObject private var monitor = ConnectionMonitor.shared
+    @ObservedObject private var dataPath = LocationDataPathHealth.shared
+
+    var body: some View {
+        List {
+            Section(L10n.text("可由 App 確認")) {
+                check(L10n.text("配對檔案"), FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path), L10n.text("匯入目前裝置的配對檔案"))
+                check(L10n.text("LocalDevVPN"), monitor.localDevVPNAvailable, L10n.text("啟動 LocalDevVPN 以建立本機裝置服務路徑"))
+                check(L10n.text("DDI"), mounting.coolisMounted, L10n.text("位置模擬需要可用的 Developer Disk Image"))
+                check(L10n.text("位置工作階段"), monitor.activeDVTSessionAvailable || dataPath.hasRecentSuccess, L10n.text("尚未確認可用的裝置定位工作階段"))
+            }
+            Section(L10n.text("需要在 iPhone 設定中確認")) {
+                Label(L10n.text("Developer Mode 需在 iPhone 設定中確認"), systemImage: "questionmark.circle")
+                    .foregroundStyle(.secondary)
+                Label(L10n.text("背景播放受 iOS 系統限制，強制結束 App 會停止模擬"), systemImage: "info.circle")
+                    .foregroundStyle(.secondary)
+            }
+            if !tunnel.bootstrapAvailable {
+                Section(L10n.text("需要處理")) {
+                    Text(L10n.text("裝置 Bootstrap 尚未可用；請確認 LocalDevVPN、配對檔案與裝置解鎖狀態。"))
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+        .navigationTitle(L10n.text("RouteLocation 使用準備"))
+    }
+
+    @ViewBuilder
+    private func check(_ title: String, _ success: Bool, _ detail: String) -> some View {
+        HStack {
+            Image(systemName: success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(success ? .green : .orange)
+            VStack(alignment: .leading) {
+                Text(title)
+                Text(success ? L10n.text("已就緒") : detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
     }
 }
 

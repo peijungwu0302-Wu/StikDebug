@@ -259,6 +259,19 @@ final class RoutePlaybackEngine: ObservableObject {
         defer { reconnectInProgress = false }
         state = .reconnecting
         var assistedRecoveryDistance: Double?
+        // Level 1: a retained/prepared session may only need one command
+        // retry. This avoids toggling cellular data for transient writes.
+        if let currentCoordinate {
+            do {
+                try await sink.setCoordinate(currentCoordinate)
+                consecutiveCommandFailures = 0
+                state = returnState
+                reportConnection(.connected)
+                return true
+            } catch {
+                lastReconnectError = error
+            }
+        }
         if connectionMonitor.currentTransport == .cellular,
            let assistedRecoveryAction,
            !assistedRecoveryInProgress {

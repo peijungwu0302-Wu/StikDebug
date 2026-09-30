@@ -107,6 +107,17 @@ final class ConnectionMonitor: ObservableObject {
         }
     }
 
+    /// Deliberately hides DVT/RSD/TCP details from the map's primary flow.
+    var mapConnectionSummary: String {
+        if activeDVTSessionAvailable || locationDataPathHealthy { return L10n.text("可以使用") }
+        let reconnecting: Bool
+        if case .reconnecting = deviceSession { reconnecting = true } else { reconnecting = false }
+        if reconnecting || localDevVPNAvailable || currentTransport != .offline {
+            return L10n.text("正在準備…")
+        }
+        return L10n.text("需要處理")
+    }
+
     private let pathMonitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.routelocation.network-path", qos: .utility)
     private var started = false

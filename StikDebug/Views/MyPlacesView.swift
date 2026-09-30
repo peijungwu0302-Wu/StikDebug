@@ -22,6 +22,7 @@ struct MyPlacesView: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(favorite.name).font(.headline).foregroundStyle(.primary)
+                            PlaceInfoSummary(coordinate: favorite.coordinate)
                             Text(String(format: "%.6f, %.6f", favorite.latitude, favorite.longitude))
                                 .font(.caption.monospaced()).foregroundStyle(.secondary)
                             if let note = favorite.note, !note.isEmpty {
@@ -87,6 +88,20 @@ struct MyPlacesView: View {
                 Task { await model.addFavorite(name: name, note: note) }
             }
         }
+    }
+}
+
+private struct PlaceInfoSummary: View {
+    let coordinate: RouteCoordinate
+    @State private var info: PlaceInfo?
+
+    var body: some View {
+        Group {
+            if let info, let name = info.bestDisplayName {
+                Text(name).font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .task(id: coordinate.id) { info = await PlaceInfoResolver.shared.resolve(coordinate) }
     }
 }
 

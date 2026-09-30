@@ -977,11 +977,14 @@ struct LocationClearOutcome: Sendable {
     var isSuccess: Bool { statusCode == LocationSimulationStatus.ok }
 }
 
-func clear_simulated_location(deviceIP: String? = nil, pairingFile: String? = nil) -> LocationClearOutcome {
+/// Clear the simulated coordinate. Retaining the prepared session is the
+/// normal restore path; explicit cleanup is reserved for stale/permanent
+/// failures.
+func clear_simulated_location(deviceIP: String? = nil, pairingFile: String? = nil, retainPreparedSession: Bool = false) -> LocationClearOutcome {
     // 1. First attempt: Reuse existing active LocationSimulation handle if present
     if let locationSimulation = LocationSimulationState.locationSimulation {
         let ffiError = location_simulation_clear(locationSimulation)
-        LocationSimulationState.cleanup()
+        if ffiError != nil || !retainPreparedSession { LocationSimulationState.cleanup() }
 
         if let ffiError {
             let code = ffiError.pointee.code
@@ -1167,6 +1170,9 @@ func clear_simulated_location(deviceIP: String? = nil, pairingFile: String? = ni
     }
 
     let clearError = location_simulation_clear(newLocationSim)
+    // This branch created a temporary clear-only connection. It is never a
+    // reusable prepared session because the RSD handle is intentionally
+    // detached below, so always release it after the clear.
     LocationSimulationState.cleanup()
 
     if let clearError {
@@ -1198,5 +1204,9 @@ func clear_simulated_location(deviceIP: String? = nil, pairingFile: String? = ni
 
 func clear_simulated_location() -> Int32 {
     clear_simulated_location(deviceIP: nil, pairingFile: nil).statusCode
+}
+
+func clear_simulated_location_retaining_session(deviceIP: String? = nil, pairingFile: String? = nil) -> LocationClearOutcome {
+    clear_simulated_location(deviceIP: deviceIP, pairingFile: pairingFile, retainPreparedSession: true)
 }
 

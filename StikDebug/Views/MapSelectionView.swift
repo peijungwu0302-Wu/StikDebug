@@ -158,7 +158,7 @@ struct RouteMapView: View {
                     HStack {
                         Button(L10n.text("模擬此位置")) { model.requestSinglePointSimulation() }.buttonStyle(.borderedProminent)
                         Button(L10n.text("加入航點")) { model.addSelectedWaypoint() }.buttonStyle(.bordered)
-                        Button { Task { await model.addFavorite(name: "") } } label: { Image(systemName: "star") }.buttonStyle(.bordered)
+                        Button { favoriteName = model.suggestedFavoriteName(); showFavoriteName = true } label: { Image(systemName: "star") }.buttonStyle(.bordered)
                     }
                 } else {
                     Text(L10n.text("點選地圖、搜尋地點、輸入座標，或選擇喜愛地點。")).font(.footnote).foregroundStyle(.secondary)
@@ -510,7 +510,7 @@ struct QuickRouteMapView: View {
                         .buttonStyle(.bordered)
 
                         Button {
-                            Task { await model.addFavorite(name: "", coordinate: model.activeSimulatedCoordinate ?? selected) }
+                            favoriteName = model.suggestedFavoriteName(); showFavoriteName = true
                         } label: {
                             Image(systemName: "star")
                         }
@@ -734,24 +734,39 @@ struct CoordinateTeleportView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var coordinateText = ""
     @State private var errorMessage: String?
+    @FocusState private var isFocused: Bool
     let onSubmit: (RouteCoordinate, Bool) -> Void
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section(L10n.text("座標")) {
-                    TextField("25.033964,121.564468", text: $coordinateText)
-                        .keyboardType(.numbersAndPunctuation)
-                        .textInputAutocapitalization(.never)
-                    Text(L10n.text("依序輸入緯度與經度，使用逗號、分號或 Tab 分隔。"))
-                        .font(.footnote).foregroundStyle(.secondary)
-                    if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
+            VStack(alignment: .leading, spacing: 14) {
+                Text(L10n.text("輸入精確位置")).font(.title3.bold())
+                TextField("25.033964,121.564468", text: $coordinateText, axis: .vertical)
+                    .keyboardType(.numbersAndPunctuation)
+                    .textInputAutocapitalization(.never)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($isFocused)
+                PasteButton(payloadType: String.self) { strings in
+                    if let value = strings.first { coordinateText = value }
                 }
-                Section(L10n.text("操作")) {
-                    Button(L10n.text("在地圖預覽")) { submit(simulateImmediately: false) }
-                    Button(L10n.text("立即模擬此座標")) { submit(simulateImmediately: true) }
+                .labelStyle(.titleAndIcon)
+                Text(L10n.text("支援逗號、空白、分號、latitude/longitude 與 Google Maps 長網址。"))
+                    .font(.footnote).foregroundStyle(.secondary)
+                if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
+                Spacer(minLength: 0)
+            }
+            .padding()
+            .safeAreaInset(edge: .bottom) {
+                HStack(spacing: 10) {
+                    Button(L10n.text("地圖預覽")) { submit(simulateImmediately: false) }
+                        .buttonStyle(.bordered)
+                    Button(L10n.text("立即模擬")) { submit(simulateImmediately: true) }
                         .buttonStyle(.borderedProminent)
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.bar)
             }
             .navigationTitle(L10n.text("輸入精確座標"))
             .toolbar {
@@ -763,6 +778,7 @@ struct CoordinateTeleportView: View {
                     }
                 }
             }
+            .onAppear { isFocused = true }
         }
     }
 

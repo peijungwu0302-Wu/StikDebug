@@ -104,7 +104,7 @@ final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked 
 
         let outcome: LocationClearOutcome = await withCheckedContinuation { continuation in
             LocationSimulationCommandQueue.shared.async {
-                continuation.resume(returning: clear_simulated_location(
+                continuation.resume(returning: clear_simulated_location_retaining_session(
                     deviceIP: targetIP,
                     pairingFile: pairingPath
                 ))
@@ -119,6 +119,9 @@ final class DeviceLocationSimulationService: LocationSimulationSink, @unchecked 
                 ffiSubCode: outcome.underlyingFfiSubCode,
                 message: outcome.underlyingMessage
             )
+        }
+        await MainActor.run {
+            LocationSessionCoordinator.shared.markPreparedSessionRetained()
         }
     }
 

@@ -123,4 +123,8 @@ func clear_simulated_location(deviceIP: String? = nil, pairingFile: String? = ni
 func clear_simulated_location() -> Int32 {
     -1
 }
+
+func clear_simulated_location_retaining_session(deviceIP: String? = nil, pairingFile: String? = nil) -> LocationClearOutcome {
+    clear_simulated_location(deviceIP: deviceIP, pairingFile: pairingFile)
+}
 #endif
