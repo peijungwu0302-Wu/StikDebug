@@ -556,6 +556,11 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func addFavorite(name: String, note: String? = nil, coordinate: RouteCoordinate? = nil) async {
+        // Ensure the initial persisted library load has completed before
+        // appending.  Without this barrier, a fast favorite action can race
+        // loadPersistedData() and have the just-added item overwritten by the
+        // still-loading empty array.
+        await waitForInitialPersistenceLoad()
         guard let coordinate = coordinate ?? selectedCoordinate, coordinate.isValid else { presentedError = L10n.text("請先選擇有效座標。"); return }
         let existingNames = favorites.map(\.name)
         let finalName = UniqueNameGenerator.makeUnique(base: name, existing: existingNames, fallback: L10n.text("新地點"))
