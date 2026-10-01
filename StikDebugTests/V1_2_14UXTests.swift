@@ -174,20 +174,101 @@ struct V1_2_14UXTests {
         model.stopRoutePlayback()
     }
 
-    @Test @MainActor func coordinateAlertPasteLayoutKeepsPasteVisibleFromPresentation() throws {
-        let field = UITextField()
-        let pasteControl = CoordinateAlertPasteControl.install(on: field)
-        let container = try #require(field.rightView)
+    @Test @MainActor func coordinateEntryModalUsesAVisibleSiblingPasteControlAndStableField() throws {
+        let controller = CoordinateEntryModalViewController(onSubmit: { _, _ in }, onCancel: {})
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
 
-        #expect(field.rightViewMode == .always)
-        #expect(container.frame.width > 0)
-        #expect(container.frame.height > 0)
-        #expect(container.bounds.width > 0)
-        #expect(container.bounds.height > 0)
-        #expect(pasteControl.superview === container)
-        container.layoutIfNeeded()
-        #expect(pasteControl.frame.width > 0)
-        #expect(pasteControl.frame.height > 0)
+        let field = controller.coordinateTextField
+        let pasteControl = controller.pasteControl
+        #expect(field.rightView == nil)
+        #expect(field.leftView == nil)
+        #expect(field.superview === pasteControl.superview)
+        #expect(controller.inputRowStack.arrangedSubviews.contains(where: { $0 === field }))
+        #expect(controller.inputRowStack.arrangedSubviews.contains(where: { $0 === pasteControl }))
+        #expect(field.bounds.width > 140)
+        #expect(field.bounds.height >= 44)
+        #expect(pasteControl.bounds.width >= 80)
+        #expect(pasteControl.bounds.height >= 44)
+        #expect(!pasteControl.isHidden)
+        #expect(field.textColor?.isEqual(UIColor.label) == true)
+        #expect(field.tintColor.isEqual(UIColor.systemBlue))
+        let placeholderColor = field.attributedPlaceholder?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor
+        #expect(placeholderColor?.isEqual(UIColor.placeholderText) == true)
+        #expect(field.accessibilityLabel == L10n.text("座標或 Google Maps 連結"))
+        #expect(pasteControl.accessibilityLabel == L10n.text("貼上座標"))
+        controller.requestInitialFocus()
+        #expect(controller.initialFocusWasRequested)
+    }
+
+    @Test @MainActor func coordinateEntryModalActionsEnableOnlyForValidInput() throws {
+        let controller = CoordinateEntryModalViewController(onSubmit: { _, _ in }, onCancel: {})
+        controller.loadViewIfNeeded()
+
+        #expect(!controller.previewButton.isEnabled)
+        #expect(!controller.simulateButton.isEnabled)
+
+        controller.coordinateTextField.text = "not a coordinate"
+        controller.coordinateTextField.sendActions(for: .editingChanged)
+        #expect(!controller.previewButton.isEnabled)
+        #expect(!controller.simulateButton.isEnabled)
+
+        controller.coordinateTextField.text = "25.033964,121.564468"
+        controller.coordinateTextField.sendActions(for: .editingChanged)
+        #expect(controller.previewButton.isEnabled)
+        #expect(controller.simulateButton.isEnabled)
+
+        controller.coordinateTextField.text = ""
+        controller.coordinateTextField.sendActions(for: .editingChanged)
+        #expect(!controller.previewButton.isEnabled)
+        #expect(!controller.simulateButton.isEnabled)
+
+        controller.coordinateTextField.text = "https://maps.google.com/maps/@25.033964,121.564468,17z"
+        controller.coordinateTextField.sendActions(for: .editingChanged)
+        #expect(controller.previewButton.isEnabled)
+        #expect(controller.simulateButton.isEnabled)
+    }
+
+    @Test @MainActor func coordinateEntryPreviewReturnsCoordinateWithoutStartingSimulation() throws {
+        let expected = RouteCoordinate(latitude: 25.033964, longitude: 121.564468)
+        var submitted: (RouteCoordinate, Bool)?
+        let controller = CoordinateEntryModalViewController(
+            onSubmit: { coordinate, simulateImmediately in submitted = (coordinate, simulateImmediately) },
+            onCancel: {}
+        )
+        controller.loadViewIfNeeded()
+        controller.coordinateTextField.text = "25.033964,121.564468"
+        controller.coordinateTextField.sendActions(for: .editingChanged)
+        controller.previewButton.sendActions(for: .touchUpInside)
+
+        #expect(submitted?.0 == expected)
+        #expect(submitted?.1 == false)
+    }
+
+    @Test @MainActor func coordinateEntrySimulateReturnsTheParsedCoordinateForExistingSimulationPath() {
+        let expected = RouteCoordinate(latitude: 25.034620, longitude: 121.562165)
+        var submitted: (RouteCoordinate, Bool)?
+        let controller = CoordinateEntryModalViewController(
+            onSubmit: { coordinate, simulateImmediately in submitted = (coordinate, simulateImmediately) },
+            onCancel: {}
+        )
+        controller.loadViewIfNeeded()
+        controller.coordinateTextField.text = "25.034620,121.562165"
+        controller.coordinateTextField.sendActions(for: .editingChanged)
+        controller.simulateButton.sendActions(for: .touchUpInside)
+
+        #expect(submitted?.0 == expected)
+        #expect(submitted?.1 == true)
+    }
+
+    @Test @MainActor func coordinateEntryCancelNotifiesPresentationOwner() {
+        var cancelled = false
+        let controller = CoordinateEntryModalViewController(onSubmit: { _, _ in }, onCancel: { cancelled = true })
+        controller.loadViewIfNeeded()
+        controller.cancelButton.sendActions(for: .touchUpInside)
+        #expect(cancelled)
     }
 
     @Test func playbackRepeatModesRoundTripAndMigrateLegacyValues() throws {

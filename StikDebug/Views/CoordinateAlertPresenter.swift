@@ -2,62 +2,44 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// Pure validation used by the native coordinate alert and its deterministic
-/// tests.  The alert keeps its submission actions disabled until this helper
-/// can produce a real coordinate, so tapping an invalid action can never
-/// dismiss the native controller first.
+/// Pure validation shared by the coordinate-entry UI and its deterministic tests.
 enum CoordinateAlertInputValidation {
     static func coordinate(in text: String) -> RouteCoordinate? {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return try? CoordinateImportParser.parseInline(text).first
     }
+
+    static func actionsEnabled(for text: String) -> Bool {
+        coordinate(in: text) != nil
+    }
 }
 
-/// Builds a stable trailing accessory for the system paste control. Its
-/// explicit frame lets UIKit display it before the alert text field is edited.
+/// Builds Apple's privacy-preserving paste control as a sibling of the field.
+/// It never inspects UIPasteboard; UIKit performs the paste only after a tap.
 enum CoordinateAlertPasteControl {
-    static let trailingContainerSize = CGSize(width: 46, height: 36)
-
     @MainActor
-    @discardableResult
-    static func install(on textField: UITextField) -> UIPasteControl {
-        // UITextField treats rightView as a frame-based accessory rather than
-        // an Auto Layout child. Give it a real initial size so UIKit can lay it
-        // out before editing begins; constraints position only the paste UI
-        // inside that fixed accessory area.
-        let container = UIView(frame: CGRect(origin: .zero, size: trailingContainerSize))
+    static func makeSibling(for textField: UITextField) -> UIPasteControl {
+        textField.pasteConfiguration = UIPasteConfiguration(
+            acceptableTypeIdentifiers: [UTType.plainText.identifier]
+        )
 
-        let pasteConfiguration = UIPasteConfiguration(acceptableTypeIdentifiers: [UTType.plainText.identifier])
-        textField.pasteConfiguration = pasteConfiguration
-        let pasteControl = UIPasteControl(configuration: UIPasteControl.Configuration())
-        pasteControl.translatesAutoresizingMaskIntoConstraints = false
+        let configuration = UIPasteControl.Configuration()
+        configuration.displayMode = .iconAndLabel
+        configuration.cornerStyle = .capsule
+        configuration.baseForegroundColor = .systemBlue
+        configuration.baseBackgroundColor = .tertiarySystemFill
+
+        let pasteControl = UIPasteControl(configuration: configuration)
         pasteControl.target = textField
         pasteControl.accessibilityLabel = L10n.text("貼上座標")
-        container.addSubview(pasteControl)
-        NSLayoutConstraint.activate([
-            pasteControl.widthAnchor.constraint(equalToConstant: 36),
-            pasteControl.heightAnchor.constraint(equalToConstant: 32),
-            pasteControl.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            pasteControl.centerYAnchor.constraint(equalTo: container.centerYAnchor)
-        ])
-        textField.rightView = container
-        textField.rightViewMode = .always
-        textField.setNeedsLayout()
-        textField.layoutIfNeeded()
-        // UIAlertController can configure its text field before that field
-        // has a non-zero frame. UITextField then lays out rightView using the
-        // current zero-sized field bounds, so restore the explicit accessory
-        // size afterward; the alert's next layout pass positions it normally.
-        container.frame = CGRect(origin: container.frame.origin, size: trailingContainerSize)
-        container.setNeedsLayout()
-        container.layoutIfNeeded()
+        pasteControl.setContentHuggingPriority(.required, for: .horizontal)
+        pasteControl.setContentCompressionResistancePriority(.required, for: .horizontal)
         return pasteControl
     }
 }
 
-/// Presents coordinate entry using the native alert presentation style while
-/// keeping a real system UIPasteControl in the text-field row.  The control
-/// never reads UIPasteboard on presentation; the user must explicitly tap it.
+/// Hosts a compact, alert-like coordinate modal without asking UITextField to
+/// lay out the paste control inside its editable text region.
 struct CoordinateAlertPresenter: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
     let onSubmit: (RouteCoordinate, Bool) -> Void
@@ -70,9 +52,9 @@ struct CoordinateAlertPresenter: UIViewControllerRepresentable {
         controller.isPresented = $isPresented
         controller.onSubmit = onSubmit
         if isPresented {
-            controller.presentCoordinateAlertIfNeeded()
+            controller.presentCoordinateModalIfNeeded()
         } else {
-            controller.dismissCoordinateAlertIfNeeded()
+            controller.dismissCoordinateModalIfNeeded()
         }
     }
 }
@@ -80,9 +62,7 @@ struct CoordinateAlertPresenter: UIViewControllerRepresentable {
 final class CoordinateAlertHostController: UIViewController {
     var isPresented: Binding<Bool>?
     var onSubmit: ((RouteCoordinate, Bool) -> Void)?
-    private weak var activeAlert: UIAlertController?
-    private weak var previewAction: UIAlertAction?
-    private weak var simulateAction: UIAlertAction?
+    private weak var activeModal: CoordinateEntryModalViewController?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -90,87 +70,276 @@ final class CoordinateAlertHostController: UIViewController {
         view.isUserInteractionEnabled = false
     }
 
-    func presentCoordinateAlertIfNeeded() {
-        guard activeAlert == nil, presentedViewController == nil else { return }
-        let alert = UIAlertController(
-            title: L10n.text("輸入位置"),
-            message: L10n.text("支援座標或 Google Maps 連結"),
-            preferredStyle: .alert
-        )
-        alert.addTextField { textField in
-            textField.placeholder = "25.033964,121.564468"
-            textField.keyboardType = .numbersAndPunctuation
-            textField.autocorrectionType = .no
-            textField.autocapitalizationType = .none
-            // Use one fixed right-side control area; a separate clear button
-            // would compete for the same trailing position in an alert field.
-            textField.clearButtonMode = .never
-            CoordinateAlertPasteControl.install(on: textField)
-            textField.addTarget(self, action: #selector(self.coordinateTextDidChange(_:)), for: .editingChanged)
-        }
+    func presentCoordinateModalIfNeeded() {
+        guard activeModal == nil, presentedViewController == nil else { return }
 
-        alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel) { [weak self] _ in
-            self?.finishAlert()
+        let modal = CoordinateEntryModalViewController(onSubmit: { [weak self] coordinate, simulateImmediately in
+            self?.finishPresentation()
+            self?.onSubmit?(coordinate, simulateImmediately)
+        }, onCancel: { [weak self] in
+            self?.finishPresentation()
         })
-        let previewAction = UIAlertAction(title: L10n.text("地圖預覽"), style: .default) { [weak self, weak alert] _ in
-            self?.submit(from: alert, simulateImmediately: false)
+        modal.modalPresentationStyle = .overFullScreen
+        modal.modalTransitionStyle = .crossDissolve
+        modal.isModalInPresentation = true
+        activeModal = modal
+        present(modal, animated: true) { [weak modal] in
+            modal?.requestInitialFocus()
         }
-        previewAction.isEnabled = false
-        let simulateAction = UIAlertAction(title: L10n.text("立即模擬"), style: .default) { [weak self, weak alert] _ in
-            self?.submit(from: alert, simulateImmediately: true)
-        }
-        simulateAction.isEnabled = false
-        alert.addAction(previewAction)
-        alert.addAction(simulateAction)
+    }
 
-        activeAlert = alert
-        self.previewAction = previewAction
-        self.simulateAction = simulateAction
-        present(alert, animated: true) { [weak alert] in
-            alert?.textFields?.first?.becomeFirstResponder()
-        }
+    func dismissCoordinateModalIfNeeded() {
+        guard let activeModal else { return }
+        self.activeModal = nil
+        activeModal.dismiss(animated: true)
+    }
+
+    private func finishPresentation() {
+        isPresented?.wrappedValue = false
+        activeModal = nil
+    }
+}
+
+/// A small UIKit card gives the text field and native paste control independent,
+/// predictable layout while keeping the existing preview/simulate callbacks.
+@MainActor
+final class CoordinateEntryModalViewController: UIViewController {
+    private(set) var coordinateTextField = UITextField()
+    private(set) var pasteControl: UIPasteControl!
+    private(set) var inputRowStack = UIStackView()
+    private(set) var previewButton = UIButton(type: .system)
+    private(set) var simulateButton = UIButton(type: .system)
+    private(set) var cancelButton = UIButton(type: .system)
+    private(set) var initialFocusWasRequested = false
+
+    private let cardView = UIView()
+    private let cardStack = UIStackView()
+    private let actionRow = UIStackView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private var hasFinished = false
+
+    var onSubmit: (RouteCoordinate, Bool) -> Void
+    var onCancel: () -> Void
+
+    init(
+        onSubmit: @escaping (RouteCoordinate, Bool) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.onSubmit = onSubmit
+        self.onCancel = onCancel
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        buildInterface()
+        updateActionAvailability()
+    }
+
+    func requestInitialFocus() {
+        guard !initialFocusWasRequested else { return }
+        initialFocusWasRequested = true
+        coordinateTextField.becomeFirstResponder()
+    }
+
+    private func buildInterface() {
+        view.backgroundColor = .clear
+        view.accessibilityViewIsModal = true
+
+        let dimmingView = UIView()
+        dimmingView.translatesAutoresizingMaskIntoConstraints = false
+        dimmingView.backgroundColor = UIColor.black.withAlphaComponent(0.42)
+        view.addSubview(dimmingView)
+
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        cardView.backgroundColor = .systemBackground
+        cardView.layer.cornerRadius = 18
+        cardView.layer.cornerCurve = .continuous
+        cardView.layer.shadowColor = UIColor.black.cgColor
+        cardView.layer.shadowOpacity = 0.16
+        cardView.layer.shadowRadius = 22
+        cardView.layer.shadowOffset = CGSize(width: 0, height: 8)
+        view.addSubview(cardView)
+
+        let visibleArea = UILayoutGuide()
+        view.addLayoutGuide(visibleArea)
+
+        let preferredCardWidth = cardView.widthAnchor.constraint(equalTo: visibleArea.widthAnchor, multiplier: 0.9)
+        preferredCardWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            dimmingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            dimmingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            dimmingView.topAnchor.constraint(equalTo: view.topAnchor),
+            dimmingView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            visibleArea.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            visibleArea.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            visibleArea.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            visibleArea.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+
+            cardView.centerXAnchor.constraint(equalTo: visibleArea.centerXAnchor),
+            cardView.centerYAnchor.constraint(equalTo: visibleArea.centerYAnchor),
+            preferredCardWidth,
+            cardView.widthAnchor.constraint(lessThanOrEqualToConstant: 420)
+        ])
+
+        configureHeader()
+        configureInputRow()
+        configureButtons()
+
+        cardStack.axis = .vertical
+        cardStack.alignment = .fill
+        cardStack.distribution = .fill
+        cardStack.spacing = 12
+        cardStack.translatesAutoresizingMaskIntoConstraints = false
+        cardStack.isLayoutMarginsRelativeArrangement = true
+        cardStack.layoutMargins = UIEdgeInsets(top: 18, left: 18, bottom: 14, right: 18)
+        cardStack.addArrangedSubview(titleLabel)
+        cardStack.addArrangedSubview(subtitleLabel)
+        cardStack.addArrangedSubview(inputRowStack)
+        cardStack.addArrangedSubview(actionRow)
+        cardStack.addArrangedSubview(cancelButton)
+        cardView.addSubview(cardStack)
+
+        NSLayoutConstraint.activate([
+            cardStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
+            cardStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
+            cardStack.topAnchor.constraint(equalTo: cardView.topAnchor),
+            cardStack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
+            inputRowStack.heightAnchor.constraint(equalToConstant: 48),
+            actionRow.heightAnchor.constraint(equalToConstant: 48),
+            cancelButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
+    }
+
+    private func configureHeader() {
+        titleLabel.text = L10n.text("輸入位置")
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textColor = .label
+        titleLabel.textAlignment = .center
+        titleLabel.accessibilityAddTraits(.header)
+
+        subtitleLabel.text = L10n.text("支援座標或 Google Maps 連結")
+        subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
+        subtitleLabel.adjustsFontForContentSizeCategory = true
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.numberOfLines = 2
+    }
+
+    private func configureInputRow() {
+        coordinateTextField.translatesAutoresizingMaskIntoConstraints = false
+        coordinateTextField.borderStyle = .roundedRect
+        coordinateTextField.backgroundColor = .secondarySystemFill
+        coordinateTextField.textColor = .label
+        coordinateTextField.tintColor = .systemBlue
+        coordinateTextField.font = .preferredFont(forTextStyle: .body)
+        coordinateTextField.adjustsFontForContentSizeCategory = true
+        coordinateTextField.attributedPlaceholder = NSAttributedString(
+            string: "25.033964, 121.564468",
+            attributes: [.foregroundColor: UIColor.placeholderText]
+        )
+        coordinateTextField.keyboardType = .numbersAndPunctuation
+        coordinateTextField.autocorrectionType = .no
+        coordinateTextField.autocapitalizationType = .none
+        coordinateTextField.spellCheckingType = .no
+        coordinateTextField.clearButtonMode = .never
+        coordinateTextField.accessibilityLabel = L10n.text("座標或 Google Maps 連結")
+        coordinateTextField.returnKeyType = .done
+        coordinateTextField.addTarget(self, action: #selector(coordinateTextDidChange(_:)), for: .editingChanged)
+
+        pasteControl = CoordinateAlertPasteControl.makeSibling(for: coordinateTextField)
+        inputRowStack.axis = .horizontal
+        inputRowStack.alignment = .fill
+        inputRowStack.distribution = .fill
+        inputRowStack.spacing = 8
+        inputRowStack.addArrangedSubview(coordinateTextField)
+        inputRowStack.addArrangedSubview(pasteControl)
+        coordinateTextField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        coordinateTextField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        NSLayoutConstraint.activate([
+            coordinateTextField.heightAnchor.constraint(equalToConstant: 48),
+            pasteControl.widthAnchor.constraint(equalToConstant: 92),
+            pasteControl.heightAnchor.constraint(equalToConstant: 48)
+        ])
+    }
+
+    private func configureButtons() {
+        var previewConfiguration = UIButton.Configuration.bordered()
+        previewConfiguration.title = L10n.text("地圖預覽")
+        previewConfiguration.baseForegroundColor = .systemBlue
+        previewButton.configuration = previewConfiguration
+        previewButton.accessibilityLabel = L10n.text("地圖預覽")
+        previewButton.addTarget(self, action: #selector(previewPressed), for: .touchUpInside)
+
+        var simulateConfiguration = UIButton.Configuration.filled()
+        simulateConfiguration.title = L10n.text("立即模擬")
+        simulateConfiguration.baseBackgroundColor = .systemBlue
+        simulateConfiguration.baseForegroundColor = .white
+        simulateButton.configuration = simulateConfiguration
+        simulateButton.accessibilityLabel = L10n.text("立即模擬")
+        simulateButton.addTarget(self, action: #selector(simulatePressed), for: .touchUpInside)
+
+        var cancelConfiguration = UIButton.Configuration.plain()
+        cancelConfiguration.title = L10n.text("取消")
+        cancelButton.configuration = cancelConfiguration
+        cancelButton.accessibilityLabel = L10n.text("取消")
+        cancelButton.addTarget(self, action: #selector(cancelPressed), for: .touchUpInside)
+
+        actionRow.axis = .horizontal
+        actionRow.alignment = .fill
+        actionRow.distribution = .fillEqually
+        actionRow.spacing = 10
+        actionRow.addArrangedSubview(previewButton)
+        actionRow.addArrangedSubview(simulateButton)
     }
 
     @objc private func coordinateTextDidChange(_ textField: UITextField) {
-        let isValid = CoordinateAlertInputValidation.coordinate(in: textField.text ?? "") != nil
-        previewAction?.isEnabled = isValid
-        simulateAction?.isEnabled = isValid
+        updateActionAvailability()
     }
 
-    func dismissCoordinateAlertIfNeeded() {
-        guard let activeAlert else { return }
-        activeAlert.dismiss(animated: true)
-        self.activeAlert = nil
-        previewAction = nil
-        simulateAction = nil
+    private func updateActionAvailability() {
+        let enabled = CoordinateAlertInputValidation.actionsEnabled(for: coordinateTextField.text ?? "")
+        previewButton.isEnabled = enabled
+        simulateButton.isEnabled = enabled
     }
 
-    private func submit(from alert: UIAlertController?, simulateImmediately: Bool) {
-        guard let alert, let rawValue = alert.textFields?.first?.text else { return }
-        guard let coordinate = CoordinateAlertInputValidation.coordinate(in: rawValue) else {
-            // An action should be disabled for this state.  If UIKit still
-            // invokes it due to a presentation race, reset the binding and
-            // controller together so SwiftUI can present a fresh alert.
-            resetAfterUnexpectedInvalidSubmission()
+    @objc private func previewPressed() {
+        submit(simulateImmediately: false)
+    }
+
+    @objc private func simulatePressed() {
+        submit(simulateImmediately: true)
+    }
+
+    @objc private func cancelPressed() {
+        finish { [onCancel] in onCancel() }
+    }
+
+    private func submit(simulateImmediately: Bool) {
+        guard let coordinate = CoordinateAlertInputValidation.coordinate(in: coordinateTextField.text ?? "") else {
+            updateActionAvailability()
             return
         }
-        finishAlert()
-        onSubmit?(coordinate, simulateImmediately)
+        finish { [onSubmit] in onSubmit(coordinate, simulateImmediately) }
     }
 
-    private func resetAfterUnexpectedInvalidSubmission() {
-        isPresented?.wrappedValue = false
-        activeAlert?.dismiss(animated: true)
-        activeAlert = nil
-        previewAction = nil
-        simulateAction = nil
-    }
-
-    private func finishAlert() {
-        isPresented?.wrappedValue = false
-        activeAlert?.dismiss(animated: true)
-        activeAlert = nil
-        previewAction = nil
-        simulateAction = nil
+    private func finish(completion: @escaping () -> Void) {
+        guard !hasFinished else { return }
+        hasFinished = true
+        coordinateTextField.resignFirstResponder()
+        if presentingViewController != nil {
+            dismiss(animated: true, completion: completion)
+        } else {
+            completion()
+        }
     }
 }

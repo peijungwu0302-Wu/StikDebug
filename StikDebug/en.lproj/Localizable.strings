@@ -875,6 +875,7 @@
 "已收起" = "Collapsed";
 "支援座標或 Google Maps 連結" = "Coordinates or Google Maps links are supported";
 "輸入位置" = "Enter Location";
+"座標或 Google Maps 連結" = "Coordinates or a Google Maps link";
 "未掛載 · 不影響目前定位功能" = "Not mounted · does not affect location simulation";
 "開發者工具" = "Developer Tools";
 "DDI 是其他開發者與 JIT 工具的選用功能，不是 RouteLocation 核心定位的必要條件。" = "DDI is optional for developer and JIT tools; it is not required for RouteLocation core location simulation.";
