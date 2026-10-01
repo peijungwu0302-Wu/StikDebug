@@ -397,7 +397,7 @@ struct SetupDiagnosticsView: View {
                 Text(L10n.text("HealthKit 狀態"))
                 Spacer()
                 Text(healthSteps.capabilityStatus.message)
-                    .foregroundStyle(healthSteps.capabilityStatus.disablesHealthKitActions ? .secondary : .green)
+                    .foregroundColor(healthSteps.capabilityStatus.disablesHealthKitActions ? Color.secondary : Color.green)
             }
             HStack {
                 Text(L10n.text("步數寫入權限"))
