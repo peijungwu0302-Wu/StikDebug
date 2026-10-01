@@ -805,7 +805,14 @@ final class RouteLocationModel: ObservableObject {
             // A single-point simulation is already a prepared target.  A new
             // target is a direct retarget and must not clear the simulated
             // location or re-enter cellular cold bootstrap.
-            Task { [weak self] in await self?.executeTeleport(to: target) }
+            let generation = beginSinglePointRetarget()
+            Task { [weak self] in
+                await self?.executeTeleport(
+                    to: target,
+                    generation: generation,
+                    preservesSinglePointKeepAlive: true
+                )
+            }
             return
         }
         requestBootstrapIfCellular(targetCoordinate: target) { [weak self] in
@@ -866,8 +873,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func executeTeleport(to target: RouteCoordinate) async {
-        singlePointRetargetGeneration &+= 1
-        let generation = singlePointRetargetGeneration
+        let generation = beginSinglePointRetarget()
         let preservesSinglePointKeepAlive: Bool
         if case .singlePoint = simulationMode {
             preservesSinglePointKeepAlive = true
@@ -885,7 +891,7 @@ final class RouteLocationModel: ObservableObject {
         to target: RouteCoordinate,
         generation: Int,
         preservesSinglePointKeepAlive: Bool
-    ) async {
+        ) async {
         guard generation == singlePointRetargetGeneration else { return }
         cancelSinglePointHold()
         // A single-point → single-point retarget does not need to stop the
@@ -1032,6 +1038,9 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func returnToRealLocation() async {
+        // Restoring the real location supersedes any retarget still waiting
+        // on a command/recovery boundary.
+        _ = beginSinglePointRetarget()
         cancelSinglePointHold()
         stopRoutePlayback(clearMarker: true)
         LocationSessionCoordinator.shared.markRestoringRealLocation()
@@ -1191,6 +1200,11 @@ final class RouteLocationModel: ObservableObject {
         singlePointHoldGeneration &+= 1
         teleportTask?.cancel()
         teleportTask = nil
+    }
+
+    private func beginSinglePointRetarget() -> Int {
+        singlePointRetargetGeneration &+= 1
+        return singlePointRetargetGeneration
     }
 
     func sortedFavorites(from deviceCoordinate: RouteCoordinate?) -> [FavoriteLocation] {
