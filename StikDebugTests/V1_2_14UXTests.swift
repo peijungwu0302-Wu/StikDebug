@@ -182,7 +182,7 @@ struct V1_2_14UXTests {
         controller.view.layoutIfNeeded()
 
         let field = controller.coordinateTextField
-        let pasteControl = controller.pasteControl
+        let pasteControl = try #require(controller.pasteControl)
         #expect(field.rightView == nil)
         #expect(field.leftView == nil)
         #expect(field.superview === pasteControl.superview)
