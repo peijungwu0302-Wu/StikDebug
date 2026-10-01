@@ -72,8 +72,8 @@ struct FavoritesView: View {
                             Text(favorite.createdAt, style: .relative)
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
-                        Text(String(format: "%.6f, %.6f", favorite.latitude, favorite.longitude))
-                            .font(.caption.monospaced()).foregroundStyle(.secondary)
+                        CoordinateValueText(coordinate: favorite.coordinate)
+                            .foregroundStyle(.secondary)
                         if let note = favorite.note, !note.isEmpty {
                             Text(note).font(.caption).foregroundStyle(.secondary)
                         }
@@ -148,8 +148,12 @@ private struct FavoriteLocationDetailView: View {
         NavigationStack {
             List {
                 Section {
-                    LabeledContent(L10n.text("緯度"), value: String(format: "%.6f", favorite.latitude))
-                    LabeledContent(L10n.text("經度"), value: String(format: "%.6f", favorite.longitude))
+                    LabeledContent(L10n.text("緯度")) {
+                        CoordinateValueText(value: String(format: "%.6f", favorite.latitude))
+                    }
+                    LabeledContent(L10n.text("經度")) {
+                        CoordinateValueText(value: String(format: "%.6f", favorite.longitude))
+                    }
                     if let note = favorite.note, !note.isEmpty { Text(note) }
                 }
                 Section(L10n.text("操作")) {

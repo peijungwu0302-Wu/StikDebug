@@ -111,8 +111,8 @@ struct PlaceFloatingCard: View {
 
     private var coordinateRow: some View {
         HStack(spacing: 6) {
-            Text(String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude))
-                .font(.footnote.monospaced()).textSelection(.enabled).lineLimit(1)
+            CoordinateValueText(coordinate: coordinate)
+                .textSelection(.enabled)
             Spacer(minLength: 2)
             Button { CoordinateClipboard.copy(coordinate) } label: { Image(systemName: "doc.on.doc") }
                 .buttonStyle(.plain).frame(minWidth: 44, minHeight: 44)
@@ -168,7 +168,7 @@ struct ActiveSimulationFloatingCard: View {
                 if !hierarchy.isEmpty { Text(hierarchy).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             }
             HStack(spacing: 6) {
-                Text(String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude)).font(.footnote.monospaced()).lineLimit(1)
+                CoordinateValueText(coordinate: coordinate)
                 Spacer()
                 Button { CoordinateClipboard.copy(coordinate) } label: { Image(systemName: "doc.on.doc") }
                     .buttonStyle(.plain).frame(minWidth: 44, minHeight: 44)

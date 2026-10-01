@@ -34,12 +34,12 @@ struct SetupDiagnosticsView: View {
                     status(L10n.text("裝置 Bootstrap"), tunnel.bootstrapAvailable ? L10n.text("可用") : L10n.text("目前傳輸不可用"), tunnel.bootstrapAvailable ? .green : .orange, info: L10n.text("表示能否開啟新的裝置連線。新連線被拒絕不代表既有 DVT 定位工作階段已失效。"))
                     status(L10n.text("裝置通道"), tunnelStatus, effectiveTunnelHealthy ? .green : .orange, info: L10n.text("顯示既有裝置通道狀態；真實定位指令成功時，不會因輔助 Bootstrap 探測失敗而拆除工作階段。"))
                     status(L10n.text("RSD"), rsdStatus, effectiveTunnelHealthy ? .green : .orange, info: L10n.text("RSD 是 DVT 服務發現層。既有 DVT 工作階段可在新的 RSD 探測暫時失敗時繼續工作。"))
-                    status(L10n.text("開發者磁碟映像"), mounting.coolisMounted ? ddiStatus : L10n.text("未掛載 · 不影響目前定位功能"), mounting.coolisMounted ? .green : .gray, info: L10n.text("DDI 是其他開發者與 JIT 工具的選用功能，不是 RouteLocation 核心定位的必要條件。"))
+                    status(L10n.text("開發者磁碟映像"), mounting.coolisMounted ? ddiStatus : L10n.text("未掛載 · 不影響目前定位功能"), mounting.coolisMounted ? .green : .gray, info: L10n.text("DDI 是選用的 Apple 開發者服務元件；未掛載不會阻止一般單點或路線定位模擬。"))
                     status(L10n.text("位置模擬"), simulationStatus, simulationIsActive ? .green : .gray, info: L10n.text("顯示目前是否正在傳送單點或路線位置。按下「恢復真實位置」可停止模擬並清除開發者位置。"))
                     status(L10n.text("DVT 工作階段"), model.connectionMonitor.deviceSession.label, dvtColor, info: L10n.text("DVT 是實際傳送開發者位置指令的工作階段。若中斷，路線會保留單調時鐘的經過時間並進行有限次重新連線。"))
                     status(L10n.text("定位更新"), dataPath.status.label, dataPath.status == .healthy ? .green : .orange, info: L10n.text("真實 setLocation 指令的結果是最高優先健康訊號；連續三次真實失敗後才會開始恢復。"))
                     status(L10n.text("傳輸方式"), model.connectionMonitor.currentTransport.label, model.connectionMonitor.currentTransport == .offline ? .orange : .green, info: L10n.text("顯示目前使用 Wi-Fi、行動網路或其他傳輸。RouteLocation 不要求 Wi-Fi；行動網路搭配 LocalDevVPN 是有效啟動方式。"))
-                    status(L10n.text("網際網路連線"), model.connectionMonitor.internetReachable ? L10n.text("可連線") : L10n.text("離線"), model.connectionMonitor.internetReachable ? .green : .orange, info: L10n.text("Apple 地圖搜尋、新導航路線計算與首次 DDI 下載需要網際網路；直線及已儲存路線不需要。"))
+                    status(L10n.text("網際網路連線"), model.connectionMonitor.internetReachable ? L10n.text("可連線") : L10n.text("離線"), model.connectionMonitor.internetReachable ? .green : .orange, info: L10n.text("Apple 地圖搜尋、新導航路線計算與選用 DDI 元件的首次下載需要網際網路；直線及已儲存路線不需要。"))
                     status(L10n.text("VPN 介面"), model.connectionMonitor.usesVPNInterface ? L10n.text("已偵測") : L10n.text("未偵測"), .gray, info: L10n.text("顯示系統是否偵測到 VPN 介面。這只能作為提示，不等同於 DVT 工作階段已成功連線。"))
                 }
                 Section(L10n.text("配對檔案")) {
@@ -129,16 +129,17 @@ struct SetupDiagnosticsView: View {
                 }
                 Section(L10n.text("健康同步")) {
                     Toggle(L10n.text("路線播放時同步步數"), isOn: $healthSteps.isEnabled)
+                        .disabled(healthSteps.capabilityStatus.disablesHealthKitActions && !healthSteps.isEnabled)
                         .onChange(of: healthSteps.isEnabled) { _, enabled in
-                            if enabled {
+                            if enabled, healthSteps.authorizationState == .notDetermined {
                                 Task { await healthSteps.requestAuthorization() }
                             }
                         }
                     HStack {
                         Text(L10n.text("HealthKit 狀態"))
                         Spacer()
-                        Text(healthSteps.isHealthDataAvailable ? L10n.text("可用") : L10n.text("不可用"))
-                            .foregroundStyle(healthSteps.isHealthDataAvailable ? .green : .orange)
+                        Text(healthSteps.capabilityStatus.message)
+                            .foregroundStyle(healthSteps.capabilityStatus.disablesHealthKitActions ? .secondary : .green)
                     }
                     HStack {
                         Text(L10n.text("步數寫入權限"))
@@ -201,9 +202,11 @@ struct SetupDiagnosticsView: View {
                             }
                         }
                     }
+                    .disabled(healthSteps.capabilityStatus.disablesHealthKitActions)
                     Button(L10n.text("手動新增 RouteLocation 步數")) {
                         showManualStepEntry = true
                     }
+                    .disabled(healthSteps.capabilityStatus.disablesHealthKitActions)
                     Text(L10n.text("只在路線實際播放時按新增時間或距離批次寫入；單點傳送不會增加步數。HealthKit 權限或錯誤不會影響定位模擬。"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -474,7 +477,7 @@ struct SetupDiagnosticsView: View {
 
     private var ddiStatus: String {
         if mounting.coolisMounted { return L10n.text("已掛載") }
-        if mounting.mountingThread != nil { return L10n.text("準備中") }
+        if mounting.isMounting { return L10n.text("準備中") }
         if let error = mounting.lastErrorMessage { return L10n.format("錯誤：%@", error) }
         return L10n.text("未掛載")
     }

@@ -96,6 +96,44 @@ final class DeveloperDiskImageService {
     ]
 }
 
+/// Starts one optional DDI preparation attempt per app process. It runs away
+/// from the location-session path, records failures for diagnostics, and never
+/// presents a blocking error or gates simulation.
+@MainActor
+final class OptionalDDIPreparationCoordinator {
+    static let shared = OptionalDDIPreparationCoordinator()
+
+    private var hasAttempted = false
+    private var preparationTask: Task<Void, Never>?
+
+    private init() {}
+
+    func ensureReadinessBestEffort() {
+        let mounting = MountingProgress.shared
+        guard !hasAttempted,
+              OptionalDDIReadinessPolicy.shouldStartAttempt(
+                isMounted: mounting.coolisMounted,
+                isMounting: mounting.isMounting || preparationTask != nil
+              ) else { return }
+
+        hasAttempted = true
+        mounting.beginOptionalDDIDownload()
+        preparationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await DeveloperDiskImageService.shared.downloadMissingFiles()
+                MountingProgress.shared.finishOptionalDDIDownload()
+                MountingProgress.shared.pubMount()
+            } catch {
+                MountingProgress.shared.finishOptionalDDIDownload()
+                let message = error.localizedDescription
+                MountingProgress.shared.recordOptionalPreparationFailure(message)
+            }
+            self.preparationTask = nil
+        }
+    }
+}
+
 private struct DDIDownloadItem {
     let name: String
     let relativePath: String

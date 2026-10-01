@@ -6,6 +6,8 @@ struct SettingsView: View {
     
     @AppStorage("RouteLocation.showMiniPlayer") private var showMiniPlayer = true
     @AppStorage(AppLanguage.defaultsKey) private var appLanguage = AppLanguage.traditionalChinese.rawValue
+    @AppStorage(AppearancePreference.defaultsKey) private var appearanceRawValue = AppearancePreference.system.rawValue
+    @AppStorage(CoordinateTextSizePreference.defaultsKey) private var coordinateTextSizeRawValue = CoordinateTextSizePreference.standard.rawValue
     @AppStorage("RouteLocation.timeZoneComparisonBaseline") private var timeZoneBaselineRawValue = TimeZoneComparisonBaseline.taiwan.rawValue
     
     @ObservedObject private var tunnel = TunnelManager.shared
@@ -101,59 +103,48 @@ struct SettingsView: View {
                         Text(L10n.text("開發者磁碟映像 (DDI)"))
                         Spacer()
                         Circle().fill(mounting.coolisMounted ? .green : .gray).frame(width: 8, height: 8)
-                        Text(mounting.coolisMounted ? L10n.text("已掛載") : (mounting.mountingThread != nil ? L10n.text("準備中") : L10n.text("未掛載 · 不影響目前定位功能")))
+                        Text(mounting.coolisMounted ? L10n.text("已掛載") : (mounting.isMounting ? L10n.text("準備中") : L10n.text("未掛載 · 不影響目前定位功能")))
                             .foregroundStyle(.secondary)
                     }
-                    Text(L10n.text("DDI 是其他開發者與 JIT 工具的選用功能，不是 RouteLocation 核心定位的必要條件。"))
+                    Text(L10n.text("DDI 是選用的 Apple 開發者服務元件；未掛載不會阻止一般單點或路線定位模擬。"))
                         .font(.footnote).foregroundStyle(.secondary)
+                    if let error = mounting.lastErrorMessage {
+                        Text(L10n.format("DDI 準備狀態：%@", error))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Button(L10n.text("檢查／掛載 DDI")) { MountingProgress.shared.pubMount() }
                         .accessibilityLabel(L10n.text("檢查或掛載 DDI"))
                 }
-                
-                Section(L10n.text("健康同步")) {
-                    Toggle(L10n.text("路線播放時同步步數"), isOn: $healthSteps.isEnabled)
-                        .onChange(of: healthSteps.isEnabled) { _, enabled in
-                            if enabled {
-                                Task { await healthSteps.requestAuthorization() }
-                            }
-                        }
-                    
-                    if healthSteps.isEnabled {
-                        Picker(L10n.text("計算方式"), selection: $healthSteps.calculationMode) {
-                            ForEach(StepCalculationMode.allCases) { mode in
-                                Text(mode.title).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        
-                        if healthSteps.calculationMode == .fixedCadence {
-                            HStack {
-                                Text(L10n.text("步頻"))
-                                Spacer()
-                                TextField("160", value: $healthSteps.cadenceStepsPerMinute, format: .number.precision(.fractionLength(0)))
-                                    .keyboardType(.numberPad)
-                                    .multilineTextAlignment(.trailing)
-                                    .frame(width: 80)
-                                Text(L10n.text("步／分鐘"))
-                            }
-                        } else {
-                            HStack {
-                                Text(L10n.text("步長"))
-                                Spacer()
-                                TextField("0.80", value: $healthSteps.strideLengthMeters, format: .number.precision(.fractionLength(2)))
-                                    .keyboardType(.decimalPad)
-                                    .multilineTextAlignment(.trailing)
-                                    .frame(width: 80)
-                                Text(L10n.text("公尺／步"))
-                            }
+
+                Section {
+                    NavigationLink {
+                        HealthSyncSettingsView()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(L10n.text("健康同步"))
+                            Text(healthSteps.capabilityStatus.message)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
                         }
                     }
                 }
+                .listSectionSeparator(.hidden)
                 
                 Section(L10n.text("介面")) {
                     Picker(L10n.text("介面語言"), selection: $appLanguage) {
                         ForEach(AppLanguage.allCases) { language in
                             Text(language.displayName).tag(language.rawValue)
+                        }
+                    }
+                    Picker(L10n.text("外觀"), selection: $appearanceRawValue) {
+                        ForEach(AppearancePreference.allCases) { appearance in
+                            Text(appearance.title).tag(appearance.rawValue)
+                        }
+                    }
+                    Picker(L10n.text("座標文字大小"), selection: $coordinateTextSizeRawValue) {
+                        ForEach(CoordinateTextSizePreference.allCases) { preference in
+                            Text(preference.title).tag(preference.rawValue)
                         }
                     }
                 }
@@ -248,7 +239,7 @@ struct SettingsView: View {
 
     private func copySanitizedDiagnosticReport() {
         let pairingLabel = FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path) ? "present" : "missing"
-        let ddiStatus = mounting.coolisMounted ? "mounted" : (mounting.mountingThread != nil ? "mounting" : "unmounted")
+        let ddiStatus = mounting.coolisMounted ? "mounted" : (mounting.isMounting ? "mounting" : "unmounted")
         let simulationStatus: String
         if playback.state == .running || playback.state == .reconnecting {
             simulationStatus = playback.state.label
@@ -281,6 +272,88 @@ struct SettingsView: View {
         """
         UIPasteboard.general.string = report
         ToastManager.shared.show(L10n.text("已複製安全診斷報告。"), kind: .success)
+    }
+}
+
+private struct HealthSyncSettingsView: View {
+    @ObservedObject private var healthSteps = HealthStepSyncService.shared
+
+    var body: some View {
+        Form {
+            Section(L10n.text("選用功能")) {
+                Toggle(L10n.text("路線播放時同步步數"), isOn: $healthSteps.isEnabled)
+                    .disabled(healthSteps.capabilityStatus.disablesHealthKitActions && !healthSteps.isEnabled)
+                    .onChange(of: healthSteps.isEnabled) { _, enabled in
+                        guard enabled, healthSteps.authorizationState == .notDetermined else { return }
+                        Task { await healthSteps.requestAuthorization() }
+                    }
+                Text(healthSteps.capabilityStatus.message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if healthSteps.capabilityStatus == .signatureUnavailable {
+                    Text(L10n.text("這不影響單點定位或路線模擬。"))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section(L10n.text("健康同步設定")) {
+                HStack {
+                    Text(L10n.text("HealthKit 狀態"))
+                    Spacer()
+                    Text(healthSteps.capabilityStatus.message).foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text(L10n.text("步數寫入權限"))
+                    Spacer()
+                    Text(healthSteps.authorizationState.label).foregroundStyle(.secondary)
+                }
+                Picker(L10n.text("計算方式"), selection: $healthSteps.calculationMode) {
+                    ForEach(StepCalculationMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .disabled(!healthSteps.isEnabled)
+
+                if healthSteps.calculationMode == .fixedCadence {
+                    HStack {
+                        Text(L10n.text("步頻"))
+                        Spacer()
+                        TextField("160", value: $healthSteps.cadenceStepsPerMinute, format: .number.precision(.fractionLength(0)))
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
+                        Text(L10n.text("步／分鐘"))
+                    }
+                    .disabled(!healthSteps.isEnabled)
+                } else {
+                    HStack {
+                        Text(L10n.text("步長"))
+                        Spacer()
+                        TextField("0.80", value: $healthSteps.strideLengthMeters, format: .number.precision(.fractionLength(2)))
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
+                        Text(L10n.text("公尺／步"))
+                    }
+                    .disabled(!healthSteps.isEnabled)
+                }
+                Text(L10n.text("只在路線實際播放時按新增時間或距離批次寫入；單點傳送不會增加步數。HealthKit 權限或錯誤不會影響定位模擬。"))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let error = healthSteps.lastError {
+                Section(L10n.text("最近錯誤")) {
+                    Text(error.formattedDetails)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .navigationTitle(L10n.text("健康同步"))
+        .onAppear { healthSteps.refreshAuthorizationStatus() }
     }
 }
 

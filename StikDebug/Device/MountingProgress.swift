@@ -15,9 +15,13 @@ final class MountingProgress: ObservableObject {
     @Published private(set) var mountingThread: Thread?
     @Published private(set) var coolisMounted: Bool = false
     @Published private(set) var lastErrorMessage: String?
+    @Published private(set) var isPreparing = false
+    @Published private(set) var isDownloading = false
 
     private let mountCheckLock = NSLock()
     private var mountCheckInProgress = false
+    private let mountAttemptLock = NSLock()
+    private var mountAttemptInProgress = false
 
     private init() {}
 
@@ -52,12 +56,38 @@ final class MountingProgress: ObservableObject {
         }
     }
 
+    var isMounting: Bool { isPreparing || isDownloading || mountingThread != nil }
+
+    @MainActor
     func pubMount() {
         guard TunnelManager.shared.isConnected else { return }
+
+        mountAttemptLock.lock()
+        guard OptionalDDIReadinessPolicy.shouldStartAttempt(
+            isMounted: coolisMounted,
+            isMounting: mountAttemptInProgress || isPreparing || isDownloading
+        ) else {
+            mountAttemptLock.unlock()
+            return
+        }
+        mountAttemptInProgress = true
+        mountAttemptLock.unlock()
+        isPreparing = true
+        lastErrorMessage = nil
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
             self?.mount()
         }
+    }
+
+    @MainActor
+    func beginOptionalDDIDownload() {
+        isDownloading = true
+    }
+
+    @MainActor
+    func finishOptionalDDIDownload() {
+        isDownloading = false
     }
 
     private func mount() {
@@ -67,12 +97,8 @@ final class MountingProgress: ObservableObject {
         }
 
         guard isPairing(), !currentlyMounted else {
+            finishMountAttempt()
             return
-        }
-
-        if let mountingThread {
-            mountingThread.cancel()
-            self.mountingThread = nil
         }
 
         let thread = Thread { [weak self] in
@@ -86,24 +112,45 @@ final class MountingProgress: ObservableObject {
             DispatchQueue.main.async {
                 if let mountError {
                     self.lastErrorMessage = mountError
-                    showAlert(title: L10n.text("DDI 掛載失敗"), message: mountError, showOk: true, showTryAgain: true) { shouldTryAgain in
-                        if shouldTryAgain {
-                            self.pubMount()
-                        }
-                    }
+                    LogManager.shared.addWarningLog("Optional DDI preparation failed: \(mountError)")
                 } else {
                     self.lastErrorMessage = nil
                     self.coolisMounted = true
                     self.checkforMounted()
                 }
                 self.mountingThread = nil
+                self.finishMountAttempt()
             }
         }
 
         thread.qualityOfService = .background
         thread.name = "mounting"
-        thread.start()
-        mountingThread = thread
+        DispatchQueue.main.async {
+            self.mountingThread = thread
+            thread.start()
+        }
+    }
+
+    @MainActor
+    func recordOptionalPreparationFailure(_ message: String) {
+        lastErrorMessage = message
+        LogManager.shared.addWarningLog("Optional DDI download/preparation failed: \(message)")
+    }
+
+    private func finishMountAttempt() {
+        mountAttemptLock.lock()
+        mountAttemptInProgress = false
+        mountAttemptLock.unlock()
+        DispatchQueue.main.async {
+            self.isPreparing = false
+            self.mountingThread = nil
+        }
+    }
+}
+
+enum OptionalDDIReadinessPolicy {
+    static func shouldStartAttempt(isMounted: Bool, isMounting: Bool) -> Bool {
+        !isMounted && !isMounting
     }
 }
 

@@ -140,8 +140,8 @@ private struct PlaceInfoSummary: View {
                         Text(country).font(.caption).foregroundStyle(.secondary)
                     }
                     if density == .detailed {
-                        Text(String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude))
-                            .font(.caption.monospaced()).foregroundStyle(.secondary)
+                        CoordinateValueText(coordinate: coordinate)
+                            .foregroundStyle(.secondary)
                     }
                     if density == .detailed, let timezoneDetails = timezoneDetails(at: now) {
                         Text(timezoneDetails.localAndGMT)
@@ -156,8 +156,7 @@ private struct PlaceInfoSummary: View {
                     }
                 }
             } else {
-                Text(String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude))
-                    .font(.caption.monospaced())
+                CoordinateValueText(coordinate: coordinate)
                     .foregroundStyle(.secondary)
             }
         }

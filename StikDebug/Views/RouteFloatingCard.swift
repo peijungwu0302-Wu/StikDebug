@@ -136,7 +136,7 @@ struct RouteFloatingCard: View {
 
         let progressTotal = PlaybackMath.completionDistance(total: model.geometry.totalDistance, mode: model.playbackMode)
         let progressValue = progressTotal.isFinite ? playback.traveledDistance : playback.distanceWithinLap
-        HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(playback.traveledDistance.formattedCardDistance) / \(model.geometry.totalDistance.formattedCardDistance)")
                     .font(.footnote)
@@ -147,21 +147,26 @@ struct RouteFloatingCard: View {
                 )
                 .tint(.blue)
                 .frame(minWidth: 120)
-                if let current = model.activeSimulatedCoordinate {
-                    Text(String(format: "%.6f, %.6f", current.latitude, current.longitude))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .contentShape(Rectangle())
-                        .onLongPressGesture(minimumDuration: 0.5) {
-                            CoordinateClipboard.copy(current, toastKey: "已複製目前座標")
-                        }
-                        .accessibilityLabel(L10n.text("目前模擬座標"))
-                        .accessibilityHint(L10n.text("長按以複製目前座標"))
-                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 4)
+            // Keep distance and progress clear of the speed control, while the
+            // coordinate row can use the full card width. The left-side lines
+            // keep their 4pt rhythm; the outer 56pt minimum preserves the
+            // previous speed-control height and the action row's position.
+            .padding(.trailing, 174)
+
+            if let current = model.activeSimulatedCoordinate {
+                CoordinateValueText(coordinate: current)
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+                    .onLongPressGesture(minimumDuration: 0.5) {
+                        CoordinateClipboard.copy(current, toastKey: "已複製目前座標")
+                    }
+                    .accessibilityLabel(L10n.text("目前模擬座標"))
+                    .accessibilityHint(L10n.text("長按以複製目前座標"))
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .topLeading)
+        .overlay(alignment: .topTrailing) {
             activeSpeedControl(isReconnecting: isReconnecting)
         }
 
@@ -245,8 +250,7 @@ struct RouteFloatingCard: View {
 
     @ViewBuilder
     private func activeSpeedControl(isReconnecting: Bool) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 2) {
+        HStack(spacing: 2) {
                 Button { model.adjustPlaybackSpeed(by: -0.1) } label: { Image(systemName: "minus") }
                     .buttonStyle(.bordered)
                     .frame(minWidth: 44, minHeight: 44)
@@ -258,16 +262,21 @@ struct RouteFloatingCard: View {
                         .focused($speedFieldFocused)
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.center)
-                        .frame(width: 68)
+                        .frame(width: 58)
                         .onSubmit { commitSpeedEdit() }
                         .accessibilityLabel(L10n.text("播放速度"))
                 } else {
                     Button {
                         beginSpeedEdit()
                     } label: {
-                        Text(playback.speedKmh.formatted(.number.precision(.fractionLength(1))))
-                            .monospacedDigit()
-                            .frame(minWidth: 48, minHeight: 44)
+                        HStack(spacing: 3) {
+                            Text(playback.speedKmh.formatted(.number.precision(.fractionLength(1))))
+                                .monospacedDigit()
+                            Text("km/h")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(minWidth: 70, minHeight: 44)
                     }
                     .buttonStyle(.plain)
                     .disabled(isReconnecting)
@@ -279,10 +288,6 @@ struct RouteFloatingCard: View {
                     .frame(minWidth: 44, minHeight: 44)
                     .disabled(isReconnecting)
                     .accessibilityLabel(L10n.text("提高速度 0.1 公里每小時"))
-            }
-            Text("km/h")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         .fixedSize(horizontal: true, vertical: false)
     }

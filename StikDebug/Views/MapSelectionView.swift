@@ -222,8 +222,8 @@ struct RouteMapView: View {
 
     @ViewBuilder
     private func classicSelectedPlaceContent(for selected: RouteCoordinate) -> some View {
-        Text(String(format: "%.6f, %.6f", selected.latitude, selected.longitude))
-            .font(.footnote.monospaced()).textSelection(.enabled)
+        CoordinateValueText(coordinate: selected)
+            .textSelection(.enabled)
         HStack {
             Button(L10n.text("在此模擬")) {
                 model.requestSinglePointSimulation(at: selected)
@@ -579,8 +579,7 @@ struct QuickRouteMapView: View {
         if let selected = model.selectedCoordinate {
             if isCardExpanded {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(String(format: "%.6f, %.6f", selected.latitude, selected.longitude))
-                        .font(.footnote.monospaced())
+                    CoordinateValueText(coordinate: selected)
                         .textSelection(.enabled)
 
                     HStack {
@@ -613,8 +612,7 @@ struct QuickRouteMapView: View {
                 }
             } else {
                 HStack {
-                    Text(String(format: "%.6f, %.6f", selected.latitude, selected.longitude))
-                        .font(.caption.monospaced())
+                    CoordinateValueText(coordinate: selected)
                         .lineLimit(1)
                     Spacer()
                     Button(L10n.text("在此模擬")) {

@@ -145,11 +145,10 @@
 
 "這是目前裝置與受信任電腦之間的敏感信任憑證。RouteLocation 使用它建立裝置服務連線；它不是 IPA 簽名檔，也不會上傳。" = "This sensitive credential records trust between this device and a computer. RouteLocation uses it to open device-service connections. It is not an IPA signing file and is never uploaded.";
 "透過 LocalDevVPN 建立的本機通道，讓 RouteLocation 能連接這台裝置。它與一般網際網路連線是不同狀態。" = "A local tunnel created through LocalDevVPN lets RouteLocation reach this device. It is separate from normal Internet connectivity.";
-"DDI 提供 Apple 開發者裝置服務。位置模擬前必須準備並掛載；首次下載需要網際網路。" = "The DDI provides Apple's developer device services. It must be prepared and mounted before simulation; the first download requires Internet access.";
 "顯示目前是否正在傳送單點或路線位置。按下「恢復真實位置」可停止模擬並清除開發者位置。" = "Shows whether a single location or route is being sent. Return to Real Location stops simulation and clears the developer location.";
 "DVT 是實際傳送開發者位置指令的工作階段。若中斷，路線會保留經過時間並進行有限次重新連線。" = "DVT is the session that sends developer-location commands. If it drops, playback preserves elapsed time and makes bounded reconnect attempts.";
 "顯示目前使用 Wi-Fi、行動網路或離線。已快取的路線播放不需要網際網路。" = "Shows Wi-Fi, cellular, or offline status. Cached route playback does not require Internet access.";
-"Apple 地圖搜尋、新導航路線計算與首次 DDI 下載需要網際網路；直線及已儲存路線不需要。" = "Apple Maps search, new navigation calculations, and the first DDI download require Internet access. Straight and saved routes do not.";
+"Apple 地圖搜尋、新導航路線計算與選用 DDI 元件的首次下載需要網際網路；直線及已儲存路線不需要。" = "Apple Maps search, new navigation calculations, and the first download of optional DDI components require Internet access. Straight and saved routes do not.";
 "顯示系統是否偵測到 VPN 介面。這只能作為提示，不等同於 DVT 工作階段已成功連線。" = "Shows whether iOS detects a VPN interface. This is only a hint and does not mean the DVT session is connected.";
 "配對檔案是敏感的裝置信任憑證。請妥善保管；RouteLocation 只會儲存在本機，絕不會上傳內容。" = "A pairing file is a sensitive device-trust credential. Keep it private; RouteLocation stores it locally and never uploads its contents.";
 "如果 iLoader 的「Manage Pairing File」沒有列出 RouteLocation，請在 iLoader 選擇 Export，將這台 iPhone 或 iPad 的配對檔案傳到裝置，再按下方按鈕手動匯入。" = "If iLoader's Manage Pairing File screen does not list RouteLocation, choose Export in iLoader, transfer this iPhone or iPad's pairing file to the device, then import it manually below.";
@@ -290,7 +289,6 @@
 "已恢復真實位置。下一次模擬可快速開始。" = "Real location restored. The next simulation can start quickly.";
 "可由 App 確認" = "Verifiable by the app";
 "位置工作階段" = "Location session";
-"位置模擬需要可用的 Developer Disk Image" = "Location simulation requires an available Developer Disk Image.";
 "尚未確認可用的裝置定位工作階段" = "A usable device location session has not been confirmed.";
 "背景播放受 iOS 系統限制，強制結束 App 會停止模擬" = "Background playback is subject to iOS limits; force-quitting the app stops simulation.";
 "啟動 LocalDevVPN 以建立本機裝置服務路徑" = "Start LocalDevVPN to provide the local device-service path.";
@@ -340,6 +338,25 @@
 "健康同步" = "Health Sync";
 "路線播放時同步步數" = "Sync steps during route playback";
 "HealthKit 狀態" = "HealthKit Status";
+"外觀" = "Appearance";
+"隨系統" = "System";
+"淺色" = "Light";
+"深色" = "Dark";
+"座標文字大小" = "Coordinate Text Size";
+"較小" = "Smaller";
+"標準" = "Standard";
+"較大" = "Larger";
+"跟隨系統" = "Follow System";
+"選用功能" = "Optional";
+"DDI 是選用的 Apple 開發者服務元件；未掛載不會阻止一般單點或路線定位模擬。" = "DDI is an optional Apple developer-service component. Not mounting it does not block normal single-point or route simulation.";
+"DDI 準備狀態：%@" = "DDI preparation status: %@";
+"目前簽名不支援 HealthKit。這不影響單點定位或路線模擬。" = "HealthKit is unavailable with the current signature. This does not affect single-point or route location simulation.";
+"這不影響單點定位或路線模擬。" = "This does not affect single-point or route location simulation.";
+"HealthKit 在此裝置上不可用。" = "HealthKit is unavailable on this device.";
+"HealthKit 寫入權限已拒絕；這不影響定位模擬。" = "HealthKit write permission was denied; this does not affect location simulation.";
+"HealthKit 可用" = "HealthKit is available";
+"HealthKit 狀態未知" = "HealthKit status is unknown";
+"健康同步設定" = "Health Sync Settings";
 "步幅" = "Stride Length";
 "已授權" = "Authorized";
 "未授權" = "Not Authorized";
@@ -878,7 +895,7 @@
 "座標或 Google Maps 連結" = "Coordinates or a Google Maps link";
 "未掛載 · 不影響目前定位功能" = "Not mounted · does not affect location simulation";
 "開發者工具" = "Developer Tools";
-"DDI 是其他開發者與 JIT 工具的選用功能，不是 RouteLocation 核心定位的必要條件。" = "DDI is optional for developer and JIT tools; it is not required for RouteLocation core location simulation.";
+"DDI 是其他開發者與 JIT 工具的選用功能，不是 RouteLocation 核心定位的必要條件。" = "DDI is an optional component for other developer and JIT tools, not a requirement for RouteLocation core location simulation.";
 "DDI 未掛載時，RouteLocation 的核心定位仍可正常使用。" = "Core RouteLocation location simulation remains available when DDI is not mounted.";
 "清除所有最近位置" = "Clear All Recent Locations";
 "要清除所有最近位置嗎？" = "Clear all recent locations?";

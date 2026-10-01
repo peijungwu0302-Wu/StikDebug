@@ -20,7 +20,7 @@ struct RouteLocationApp: App {
                 .task {
                     CellularAssistedBootstrapStateMachine.shared.beginForegroundRecoveryCycle()
                     CellularAssistedBootstrapStateMachine.shared.handleStaleRecoveryIfNeeded()
-                    await downloadMissingDeveloperDiskImageFiles()
+                    OptionalDDIPreparationCoordinator.shared.ensureReadinessBestEffort()
                     LocationSessionCoordinator.shared.prewarmIfAppropriate()
                 }
                 .onOpenURL { url in
@@ -45,18 +45,4 @@ struct RouteLocationApp: App {
         }
     }
 
-    private func downloadMissingDeveloperDiskImageFiles() async {
-        do {
-            try await DeveloperDiskImageService.shared.downloadMissingFiles()
-            MountingProgress.shared.pubMount()
-        } catch {
-            await MainActor.run {
-                showAlert(
-                    title: L10n.text("發生錯誤"),
-                    message: L10n.format("下載開發者磁碟映像失敗：%@", error.localizedDescription),
-                    showOk: true
-                )
-            }
-        }
-    }
 }

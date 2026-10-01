@@ -305,11 +305,13 @@ final class TunnelManager: ObservableObject {
         }
     }
 
+    @MainActor
     private func mountDeveloperDiskImageIfNeeded() {
         let trustcachePath = URL.documentsDirectory.appendingPathComponent("DDI/Image.dmg.trustcache").path
         guard FileManager.default.fileExists(atPath: trustcachePath),
               !MountingProgress.shared.coolisMounted,
-              MountingProgress.shared.mountingThread == nil else {
+              !MountingProgress.shared.isMounting,
+              MountingProgress.shared.lastErrorMessage == nil else {
             return
         }
         MountingProgress.shared.pubMount()

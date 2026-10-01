@@ -60,6 +60,56 @@ enum HealthAuthorizationState: Equatable {
     }
 }
 
+enum HealthKitCapabilityStatus: Equatable {
+    case deviceUnavailable
+    case signatureUnavailable
+    case permissionNotRequested
+    case permissionDenied
+    case ready
+    case unknown
+
+    var message: String {
+        switch self {
+        case .deviceUnavailable: return L10n.text("HealthKit 在此裝置上不可用。")
+        case .signatureUnavailable: return L10n.text("目前簽名不支援 HealthKit。這不影響單點定位或路線模擬。")
+        case .permissionNotRequested: return L10n.text("選用功能")
+        case .permissionDenied: return L10n.text("HealthKit 寫入權限已拒絕；這不影響定位模擬。")
+        case .ready: return L10n.text("HealthKit 可用")
+        case .unknown: return L10n.text("HealthKit 狀態未知")
+        }
+    }
+
+    var disablesHealthKitActions: Bool {
+        switch self {
+        case .deviceUnavailable, .signatureUnavailable, .permissionDenied: return true
+        case .permissionNotRequested, .ready, .unknown: return false
+        }
+    }
+
+    static func resolve(
+        isAvailable: Bool,
+        authorization: HealthAuthorizationState,
+        lastError: HealthKitLastError?
+    ) -> Self {
+        guard isAvailable else { return .deviceUnavailable }
+        if let lastError, isMissingEntitlement(domain: lastError.domain, description: lastError.localizedDescription) {
+            return .signatureUnavailable
+        }
+        switch authorization {
+        case .notDetermined: return .permissionNotRequested
+        case .sharingAuthorized: return .ready
+        case .sharingDenied: return .permissionDenied
+        case .unavailable: return .deviceUnavailable
+        case .unknown: return .unknown
+        }
+    }
+
+    static func isMissingEntitlement(domain: String, description: String) -> Bool {
+        let value = "\(domain) \(description)".lowercased()
+        return value.contains("health") && value.contains("entitlement")
+    }
+}
+
 struct HealthKitLastError: Error, Equatable {
     let domain: String
     let code: Int
@@ -116,6 +166,14 @@ final class HealthStepSyncService: ObservableObject {
     @Published private(set) var authorizationState: HealthAuthorizationState
     @Published private(set) var lastWriteStatus: HealthKitLastWriteStatus = .none
     @Published private(set) var lastError: HealthKitLastError?
+
+    var capabilityStatus: HealthKitCapabilityStatus {
+        HealthKitCapabilityStatus.resolve(
+            isAvailable: isHealthDataAvailable,
+            authorization: authorizationState,
+            lastError: lastError
+        )
+    }
 
     private static let enabledKey = "RouteLocation.healthStepSyncEnabled"
     private static let modeKey = "RouteLocation.stepCalculationMode"
@@ -200,6 +258,7 @@ final class HealthStepSyncService: ObservableObject {
                 code: nsError.code,
                 localizedDescription: error.localizedDescription
             )
+            if capabilityStatus == .signatureUnavailable { isEnabled = false }
             refreshAuthorizationStatus()
         }
     }
@@ -233,6 +292,7 @@ final class HealthStepSyncService: ObservableObject {
             )
             lastError = hkError
             lastWriteStatus = .failure(error: hkError, date: end)
+            if capabilityStatus == .signatureUnavailable { isEnabled = false }
             refreshAuthorizationStatus()
         }
     }
@@ -273,6 +333,7 @@ final class HealthStepSyncService: ObservableObject {
             )
             lastError = hkError
             lastWriteStatus = .failure(error: hkError, date: now)
+            if capabilityStatus == .signatureUnavailable { isEnabled = false }
             refreshAuthorizationStatus()
             return .failure(hkError)
         }
@@ -323,6 +384,7 @@ final class HealthStepSyncService: ObservableObject {
             )
             lastError = hkError
             lastWriteStatus = .failure(error: hkError, date: now)
+            if capabilityStatus == .signatureUnavailable { isEnabled = false }
             refreshAuthorizationStatus()
             return .failure(hkError)
         }

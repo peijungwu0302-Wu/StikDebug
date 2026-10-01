@@ -160,8 +160,8 @@ private struct RecentPlaceInfo: View {
                         if let country = info.country, !country.isEmpty {
                             Text(country).font(.caption).foregroundStyle(.secondary)
                         }
-                        Text(String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude))
-                            .font(.caption.monospaced()).foregroundStyle(.secondary)
+                        CoordinateValueText(coordinate: coordinate)
+                            .foregroundStyle(.secondary)
                         if let details = timezoneDetails(at: context.date) {
                             Text(details.localAndGMT).font(.caption).foregroundStyle(.secondary)
                             Text(details.identifier).font(.caption2).foregroundStyle(.secondary)
@@ -170,8 +170,8 @@ private struct RecentPlaceInfo: View {
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 } else {
-                    Text(String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude))
-                        .font(.caption.monospaced()).foregroundStyle(.secondary)
+                    CoordinateValueText(coordinate: coordinate)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
