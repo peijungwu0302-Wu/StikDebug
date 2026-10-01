@@ -13,15 +13,19 @@ enum CoordinateAlertInputValidation {
     }
 }
 
-/// Builds a stable trailing area for the system paste control. Keeping the
-/// control inside a constrained container gives UIKit a concrete intrinsic
-/// layout before the alert text field begins editing.
+/// Builds a stable trailing accessory for the system paste control. Its
+/// explicit frame lets UIKit display it before the alert text field is edited.
 enum CoordinateAlertPasteControl {
+    static let trailingContainerSize = CGSize(width: 46, height: 36)
+
     @MainActor
     @discardableResult
     static func install(on textField: UITextField) -> UIPasteControl {
-        let container = UIView(frame: .zero)
-        container.translatesAutoresizingMaskIntoConstraints = false
+        // UITextField treats rightView as a frame-based accessory rather than
+        // an Auto Layout child. Give it a real initial size so UIKit can lay it
+        // out before editing begins; constraints position only the paste UI
+        // inside that fixed accessory area.
+        let container = UIView(frame: CGRect(origin: .zero, size: trailingContainerSize))
 
         let pasteConfiguration = UIPasteConfiguration(acceptableTypeIdentifiers: [UTType.plainText.identifier])
         textField.pasteConfiguration = pasteConfiguration
@@ -31,15 +35,18 @@ enum CoordinateAlertPasteControl {
         pasteControl.accessibilityLabel = L10n.text("貼上座標")
         container.addSubview(pasteControl)
         NSLayoutConstraint.activate([
-            container.widthAnchor.constraint(equalToConstant: 46),
-            container.heightAnchor.constraint(equalToConstant: 36),
             pasteControl.widthAnchor.constraint(equalToConstant: 36),
             pasteControl.heightAnchor.constraint(equalToConstant: 32),
             pasteControl.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             pasteControl.centerYAnchor.constraint(equalTo: container.centerYAnchor)
         ])
+        container.setNeedsLayout()
+        container.layoutIfNeeded()
         textField.rightView = container
         textField.rightViewMode = .always
+        textField.setNeedsLayout()
+        textField.layoutIfNeeded()
+        container.layoutIfNeeded()
         return pasteControl
     }
 }

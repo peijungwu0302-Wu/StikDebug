@@ -143,19 +143,26 @@ struct RouteMapView: View {
             }
             if isCardExpanded {
                 if let active = model.activeSimulatedCoordinate, !model.simulationMode.isRouteSimulation {
-                    ActiveSimulationFloatingCard(
-                        coordinate: active,
-                        onSaveFavorite: {
-                            favoriteCoordinate = FavoriteCoordinateCapture.coordinate(
-                                for: .activeSimulation,
-                                active: active,
-                                selected: model.selectedCoordinate
-                            )
-                            favoriteName = model.suggestedFavoriteName()
-                            showFavoriteName = true
-                        },
-                        onRestore: { Task { await model.returnToRealLocation() } }
-                    )
+                    if let candidate = ClassicRouteMapCardSelection.selectedCandidate(
+                        active: active,
+                        selected: model.selectedCoordinate
+                    ) {
+                        classicSelectedPlaceContent(for: candidate)
+                    } else {
+                        ActiveSimulationFloatingCard(
+                            coordinate: active,
+                            onSaveFavorite: {
+                                favoriteCoordinate = FavoriteCoordinateCapture.coordinate(
+                                    for: .activeSimulation,
+                                    active: active,
+                                    selected: model.selectedCoordinate
+                                )
+                                favoriteName = model.suggestedFavoriteName()
+                                showFavoriteName = true
+                            },
+                            onRestore: { Task { await model.returnToRealLocation() } }
+                        )
+                    }
                 } else if let previewing = model.previewingRoute {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
@@ -178,21 +185,7 @@ struct RouteMapView: View {
                         }
                     }
                 } else if let selected = model.selectedCoordinate {
-                    Text(String(format: "%.6f, %.6f", selected.latitude, selected.longitude))
-                        .font(.footnote.monospaced()).textSelection(.enabled)
-                    HStack {
-                        Button(L10n.text("模擬此位置")) { model.requestSinglePointSimulation() }.buttonStyle(.borderedProminent)
-                        Button(L10n.text("加入路線")) { model.addSelectedWaypointAndSwitchToRoute() }.buttonStyle(.bordered)
-                        Button {
-                            favoriteCoordinate = FavoriteCoordinateCapture.coordinate(
-                                for: .selectedPlace,
-                                active: model.activeSimulatedCoordinate,
-                                selected: selected
-                            )
-                            favoriteName = model.suggestedFavoriteName()
-                            showFavoriteName = true
-                        } label: { Image(systemName: "star") }.buttonStyle(.bordered)
-                    }
+                    classicSelectedPlaceContent(for: selected)
                 } else {
                     Text(L10n.text("點選地圖、搜尋地點、輸入座標，或選擇喜愛地點。")).font(.footnote).foregroundStyle(.secondary)
                     Button(L10n.text("輸入精確座標")) { showCoordinateEntry = true }.buttonStyle(.bordered)
@@ -225,6 +218,30 @@ struct RouteMapView: View {
         .padding(14)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
         .padding(.horizontal).padding(.bottom, 4)
+    }
+
+    @ViewBuilder
+    private func classicSelectedPlaceContent(for selected: RouteCoordinate) -> some View {
+        Text(String(format: "%.6f, %.6f", selected.latitude, selected.longitude))
+            .font(.footnote.monospaced()).textSelection(.enabled)
+        HStack {
+            Button(L10n.text("在此模擬")) {
+                model.requestSinglePointSimulation(at: selected)
+            }
+            .buttonStyle(.borderedProminent)
+            Button(L10n.text("加入路線")) { model.addSelectedWaypointAndSwitchToRoute() }
+                .buttonStyle(.bordered)
+            Button {
+                favoriteCoordinate = FavoriteCoordinateCapture.coordinate(
+                    for: .selectedPlace,
+                    active: model.activeSimulatedCoordinate,
+                    selected: selected
+                )
+                favoriteName = model.suggestedFavoriteName()
+                showFavoriteName = true
+            } label: { Image(systemName: "star") }
+            .buttonStyle(.bordered)
+        }
     }
 
     private func fitRoute() {

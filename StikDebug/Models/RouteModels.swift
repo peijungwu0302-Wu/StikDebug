@@ -33,6 +33,16 @@ enum MapSinglePointCardPriority {
     }
 }
 
+/// Classic map cards keep the active simulation visible unless the user has
+/// selected a different target, in which case that target's actions take
+/// precedence so it can be simulated directly.
+enum ClassicRouteMapCardSelection {
+    static func selectedCandidate(active: RouteCoordinate?, selected: RouteCoordinate?) -> RouteCoordinate? {
+        guard let selected, selected != active else { return nil }
+        return selected
+    }
+}
+
 /// A stable, JSON based route clipboard format. The existing coordinate
 /// importer can read the `waypoints` coordinate objects, while the metadata
 /// remains available for future import implementations.

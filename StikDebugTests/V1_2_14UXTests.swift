@@ -43,6 +43,27 @@ struct V1_2_14UXTests {
         #expect(MapSinglePointCardPriority.coordinate(active: active, selected: nil) == active)
     }
 
+    @Test @MainActor func classicActiveASelectedBShowsAndRetargetsSelectedB() async {
+        let active = RouteCoordinate(latitude: 25, longitude: 121)
+        let candidate = RouteCoordinate(latitude: 35, longitude: 139)
+        let cardCandidate = ClassicRouteMapCardSelection.selectedCandidate(active: active, selected: candidate)
+        #expect(cardCandidate == candidate)
+
+        let sink = ClassicRetargetLocationSink()
+        let model = RouteLocationModel(simulationService: sink)
+        model.testSetSimulationModeForTesting(.singlePoint(active))
+        model.selectedCoordinate = candidate
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            model.testTeleportCompletion = { continuation.resume() }
+            model.requestSinglePointSimulation(at: cardCandidate)
+        }
+
+        #expect(model.activeSimulatedCoordinate == candidate)
+        #expect(await sink.coordinatesWritten() == [candidate])
+        #expect(await sink.clearCallCount() == 0)
+        await model.returnToRealLocation()
+    }
+
     @Test @MainActor func routeDraftMutationsAreRejectedUntilPlaybackStops() async throws {
         let model = RouteLocationModel(simulationService: NoopLocationSink())
         let a = RouteCoordinate(latitude: 25, longitude: 121)
@@ -153,14 +174,20 @@ struct V1_2_14UXTests {
         model.stopRoutePlayback()
     }
 
-    @Test @MainActor func coordinateAlertPasteLayoutKeepsPasteVisibleFromPresentation() {
+    @Test @MainActor func coordinateAlertPasteLayoutKeepsPasteVisibleFromPresentation() throws {
         let field = UITextField()
         let pasteControl = CoordinateAlertPasteControl.install(on: field)
+        let container = #require(field.rightView)
 
         #expect(field.rightViewMode == .always)
-        #expect(field.rightView != nil)
-        #expect(pasteControl.superview === field.rightView)
-        #expect(field.rightView?.constraints.contains(where: { $0.firstAttribute == .width }) == true)
+        #expect(container.frame.width > 0)
+        #expect(container.frame.height > 0)
+        #expect(container.bounds.width > 0)
+        #expect(container.bounds.height > 0)
+        #expect(pasteControl.superview === container)
+        container.layoutIfNeeded()
+        #expect(pasteControl.frame.width > 0)
+        #expect(pasteControl.frame.height > 0)
     }
 
     @Test func playbackRepeatModesRoundTripAndMigrateLegacyValues() throws {
@@ -793,6 +820,22 @@ private actor AsyncGate {
 private actor NoopLocationSink: LocationSimulationSink {
     func setCoordinate(_ coordinate: RouteCoordinate) async throws {}
     func clearSimulatedLocation() async throws {}
+}
+
+private actor ClassicRetargetLocationSink: LocationSimulationSink {
+    private var coordinates: [RouteCoordinate] = []
+    private var clearCalls = 0
+
+    func setCoordinate(_ coordinate: RouteCoordinate) async throws {
+        coordinates.append(coordinate)
+    }
+
+    func clearSimulatedLocation() async throws {
+        clearCalls += 1
+    }
+
+    func coordinatesWritten() -> [RouteCoordinate] { coordinates }
+    func clearCallCount() -> Int { clearCalls }
 }
 
 private actor FailingSequenceSink: LocationSimulationSink {
