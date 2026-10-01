@@ -610,7 +610,9 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func previewRoute(_ route: SavedRoute) {
-        guard !isAnyRouteActive else { showRouteEditingLockedMessage(); return }
+        // Previewing a different saved route is read-only with respect to the
+        // immutable active playback snapshot.  Starting or editing it remains
+        // guarded by the route-switch/edit flows.
         previewingRoute = route
         mapFocusRevision = UUID()
     }

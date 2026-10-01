@@ -1276,8 +1276,10 @@ struct SharedRouteDraftAndUITests {
         #expect(model.playback.state == .running)
 
         model.clearCurrentDraft()
-        #expect(model.waypoints.isEmpty)
+        #expect(model.waypoints == points)
+        #expect(model.geometry == RouteBuilder.straightGeometry(waypoints: points, closedLoop: model.isClosedLoop))
         #expect(model.playback.state == .running)
+        #expect(model.statusMessage == L10n.text("路線播放中，請先停止路線再編輯。"))
         model.playback.stop()
     }
 
