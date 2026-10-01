@@ -224,7 +224,7 @@ final class CoordinateEntryModalViewController: UIViewController {
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textColor = .label
         titleLabel.textAlignment = .center
-        titleLabel.accessibilityAddTraits(.header)
+        titleLabel.accessibilityTraits = .header
 
         subtitleLabel.text = L10n.text("支援座標或 Google Maps 連結")
         subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
