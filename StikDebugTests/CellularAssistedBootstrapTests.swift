@@ -286,11 +286,57 @@ struct CellularAssistedBootstrapTests {
     private final class MockLocationSink: LocationSimulationSink, @unchecked Sendable {
         var lastInjectedCoordinate: RouteCoordinate?
         var setCoordinateCallCount: Int = 0
+        private let coordinateWriteSignal = CoordinateWriteSignal()
+
         func setCoordinate(_ coordinate: RouteCoordinate) async throws {
             lastInjectedCoordinate = coordinate
             setCoordinateCallCount += 1
+            await coordinateWriteSignal.signal()
         }
+
         func clearSimulatedLocation() async throws {}
+
+        func waitForCoordinateWrite(timeout: Duration = .seconds(2)) async -> Bool {
+            await coordinateWriteSignal.wait(timeout: timeout)
+        }
+    }
+
+    private actor CoordinateWriteSignal {
+        private var signaled = false
+        private var waiters: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+        func signal() {
+            signaled = true
+            waiters.values.forEach { _ = $0.yield(()) }
+            waiters.removeAll()
+        }
+
+        func wait(timeout: Duration) async -> Bool {
+            if signaled { return true }
+            let id = UUID()
+            let (stream, continuation) = AsyncStream<Void>.makeStream()
+            waiters[id] = continuation
+            let result = await withTaskGroup(of: Bool.self) { group in
+                group.addTask {
+                    for await _ in stream { return true }
+                    return false
+                }
+                group.addTask {
+                    do {
+                        try await Task.sleep(for: timeout)
+                        return false
+                    } catch {
+                        return true
+                    }
+                }
+                let result = await group.next() ?? false
+                group.cancelAll()
+                return result
+            }
+            continuation.finish()
+            waiters.removeValue(forKey: id)
+            return result
+        }
     }
 
     // MARK: - 8. Review Blocker Fix Validation (Blocker N)
@@ -1320,7 +1366,7 @@ struct CellularAssistedBootstrapTests {
 
     // MARK: - 14. RouteLocation v1.2.11 Coordination & Correctness Tests
 
-    @Test func test_v1211_healthyDVT_proceedsWithNeedsLocationWrite_teleportWritesLocationOnce() async {
+    @Test @MainActor func test_v1211_healthyDVT_proceedsWithNeedsLocationWrite_teleportWritesLocationOnce() async {
         let monitor = ConnectionMonitor.shared
         monitor.updateForTesting(transport: .cellular, isWifiAvailable: false, isCellularAvailable: true, deviceSession: .connected)
         LocationDataPathHealth.shared.recordSuccess()
@@ -1341,7 +1387,7 @@ struct CellularAssistedBootstrapTests {
         let target = RouteCoordinate(latitude: 25.01, longitude: 121.51)
 
         model.requestSinglePointSimulation(at: target)
-        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await sink.waitForCoordinateWrite())
 
         #expect(model.locationAlreadyWrittenByBootstrap == nil)
         #expect(sink.lastInjectedCoordinate == target)
@@ -1401,7 +1447,7 @@ struct CellularAssistedBootstrapTests {
         ShortcutBootstrapService.shared.cellularBootstrapPolicy = .auto
     }
 
-    @Test func test_v1211_assistedFullSuccess_setsLocationAlreadyWritten_avoidsDuplicateWrite() async {
+    @Test @MainActor func test_v1211_assistedFullSuccess_setsLocationAlreadyWritten_avoidsDuplicateWrite() async {
         let target = RouteCoordinate(latitude: 25.04, longitude: 121.54)
         let sink = MockLocationSink()
         let model = RouteLocationModel(simulationService: sink)
@@ -1416,8 +1462,12 @@ struct CellularAssistedBootstrapTests {
             completion(.success(.locationAlreadyWritten))
         }
 
+        let teleportCompleted = CoordinateWriteSignal()
+        model.testTeleportCompletion = {
+            Task { await teleportCompleted.signal() }
+        }
         model.requestSinglePointSimulation(at: target)
-        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await teleportCompleted.wait(timeout: .seconds(2)))
 
         // After teleport finishes consuming the marker:
         #expect(model.locationAlreadyWrittenByBootstrap == nil)

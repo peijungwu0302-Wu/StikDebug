@@ -99,6 +99,8 @@ final class RouteLocationModel: ObservableObject {
     #if DEBUG
     var testPlaybackAfterBootstrapCompletion: (@MainActor () -> Void)?
     var testPlaybackStartInvocationCount: Int = 0
+    var testRetryDelayHandler: (@MainActor (TimeInterval) async throws -> Void)?
+    var testTeleportCompletion: (@MainActor () -> Void)?
     #endif
     private static let speedKey = "RouteLocation.lastSpeedKmh"
     private static let mapStyleKey = "RouteLocation.mapInteractionStyle"
@@ -907,6 +909,7 @@ final class RouteLocationModel: ObservableObject {
             guard generation == singlePointRetargetGeneration else { return }
             startSinglePointHold(at: target)
             statusMessage = L10n.text("已成功模擬所選位置。")
+            notifyTeleportCompletionForTesting()
             await recordRecent(coordinate: target, kind: "simulate", retargetGeneration: generation)
             return
         }
@@ -922,10 +925,15 @@ final class RouteLocationModel: ObservableObject {
         )
 
         do {
-            try await setCoordinateWithBoundedRecovery(target, skipLegacyTransportRecovery: forceStaleSessionRecovery)
+            try await setCoordinateWithBoundedRecovery(
+                target,
+                skipLegacyTransportRecovery: forceStaleSessionRecovery,
+                retargetGeneration: generation
+            )
             guard generation == singlePointRetargetGeneration else { return }
             startSinglePointHold(at: target)
             statusMessage = L10n.text("已成功模擬所選位置。")
+            notifyTeleportCompletionForTesting()
             await recordRecent(coordinate: target, kind: "simulate", retargetGeneration: generation)
         } catch {
             // A newer request may have taken ownership while the old write
@@ -948,6 +956,7 @@ final class RouteLocationModel: ObservableObject {
                     guard generation == singlePointRetargetGeneration else { return }
                     startSinglePointHold(at: target)
                     statusMessage = L10n.text("已成功模擬所選位置。")
+                    notifyTeleportCompletionForTesting()
                     await recordRecent(coordinate: target, kind: "simulate", retargetGeneration: generation)
                     return
                 } catch {
@@ -1094,28 +1103,61 @@ final class RouteLocationModel: ObservableObject {
 
     private func setCoordinateWithBoundedRecovery(
         _ coordinate: RouteCoordinate,
-        skipLegacyTransportRecovery: Bool = false
+        skipLegacyTransportRecovery: Bool = false,
+        retargetGeneration: Int? = nil
     ) async throws {
         let delays: [TimeInterval] = [0, 0.5, 1, 2]
         var lastError: Error?
         for (index, delay) in delays.enumerated() {
+            try ensureRetargetGenerationIsCurrent(retargetGeneration)
             if delay > 0 {
-                do { try await Task.sleep(for: .seconds(delay)) } catch { throw error }
+                do {
+                    try await waitForBoundedRecoveryDelay(delay, retargetGeneration: retargetGeneration)
+                } catch {
+                    throw error
+                }
+                try ensureRetargetGenerationIsCurrent(retargetGeneration)
             }
+            try ensureRetargetGenerationIsCurrent(retargetGeneration)
             do {
+                try ensureRetargetGenerationIsCurrent(retargetGeneration)
                 try await simulationService.setCoordinate(coordinate)
+                try ensureRetargetGenerationIsCurrent(retargetGeneration)
                 return
             } catch {
+                try ensureRetargetGenerationIsCurrent(retargetGeneration)
                 lastError = error
                 TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
                 guard PlaybackReconnectPolicy.shouldRetry(error) else { throw error }
                 if skipLegacyTransportRecovery { throw error }
+                try ensureRetargetGenerationIsCurrent(retargetGeneration)
                 connectionMonitor.reportSession(.reconnecting(attempt: index + 1))
+                try ensureRetargetGenerationIsCurrent(retargetGeneration)
                 markTunnelDisconnected()
+                try ensureRetargetGenerationIsCurrent(retargetGeneration)
                 startTunnelInBackground(showErrorUI: false)
             }
         }
         throw lastError ?? LocationSimulationError.deviceTunnelUnavailable
+    }
+
+    private func waitForBoundedRecoveryDelay(
+        _ delay: TimeInterval,
+        retargetGeneration: Int?
+    ) async throws {
+        #if DEBUG
+        if retargetGeneration != nil, let handler = testRetryDelayHandler {
+            try await handler(delay)
+            return
+        }
+        #endif
+        try await Task.sleep(for: .seconds(delay))
+    }
+
+    private func ensureRetargetGenerationIsCurrent(_ generation: Int?) throws {
+        guard generation == nil || generation == singlePointRetargetGeneration else {
+            throw RetargetOperationSuperseded()
+        }
     }
 
     private func loadPersistedData() async {
@@ -1244,4 +1286,14 @@ final class RouteLocationModel: ObservableObject {
         simulationMode = mode
     }
     #endif
+
+    private func notifyTeleportCompletionForTesting() {
+        #if DEBUG
+        let completion = testTeleportCompletion
+        testTeleportCompletion = nil
+        completion?()
+        #endif
+    }
 }
+
+private struct RetargetOperationSuperseded: Error {}

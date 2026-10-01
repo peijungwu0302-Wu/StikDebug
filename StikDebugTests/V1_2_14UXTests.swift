@@ -100,6 +100,38 @@ struct V1_2_14UXTests {
         await model.returnToRealLocation()
     }
 
+    @Test @MainActor func retryAfterFailureCannotWriteStaleRetarget() async throws {
+        let a = RouteCoordinate(latitude: 25, longitude: 121)
+        let b = RouteCoordinate(latitude: 35, longitude: 139)
+        let c = RouteCoordinate(latitude: 37, longitude: -122)
+        let sink = RetryAfterFailureRetargetSink(failingCoordinate: b)
+        let model = RouteLocationModel(
+            persistence: RoutePersistenceStore(rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            simulationService: sink
+        )
+        let retryStarted = AsyncSignal()
+        let retryGate = AsyncGate()
+        model.testRetryDelayHandler = { delay in
+            guard delay > 0 else { return }
+            await retryStarted.signal()
+            await retryGate.wait()
+        }
+
+        await model.executeTeleport(to: a)
+        let staleB = Task { @MainActor in await model.executeTeleport(to: b) }
+        #expect(await retryStarted.wait(timeout: .seconds(2)))
+
+        await model.executeTeleport(to: c)
+        await retryGate.signal()
+        await staleB.value
+
+        #expect(await sink.writeCount(for: b) == 1)
+        #expect(model.activeSimulatedCoordinate == c)
+        #expect(model.recentLocations.first?.coordinate == c)
+        #expect(!model.recentLocations.contains(where: { $0.coordinate == b }))
+        await model.returnToRealLocation()
+    }
+
     @Test func favoriteSortPolicySupportsManualAndDistance() {
         let origin = RouteCoordinate(latitude: 25, longitude: 121)
         let near = FavoriteLocation(name: "Near", coordinate: origin)
@@ -468,6 +500,28 @@ private actor DelayedRetargetSink: LocationSimulationSink {
     func releaseBlockedWrite() async { await release.signal() }
 }
 
+private actor RetryAfterFailureRetargetSink: LocationSimulationSink {
+    private let failingCoordinate: RouteCoordinate
+    private var writes: [RouteCoordinate: Int] = [:]
+
+    init(failingCoordinate: RouteCoordinate) {
+        self.failingCoordinate = failingCoordinate
+    }
+
+    func setCoordinate(_ coordinate: RouteCoordinate) async throws {
+        writes[coordinate, default: 0] += 1
+        if coordinate == failingCoordinate, writes[coordinate] == 1 {
+            throw LocationSimulationError.updateFailure(code: 901)
+        }
+    }
+
+    func clearSimulatedLocation() async throws {}
+
+    func writeCount(for coordinate: RouteCoordinate) -> Int {
+        writes[coordinate, default: 0]
+    }
+}
+
 private actor TestPlaceGeocodingClient: PlaceGeocodingClient {
     private let shouldFail: Bool
     private let blockRequests: Bool
@@ -519,10 +573,46 @@ private actor TestPlaceGeocodingClient: PlaceGeocodingClient {
 private actor AsyncSignal {
     private var continuation: CheckedContinuation<Void, Never>?
     private var signaled = false
-    func signal() { signaled = true; continuation?.resume(); continuation = nil }
+    private var streamWaiters: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    func signal() {
+        signaled = true
+        continuation?.resume()
+        continuation = nil
+        streamWaiters.values.forEach { _ = $0.yield(()) }
+        streamWaiters.removeAll()
+    }
+
     func wait() async {
         if signaled { return }
         await withCheckedContinuation { continuation = $0 }
+    }
+
+    func wait(timeout: Duration) async -> Bool {
+        if signaled { return true }
+        let id = UUID()
+        let (stream, streamContinuation) = AsyncStream<Void>.makeStream()
+        streamWaiters[id] = streamContinuation
+        let result = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in stream { return true }
+                return false
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(for: timeout)
+                    return false
+                } catch {
+                    return true
+                }
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+        streamContinuation.finish()
+        streamWaiters.removeValue(forKey: id)
+        return result
     }
 }
 

@@ -142,48 +142,22 @@ struct RouteFloatingCard: View {
             }
         }
 
-        Text("\(playback.traveledDistance.formattedCardDistance) / \(model.geometry.totalDistance.formattedCardDistance)")
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-
         let progressTotal = PlaybackMath.completionDistance(total: model.geometry.totalDistance, mode: model.playbackMode)
         let progressValue = progressTotal.isFinite ? playback.traveledDistance : playback.distanceWithinLap
-        ProgressView(value: min(max(progressValue, 0), progressTotal.isFinite ? progressTotal : model.geometry.totalDistance), total: progressTotal.isFinite ? progressTotal : model.geometry.totalDistance)
-            .tint(.blue)
-
-        HStack(spacing: 8) {
-            Button { model.adjustPlaybackSpeed(by: -0.1) } label: { Image(systemName: "minus") }
-                .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
-                .disabled(isReconnecting)
-                .accessibilityLabel(L10n.text("降低速度 0.1 公里每小時"))
-            if isEditingSpeed && !isReconnecting {
-                TextField(L10n.text("速度"), text: $editedSpeed)
-                    .keyboardType(.decimalPad)
-                    .focused($speedFieldFocused)
-                    .textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.center)
-                    .frame(width: 68)
-                    .onSubmit { commitSpeedEdit() }
-                    .accessibilityLabel(L10n.text("播放速度"))
-            } else {
-                Button {
-                    beginSpeedEdit()
-                } label: {
-                    Text(playback.speedKmh.formatted(.number.precision(.fractionLength(1))))
-                        .monospacedDigit()
-                        .frame(minWidth: 48, minHeight: 44)
-                }
-                .buttonStyle(.plain)
-                .disabled(isReconnecting)
-                .accessibilityLabel(L10n.text("播放速度"))
-                .accessibilityHint(L10n.text("點一下編輯速度"))
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(playback.traveledDistance.formattedCardDistance) / \(model.geometry.totalDistance.formattedCardDistance)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                ProgressView(
+                    value: min(max(progressValue, 0), progressTotal.isFinite ? progressTotal : model.geometry.totalDistance),
+                    total: progressTotal.isFinite ? progressTotal : model.geometry.totalDistance
+                )
+                .tint(.blue)
+                .frame(minWidth: 120)
             }
-            Button { model.adjustPlaybackSpeed(by: 0.1) } label: { Image(systemName: "plus") }
-                .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
-                .disabled(isReconnecting)
-                .accessibilityLabel(L10n.text("提高速度 0.1 公里每小時"))
-            Text("km/h").font(.caption).foregroundStyle(.secondary)
-            Spacer()
+            Spacer(minLength: 4)
+            activeSpeedControl(isReconnecting: isReconnecting)
         }
         if let current = model.activeSimulatedCoordinate {
             HStack {
@@ -246,6 +220,50 @@ struct RouteFloatingCard: View {
         case .infiniteLoop: return L10n.format("第 %d 圈 · ∞", playback.lapNumber)
         case .finite(let count): return L10n.format("第 %d / %d 圈", playback.lapNumber, count)
         }
+    }
+
+    @ViewBuilder
+    private func activeSpeedControl(isReconnecting: Bool) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 2) {
+                Button { model.adjustPlaybackSpeed(by: -0.1) } label: { Image(systemName: "minus") }
+                    .buttonStyle(.bordered)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .disabled(isReconnecting)
+                    .accessibilityLabel(L10n.text("降低速度 0.1 公里每小時"))
+                if isEditingSpeed && !isReconnecting {
+                    TextField(L10n.text("速度"), text: $editedSpeed)
+                        .keyboardType(.decimalPad)
+                        .focused($speedFieldFocused)
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 68)
+                        .onSubmit { commitSpeedEdit() }
+                        .accessibilityLabel(L10n.text("播放速度"))
+                } else {
+                    Button {
+                        beginSpeedEdit()
+                    } label: {
+                        Text(playback.speedKmh.formatted(.number.precision(.fractionLength(1))))
+                            .monospacedDigit()
+                            .frame(minWidth: 48, minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isReconnecting)
+                    .accessibilityLabel(L10n.text("播放速度"))
+                    .accessibilityHint(L10n.text("點一下編輯速度"))
+                }
+                Button { model.adjustPlaybackSpeed(by: 0.1) } label: { Image(systemName: "plus") }
+                    .buttonStyle(.bordered)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .disabled(isReconnecting)
+                    .accessibilityLabel(L10n.text("提高速度 0.1 公里每小時"))
+            }
+            Text("km/h")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
