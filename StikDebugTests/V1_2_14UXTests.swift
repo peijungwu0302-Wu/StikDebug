@@ -177,7 +177,7 @@ struct V1_2_14UXTests {
     @Test @MainActor func coordinateAlertPasteLayoutKeepsPasteVisibleFromPresentation() throws {
         let field = UITextField()
         let pasteControl = CoordinateAlertPasteControl.install(on: field)
-        let container = #require(field.rightView)
+        let container = try #require(field.rightView)
 
         #expect(field.rightViewMode == .always)
         #expect(container.frame.width > 0)
