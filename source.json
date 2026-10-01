@@ -10,7 +10,7 @@
       "bundleIdentifier": "com.routelocation.app",
       "developerName": "peijungwu0302",
       "subtitle": "iOS DVT 定位與路徑模擬工具",
-      "localizedDescription": "專為 iOS 打造的高效能開發者定位模擬與路徑測試工具。支援 DVT 協定、LocalDevVPN、單點瞬移、自訂速度路線模擬及 Apple 健康步數同步。完全本機運作，無遙測與個資收集。",
+      "localizedDescription": "iOS 本機定位模擬與路線測試工具，支援單點與自訂速度路線模擬，需搭配有效配對檔案及 LocalDevVPN。DDI 為選用的開發者服務元件。Health Sync 為選用功能，步數寫入需相容的 HealthKit 簽名能力。無帳號、分析、遙測、自訂後端或路線上傳。",
       "iconURL": "https://raw.githubusercontent.com/peijungwu0302-Wu/StikDebug/main/assets/StikDebug.png",
       "tintColor": "#007AFF",
       "versions": [

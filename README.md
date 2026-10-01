@@ -1,233 +1,103 @@
 # RouteLocation
 
-RouteLocation is an iPhone-side location and route simulation app derived from [StikDebug](https://github.com/StikDebug/StikDebug). It keeps StikDebug's proven pairing, LocalDevVPN loopback tunnel, Developer Disk Image, `idevice` FFI, RSD/DVT, and location-simulation core, while presenting a focused, local-first route workflow.
+繁體中文 | [English](README.en.md)
 
-RouteLocation is intended for sideloading, not App Store distribution. It has no account, analytics, telemetry, cloud database, or custom backend.
+RouteLocation 是一款 iPhone 本機定位模擬與路線播放工具。你可以選擇座標或地點、在裝置上建立路線，並以自訂速度播放。RouteLocation 是 StikDebug 的 location-only 衍生版本；不需要帳號、自訂後端或雲端同步。
 
-Latest public unsigned IPA (no GitHub login): https://github.com/peijungwu0302-Wu/StikDebug/releases/latest/download/RouteLocation-unsigned.ipa
+## 安裝
 
-The app's development, fallback, and first-launch language is Traditional Chinese. A complete English localization can be selected from RouteLocation's Settings tab.
+在 SideStore 的來源管理中加入官方來源：
 
-## SideStore Source 安裝與更新
+<https://raw.githubusercontent.com/peijungwu0302-Wu/StikDebug/main/source.json>
 
-RouteLocation 提供官方 SideStore / AltStore Source，支援在 SideStore 內直接一鍵加入軟體來源與檢視發行版本。
+之後可由來源頁面安裝及更新 RouteLocation。也可以下載最新未簽名 IPA，再使用 SideStore、AltStore、TrollStore 或其他相容工具簽署：
 
-- **一鍵加入 SideStore Source**（在 iOS 裝置上的 Safari 點擊）：
-  [`sidestore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2Fpeijungwu0302-Wu%2FStikDebug%2Fmain%2Fsource.json`](sidestore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2Fpeijungwu0302-Wu%2FStikDebug%2Fmain%2Fsource.json)
-- **手動複製 Source URL**：
-  ```
-  https://raw.githubusercontent.com/peijungwu0302-Wu/StikDebug/main/source.json
-  ```
+<https://github.com/peijungwu0302-Wu/StikDebug/releases/latest/download/RouteLocation-unsigned.ipa>
 
-> [!NOTE]
-> - **使用者自主決定**：RouteLocation 不會自動更新、不具備強制更新機制、不自行安裝 IPA，亦不會因版本較舊而限制或鎖定任何既有功能。
-> - **簽名與更新**：下載、重新簽名、安裝、覆蓋更新與每 7 天刷新均由 SideStore 完全主導。
-> - **手動 IPA 下載**：您仍可隨時前往 [GitHub Releases](https://github.com/peijungwu0302-Wu/StikDebug/releases) 或直接下載最新未簽名版本：[RouteLocation-unsigned.ipa](https://github.com/peijungwu0302-Wu/StikDebug/releases/latest/download/RouteLocation-unsigned.ipa)。
+GitHub Releases 是各版本變更紀錄的正式來源。
 
+## 功能
 
-## RouteLocation 1.2.7 特性亮點
+- 以地圖、搜尋、收藏或精確座標選取單點位置。
+- 建立、預覽、儲存及播放多航點路線；支援直線與 Apple Maps 導航幾何。
+- 調整播放速度、暫停／繼續、有限或無限圈數，並在定位連線恢復時保留路線進度。
+- 在單點與路線播放間直接切換，不必先恢復真實位置。
+- 管理收藏地點、最近位置及已儲存路線。
+- 選擇繁體中文或英文、隨系統／淺色／深色外觀，以及只影響唯讀座標值的文字大小。
 
-- **配對檔案維護增強 (Pairing Maintenance)**：
-  - 支援內容導向驗證（副檔名無關，支援 `.plist`、`.xml`、`.mobiledevicepairing`、`.mobiledevicepair`）。
-  - 完整校驗 Apple 配對憑證字典欄位（`DeviceCertificate`、`HostCertificate`、`HostID`、`RootCertificate`、`SystemBUID`）。
-  - 安全原子替換（失敗時絕不覆蓋損壞既有合法配對檔）。
-  - 標準儲存於 `Application Support/Pairing/pairingFile.plist`，支援啟動自動遷移。
-  - 啟用 `LSSupportsOpeningDocumentsInPlace` 與 `UIFileSharingEnabled`，改善與 iLoader / 檔案 App 的檔案互通性。
-  - 提供重新驗證與安全移除功能。
-- **側載簽名狀態與安裝身分 (Signing Status & Installation Identity)**：
-  - 直接解析 `embedded.mobileprovision` PKCS#7 結構，取得真實到期時間、剩餘時間、開發者團隊 ID 與 Entitlements。
-  - 每次冷啟動與回到前景自動重新校驗。
-  - 產生去識別化的容器識別雜湊（`Container Identity Hash`，例如 `A81F-92C3`），診斷報告中自動遮蔽原始容器路徑。
-- **實驗性自我重新整理 (Experimental Self Refresh)**：
-  - 手動專用續期工具，僅針對 RouteLocation 本身（1.2.7 -> 1.2.7），不升級版本、不影響其他 App。
-  - 嚴格前置檢查：需要 Wi-Fi 與 LocalDevVPN，封鎖行動網路單獨重新整理。
-  - 模擬安全保護：重新整理前提示停止模擬並恢復真實位置；若復原失敗則終止重新整理以防止 Error 12。
-  - 下次啟動自動確認：比對到期日變化並記錄操作日誌。提供 `[在 SideStore 中重新整理]` 一鍵捷徑回退。
-- **地圖快速選擇路線 (Map Quick Saved Routes)**：
-  - 地圖 Route 模式新增精簡 `[★ 我的路線]` 按鈕，直接開啟我的路線面板。
-  - 智慧分類排序：最愛路線置頂、最近使用排序、其他已儲存路線。
-  - 點選路線立即在地圖預覽（縮放至完整視野），不自動觸發模擬或 DVT。
-  - 提供 `[開始路線]`、`[編輯 (前往路線分頁)]`、`[取消預覽]` 操作。
-  - 正在執行路線時點選開始其他路線，提供確認切換提示，確認後無縫切換，不重置回真實 GPS。
-  - 自動記錄路線的 `lastUsedAt` 時間戳記。
+## 需求
 
-## Features
+- iPhone 與 iOS 17.4 或以上版本。
+- 在 iPhone 設定中啟用 Developer Mode。
+- 目前這台裝置有效的配對檔案。配對檔案是敏感的信任憑證，請勿分享、提交或上傳。
+- 安裝並啟用 [LocalDevVPN](https://apps.apple.com/us/app/localdevvpn/id6755608044)，以提供 RouteLocation 到裝置服務的本機網路路徑。
+- Wi-Fi 或行動數據皆可；Wi-Fi 並非產品必要條件。
+- 透過 SideStore、AltStore、TrollStore 或其他相容工具安裝並簽署 IPA。
 
-- System-wide developer location simulation and immediate single-point teleport
-- Dual map interaction styles: Classic complete UI (傳統模式) and optional Quick Route Beta (快速路線模式)
-- Direct quick saved route preview and seamless switching in Map Tab (`[★ 我的路線]`)
-- Single source of truth simulation state (`idle`, `singlePoint`, `routePlaying`, `routePaused`) with seamless mode transitions
-- Safe Single Point <-> Route transitions without reverting to real device GPS mid-transition
-- Configurable mode-switch confirmation (Ask First vs Direct Switch)
-- Shared live route draft synchronized across Map and Routes tabs
-- Coordinate selection by map tap, Apple MapKit search, exact coordinate entry, pasted text, imported file, or favorite
-- Multi-waypoint editing, reordering, coordinate editing, and GPX/CSV/JSON/GeoJSON/KML file import
-- Fully local Straight routes with no routing-server dependency
-- Apple `MKDirections` Navigation routes for automobile and walking geometry
-- Complete saved navigation geometry for later playback without recalculation or Internet
-- Precise decimal custom speeds, including **18.6 km/h**
-- Deterministic 0.5-second elapsed-time playback without pre-generating sample arrays
-- Once and Infinite Loop modes with continuous final-to-first closed-route geometry
-- Persistent favorite locations, favorite routes, explicit route naming/renaming, and individually stored saved-route JSON files
-- New routes default to a closed path with Infinite Loop playback; loaded routes preserve their saved behavior
-- Best-effort background playback using StikDebug's audio/location keep-alive infrastructure
-- Wi-Fi/cellular path monitoring, real RSD tunnel health checks, and bounded device-session reconnect that preserves elapsed progress
-- Comprehensive HealthKit step synchronization: Fixed Cadence (e.g. 160 spm) and Distance-based modes, 10-step write verification, and manual step additions
-- Transport-aware session lifecycle management (`LocationSessionCoordinator`) with canonical session IDs and bounded transport history
-- Automatic background pre-warming of tunnel/RSD/DDI upon app launch and foregrounding without modifying simulated coordinates
-- Cellular Bootstrap policies (Auto, Direct Only, Assisted-First) with optional Apple Shortcut automated mode-switching and manual fallbacks
-- Persistent developer diagnostics surviving app termination/relaunch with append-only JSONL files in Application Support
-- User test markers, operational decision tracking (`START_PREWARM`, `SKIP_RECOVERY`, etc.), and privacy-safe de-identified report export
-- Dynamic VPN peer observation and Direct Cellular Delay Lab (0–5000ms delay experimentation)
-- Secret 7-tap gesture unlock for Developer Diagnostics tools in Settings → About
-- Hardened Restore Real Location command with active DVT session reuse, fresh bootstrap fallback, FFI error extraction, single retry, and strict simulation state preservation (resolves Error 12)
-- Real-time sideload signing status monitoring and expiration countdown from `embedded.mobileprovision`
-- Experimental manual self refresh with Wi-Fi + LocalDevVPN preflight and active simulation protection
-- Enhanced pairing file maintenance with multi-format content validation, atomic replacement, and secure container management
-- Setup diagnostics for pairing, LocalDevVPN tunnel stage, DDI, DVT, location simulation, active transport, and Internet reachability
-- Sanitized on-device diagnostic reports that never include pairing credentials or raw container paths
+### DDI 是選用元件
 
-Fixed-speed playback never uses OpenStreetMap/Overpass speed limits or `MKRoute.expectedTravelTime`. `MKDirections` determines geometry only; the selected km/h value controls movement.
+Developer Disk Image（DDI）是 Apple 開發者服務元件。RouteLocation 會以 best-effort 方式檢查及準備 DDI；已掛載時不需重複處理，準備失敗會保留診斷狀態並繼續可用的定位流程。未掛載 DDI 不會阻止一般單點或路線定位模擬。你可在「設定 → 開發者工具」查看狀態或手動檢查／掛載。DDI 不會儲存或取得裝置的真實 GPS 位置。
 
-## Requirements
+## 第一次設定
 
-- iPhone running iOS 17.4 or later
-- Developer Mode enabled
-- A valid pairing file for that same iPhone
-- [LocalDevVPN](https://apps.apple.com/us/app/localdevvpn/id6755608044) running
-- Wi-Fi **or cellular data**; Wi-Fi is not a RouteLocation requirement
-- Developer Disk Image files prepared and mounted by RouteLocation
-- RouteLocation installed through SideStore, AltStore, or another compatible sideloading signer
+1. 在 iPhone 設定中啟用 Developer Mode。
+2. 由 SideStore 來源安裝 RouteLocation，或安裝並簽署未簽名 IPA。
+3. 匯入屬於這台 iPhone 的有效配對檔案。
+4. 啟用 LocalDevVPN，並允許 RouteLocation 使用所需的位置權限。
+5. 回到地圖；在 Wi-Fi 或行動數據可用時選取位置並開始模擬。
 
-The pairing file contains sensitive device-trust credentials. Never post it, commit it, upload it, or send its raw contents to another person. RouteLocation stores it locally and does not log or upload its contents. See the [StikDebug pairing guide](https://github.com/StikDebug/StikDebug-Guide/blob/main/pairing_file.md).
+正常定位流程不要求先掛載 DDI。若裝置通道尚未就緒，請依 App 顯示的設定或連線提示處理。配對、LocalDevVPN 與裝置服務錯誤和 DDI 狀態是分開的。
 
-## First setup
+## Wi-Fi 與行動數據
 
-1. Enable Developer Mode in iOS Settings if it is not already enabled.
-2. Sign and install the unsigned IPA with SideStore or AltStore.
-3. Open RouteLocation and use **Setup → Import Pairing File**.
-4. Start LocalDevVPN and return to RouteLocation.
-5. Confirm Pairing File is Present, Device Tunnel is Connected, and Developer Disk Image is Mounted.
-6. Grant Always location access when requested for the strongest best-effort background behavior.
+Wi-Fi 與行動數據都可用於裝置服務連線；LocalDevVPN 負責 RouteLocation 到同一台 iPhone 的本機通道，不會替其他 App 代理一般網際網路流量。若行動數據冷啟動需要輔助流程，請先在 RouteLocation 設定好 Data Off／Data On 捷徑，並依 App 畫面操作。輔助流程可能暫時關閉行動數據；不要將此步驟誤認為 DDI 必要條件。
 
-Normal use does not require a Windows PC or Mac after those prerequisites are ready.
+Apple 地圖搜尋、未快取地圖圖磚、反向地理編碼與新的導航路線計算可能需要網際網路。直線幾何與已儲存的完整導航幾何可在本機使用。
 
-## Cellular-only workflow
+## 單點與路線模擬
 
-RouteLocation is designed to attempt direct startup with Wi-Fi completely off:
+在地圖選取或輸入一個座標，再按「在此模擬」。目前已模擬單點時可直接改到另一座標，不需要先恢復真實位置。建立路線時可新增航點、選擇直線或導航幾何，調整速度及圈數，預覽後再開始播放。播放中可調整速度、暫停或繼續；連線中斷時 App 會依既有復原流程保留進度。
 
-1. Turn Wi-Fi off in iOS Settings.
-2. Turn Cellular Data on and verify ordinary 4G/5G Internet access.
-3. Connect LocalDevVPN.
-4. Open RouteLocation and confirm **Transport: Cellular**.
-5. Check that the Device Tunnel and DVT session connect, then teleport or start a route.
-6. Put RouteLocation in the background and open the target app. That app's Internet traffic continues over cellular; RouteLocation does not proxy it.
+「恢復真實位置」會停止目前模擬並清除開發者位置覆寫，讓裝置回到真實 GPS。單點與路線間直接切換則保留模擬狀態，不會先切回真實 GPS。
 
-LocalDevVPN remains required. It supplies only the local route from RouteLocation to the device's RSD/DVT services and is separate from ordinary cellular Internet. Actual successful location commands are stronger health evidence than an auxiliary attempt to open a new RSD/bootstrap connection. An `ECONNREFUSED` bootstrap probe therefore does not tear down a DVT session whose location commands still work. Recovery begins only after repeated real command failures, and deterministic playback continues from monotonic elapsed time instead of restarting the route.
+## 收藏與「我的」
 
-If direct cellular bootstrap cannot expose the device service, Setup shows **Cellular Bootstrap Mode**: keep LocalDevVPN enabled, temporarily turn Cellular Data off, and return to RouteLocation. It automatically retries Pairing → Tunnel → RSD → DDI → DVT; after the first location command succeeds, Cellular Data can be restored. RouteLocation cannot automate Cellular Data and does not require Wi-Fi or Airplane Mode.
+「我的」可管理收藏地點、最近位置及已儲存路線。收藏排序（包含手動順序）會同時用於地圖上的快速收藏選擇。資料儲存在本機；移除或重排收藏不會上傳資料。
 
-This offline-bootstrap-then-cellular workflow has been physically confirmed on one iPhone, but remains dependent on iOS version, carrier and LocalDevVPN behavior and is not a universal compatibility guarantee.
+## 外觀、語言與座標文字
 
-## Optional HealthKit step synchronization
+在「設定 → 介面」可選擇繁體中文或英文、隨系統／淺色／深色外觀，以及較小、標準、較大或跟隨系統的座標文字大小。座標文字設定只作用於唯讀的精確座標顯示，不會改變地點名稱、路線、按鈕、一般文字或座標輸入欄位。
 
-Settings → Health Sync provides route-derived step synchronization and on-device diagnostics. It supports two distinct calculation modes:
+## 選用 Health Sync
 
-1. **Fixed Cadence (固定步頻模式)**: Calculates steps based on simulated moving time and an editable cadence (default 160 steps/minute). Paused route time generates zero steps. Fractional sub-step remainders are carried across ticks so no steps are lost.
-2. **Distance-based (距離換算模式)**: Calculates steps directly from newly accumulated simulated distance and an editable stride length (default 0.80 m/step).
+Health Sync 可在路線播放時依時間或距離計算步數並嘗試寫入 Apple 健康。它是選用功能；步數寫入需要目前簽名具備可用的 HealthKit 能力及使用者授權。部分免費側載簽名不含所需 HealthKit entitlement，因此步數同步可能不可用。這不影響單點定位、路線播放或任何定位功能。單點傳送不會記錄步數。
 
-### Diagnostics and Verification
-- **Accurate status reporting**: The app distinguishes among `authorized` (已授權), `denied` (使用者已拒絕授權), `notDetermined` (尚未詢問), `entitlementMissing` (簽名缺少 HealthKit 權限), and `notSupported` (裝置不支援). It never misdiagnoses a user permission denial as a generic signing error.
-- **10-Step Write Test (測試寫入 10 步)**: A dedicated button in Setup runs a real write test of 10 steps spanning the last 60 seconds. It verifies actual write permissions and shows the exact timestamp and write outcome directly in the UI.
-- **Manual Add Steps Tool (手動補登步數)**: Allows adding arbitrary steps (1–10,000) over a chosen duration (e.g. 15 minutes) with an explicit confirmation dialog.
-- **Isolation & Deduplication**: Teleporting generates no steps. Device tunnel reconnects and cellular handovers do not double-count distance or steps. Any HealthKit error, missing entitlement, or write failure is isolated and will never interrupt or degrade location simulation.
+## 背景播放限制
 
-SideStore/AltStore free provisioning may not preserve HealthKit capability. In that case RouteLocation truthfully reports that the current signature lacks the HealthKit entitlement while location features continue normally. Written samples retain RouteLocation as their source and third-party apps may choose not to count them.
+背景播放受 iOS 管理，屬於 best-effort。強制結束 App、iOS 終止程序、重新啟動裝置、LocalDevVPN 中斷或其他系統狀況都可能停止播放。RouteLocation 不會因為畫面切換或 App 進入背景就主動停止播放，也不能控制其他 App 的 VPN。
 
-RouteLocation uses no NextDNS, custom DNS blocking, backend server, analytics or telemetry. SideStore/AltStore performs user-side signing, installation and seven-day refresh; RouteLocation never asks for Apple ID, Anisette data, certificates or account passwords.
+## 隱私
 
-If iLoader's **Manage Pairing File** screen does not list RouteLocation, use iLoader's **Export** action for the same iPhone or iPad. Transfer the exported pairing file to the device, then import it from **RouteLocation → 設定 → 匯入配對檔案**. Do not use another device's file, and do not rely on iLoader's app-specific **Place** list recognizing RouteLocation's bundle identifier.
+RouteLocation 將收藏與路線儲存在本機，沒有帳號、分析、遙測、自訂後端、CloudKit 或路線上傳。只有在你使用地圖顯示、搜尋、導航計算或地點／地址查詢時，才會連接 Apple 服務。配對檔案內容不會上傳。
 
-## Normal use
+## 從原始碼建置
 
-### Map Interaction Styles (Classic vs Quick Route Beta)
-You can choose your preferred map interface under **Settings → Interface & Interaction**:
-- **Classic UI (傳統模式)**: The full-featured interface with comprehensive route inspection sheets, coordinate lists, and settings.
-- **Quick Route Beta (快速路線模式)**: A streamlined interface with an uncluttered map and a collapsible bottom card:
-  - **Collapsible Bottom Card (伸縮底部視窗)**: Tap the expand/collapse button to shrink the bottom card into a slim, single-row action bar to maximize map visibility.
-  - **Mode switcher**: Toggle between **[單點] (Single Point)** and **[路線] (Route)** seamlessly with a segmented picker.
-  - **Single Point candidate selection**: Map tap places a candidate pin without immediate teleportation; tap **[在此模擬]** when ready.
-  - **Active Route Mini Player**: When a route is playing, a compact player displays route name, lap count, distance, speed, and Stop control directly on the map.
-  - **DVT-safe Search**: MapKit search is completely isolated from DVT recovery, allowing searches on cellular without disrupting ongoing simulations.
-  - **Quick waypoint addition & Undo**: Tap directly on the map in Route mode to place numbered waypoints (①, ②, ③); use one-tap Undo to remove the last point.
-  - **Clear Draft & Save**: Clear draft or save with custom names; waypoints remain synchronized with the Routes tab.
-
-### Cellular & Airplane Mode Bootstrap Guidance
-When establishing a *new* session on pure Cellular Data (no Wi-Fi), iOS LocalDevVPN bootstrap can be blocked by cellular routing. RouteLocation detects this condition and automatically presents a **Bootstrap Preflight Sheet**:
-1. Temporarily turn Cellular Data OFF or turn Airplane Mode ON.
-2. Tap **[我已完成，重新檢查]** to establish Pairing → Tunnel → DDI → DVT over the local VPN loopback.
-3. Once the tunnel is verified and ready, an auto-dismissing toast alerts you that the channel is ready, and you can safely turn Cellular Data back ON.
-4. An active, healthy DVT session will never be disrupted by subsequent NWPath changes or map search activity.
-RouteLocation uses a unified single source of truth for its simulation state (`idle`, `singlePoint`, `routePlaying`, `routePaused`):
-- **Single Point → Route**: When currently in single-point teleportation, tapping **Start Route** smoothly transitions into route playback. The simulated location directly tracks the route without ever resetting to the physical device GPS mid-transition.
-- **Route → Single Point**: When a route is playing or paused, selecting a single point and confirming teleportation stops the route and directly pins the location to the chosen point. Under **Settings → Mode Switch Confirmation**, you can choose between **Ask First (切換前詢問)** (default: prompts a confirmation alert) or **Direct Switch (直接切換)**. In all cases, the real device GPS is never restored during the switch.
-- **Return to Real Location (返回真實位置)**: This is the ONLY operation that issues `clear_simulated_location()` to release developer location override and restore real hardware GPS.
-
-### Route Playback
-Open RouteLocation → load a favorite route → set **18.6 km/h** → select **Infinite Loop** → Start Playback → switch to another app. The Map tab shows the route name, current simulated position, distance, speed, and lap number when RouteLocation is foregrounded. It also provides distinct Stop, Clear Route, and Return to Real Location actions.
-
-To teleport, tap the map or search for a place and choose **Simulate Here**. **Return to Real Location** clears the developer-simulated location.
-
-### Straight Route
-
-Straight geometry connects waypoints in their entered order. Closing a route explicitly adds the final-waypoint-to-first-waypoint segment. Geometry creation and playback are local and require no routing server or Internet connection once the coordinates exist.
-
-### Navigation Route
-
-Navigation mode resolves every adjacent waypoint pair independently with Apple `MKDirections`; a closed route also resolves the last-to-first pair. A failed segment identifies its waypoint pair and no partial geometry replaces the existing route.
-
-Calculating or recalculating a Navigation route requires Internet. Saving stores all resolved polyline coordinates. Loading the saved route later uses those cached coordinates directly and does not call `MKDirections` unless **Calculate with Apple Maps** is explicitly selected again.
-
-Changing a waypoint, transport mode, or closed/open state marks navigation geometry stale. Changing speed, playback mode, or route name does not.
-
-## Offline behavior
-
-Saved favorites, Straight routes, saved Navigation geometry, custom speed, infinite looping, and DVT playback remain available without Internet as long as LocalDevVPN and the on-device services are reachable. Apple search, new navigation calculations, and uncached map tiles may fail while offline. Wi-Fi is never required by RouteLocation, and an Internet-offline status does not block cached-route playback.
-
-## Background limitations
-
-Background playback is critical but necessarily best-effort under iOS. RouteLocation acquires silent-audio, low-accuracy Core Location, and renewable background-task resources only while teleport or route playback is active, and releases them when simulation stops.
-
-Force-quitting RouteLocation stops it. iOS process termination, reboot, a broken LocalDevVPN tunnel, DDI/device-service failure, or other system conditions may also stop simulation. RouteLocation does not claim permanent execution and cannot automate another app's VPN controls.
-
-## Build from source
-
-Xcode on macOS is required for an actual iOS build:
+實際 iOS 建置需要 macOS 與 Xcode：
 
 ```sh
 xcodebuild -project StikDebug.xcodeproj -scheme StikDebug \
-  -configuration Debug -destination 'generic/platform=iOS' \
+  -configuration Release -destination 'generic/platform=iOS' \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
-The historical project/target/module name remains `StikDebug` to minimize risk to upstream project structure; the built product and display name are `RouteLocation.app` / RouteLocation. Product-facing names are centralized in `ProductIdentity.swift` and Xcode build settings.
+GitHub Actions 會在功能分支執行測試、封存及 IPA 打包；正式版本由已驗證的同一個 IPA artifact 進行 promotion，不會在正式 tag 重建。未簽名 IPA 不包含個人 Apple ID、簽署憑證或配對檔案。
 
-### GitHub Actions unsigned IPA
+## 測試界線
 
-Open **Actions → Build RouteLocation IPA → Run workflow**. The macOS job resolves Swift packages, compiles with signing disabled, runs unit tests on an available iPhone simulator where supported, packages `Payload/RouteLocation.app`, and uploads `RouteLocation-unsigned.ipa`. The IPA contains no personal Apple ID, provisioning profile, signing certificate, or pairing file and is intended to be re-signed by SideStore/AltStore.
+自動化測試涵蓋座標解析、路線幾何與播放、保存／載入、連線復原及其他應用程式邏輯。單元測試不能證明特定 iPhone、電信商、LocalDevVPN、配對檔案、RSD／DVT 或 iOS 背景行為；這些仍須在實機上驗證。請勿將 CI 或模擬器結果當作所有裝置上的保證。
 
-Build artifacts require GitHub sign-in. Tagged releases publish both a versioned IPA and stable `RouteLocation-unsigned.ipa` on the public **Releases** page. The stable latest URL is https://github.com/peijungwu0302-Wu/StikDebug/releases/latest/download/RouteLocation-unsigned.ipa.
+## 致謝與授權
 
-## Security and privacy
+RouteLocation 是 Stephen Bove（Stik）及貢獻者所開發 **StikDebug** 的衍生版本，保留上游裝置通訊核心與授權。`idevice` 相關工作歸功於 jkcoxson 及其貢獻者；其他上游與套件致謝請見原始碼及授權文件。
 
-RouteLocation stores favorites and routes under its Application Support directory. Favorites use one atomic JSON file; each route has an independent atomically written JSON file so one interrupted write cannot corrupt every route. Coordinates are not uploaded except to normal Apple MapKit services when you explicitly request search or navigation calculation. Pairing contents are never displayed or intentionally logged.
-
-## Testing boundary
-
-Unit tests cover parsing, geometry/cumulative distances, binary-search interpolation, straight/closed construction, playback math, transport classification/transitions, retry policy, healthy/stale handoff behavior, elapsed-time reconnect continuity, Codable round trips, and saved geometry reload. Those tests do not prove physical-device cellular RSD/DVT connectivity, pairing, DDI mounting, LocalDevVPN, background survival, or target-app Internet behavior; those require a real iPhone.
-
-## Credits and license
-
-RouteLocation is a derivative of **StikDebug** by Stephen Bove (Stik) and contributors, and does not claim original authorship of its device communication core. The bundled `idevice` work is credited to jkcoxson and its contributors. [TLocation](https://github.com/truongkma/t-location) informed the location-only product scope. Background/network ideas were adapted selectively from StikDebug [PR #432](https://github.com/StikDebug/StikDebug/pull/432) by dizzafizza; the route engine and persistence architecture here were implemented for RouteLocation rather than merging that PR wholesale.
-
-The upstream **GNU Affero General Public License v3.0** is preserved unchanged in [LICENSE](LICENSE) and applies to this derivative.
+本專案依 **GNU Affero General Public License v3.0（AGPL-3.0）** 發行，詳見 [LICENSE](LICENSE)。
