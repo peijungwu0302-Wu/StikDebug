@@ -15,6 +15,24 @@
       "tintColor": "#007AFF",
       "versions": [
         {
+          "version": "1.2.19",
+          "date": "2026-10-01",
+          "size": 6907443,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.19/RouteLocation-v1.2.19-unsigned.ipa",
+          "localizedDescription": "RouteLocation v1.2.19: System/Light/Dark appearance; coordinate-only text size; improved Route Player coordinate width; shared favorite ordering; optional best-effort DDI; optional Health Sync capability messaging; bilingual documentation. / RouteLocation v1.2.19：新增外觀與座標文字大小設定、改善路線座標顯示、共用收藏排序、DDI 選用 best-effort 狀態、Health Sync 能力說明與中英文文件。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        },
+        {
           "version": "1.2.18",
           "date": "2026-10-01",
           "size": 6893669,
