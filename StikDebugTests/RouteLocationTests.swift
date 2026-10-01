@@ -2169,7 +2169,7 @@ struct QuickSavedRoutesTests {
             RouteCoordinate(latitude: 25.045, longitude: 121.515)
         ]
         model.routeName = draftName
-        model.waypoints = draftWaypoints
+        #expect(model.replaceWaypoints(draftWaypoints))
 
         let route = makeRoute(name: "PreviewTest", isFavorite: false, lastUsedAt: nil)
 

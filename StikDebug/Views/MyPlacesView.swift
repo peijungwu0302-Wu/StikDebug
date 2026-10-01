@@ -119,12 +119,13 @@ private struct PlaceInfoSummary: View {
 
     @ViewBuilder
     private func summaryContent(now: Date) -> some View {
-        Group {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
                 if let flag = CountryFlagFormatter.flag(for: info?.countryCode) {
                     Text(flag)
                 }
                 Text(name).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                Spacer(minLength: 0)
             }
             if let info {
                 VStack(alignment: .leading, spacing: 2) {
@@ -160,6 +161,7 @@ private struct PlaceInfoSummary: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var areaText: String? {

@@ -13,6 +13,37 @@ enum CoordinateAlertInputValidation {
     }
 }
 
+/// Builds a stable trailing area for the system paste control. Keeping the
+/// control inside a constrained container gives UIKit a concrete intrinsic
+/// layout before the alert text field begins editing.
+enum CoordinateAlertPasteControl {
+    @MainActor
+    @discardableResult
+    static func install(on textField: UITextField) -> UIPasteControl {
+        let container = UIView(frame: .zero)
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let pasteConfiguration = UIPasteConfiguration(acceptableTypeIdentifiers: [UTType.plainText.identifier])
+        textField.pasteConfiguration = pasteConfiguration
+        let pasteControl = UIPasteControl(configuration: UIPasteControl.Configuration())
+        pasteControl.translatesAutoresizingMaskIntoConstraints = false
+        pasteControl.target = textField
+        pasteControl.accessibilityLabel = L10n.text("貼上座標")
+        container.addSubview(pasteControl)
+        NSLayoutConstraint.activate([
+            container.widthAnchor.constraint(equalToConstant: 46),
+            container.heightAnchor.constraint(equalToConstant: 36),
+            pasteControl.widthAnchor.constraint(equalToConstant: 36),
+            pasteControl.heightAnchor.constraint(equalToConstant: 32),
+            pasteControl.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            pasteControl.centerYAnchor.constraint(equalTo: container.centerYAnchor)
+        ])
+        textField.rightView = container
+        textField.rightViewMode = .always
+        return pasteControl
+    }
+}
+
 /// Presents coordinate entry using the native alert presentation style while
 /// keeping a real system UIPasteControl in the text-field row.  The control
 /// never reads UIPasteboard on presentation; the user must explicitly tap it.
@@ -55,28 +86,15 @@ final class CoordinateAlertHostController: UIViewController {
             message: L10n.text("支援座標或 Google Maps 連結"),
             preferredStyle: .alert
         )
-        let field = UITextField()
-        field.placeholder = "25.033964,121.564468"
-        field.keyboardType = .numbersAndPunctuation
-        field.autocorrectionType = .no
-        field.autocapitalizationType = .none
-        field.clearButtonMode = .whileEditing
         alert.addTextField { textField in
-            textField.placeholder = field.placeholder
-            textField.keyboardType = field.keyboardType
-            textField.autocorrectionType = field.autocorrectionType
-            textField.autocapitalizationType = field.autocapitalizationType
-            textField.clearButtonMode = field.clearButtonMode
-
-            // UIPasteControl is user initiated and preserves iOS paste privacy.
-            let pasteConfiguration = UIPasteConfiguration(acceptableTypeIdentifiers: [UTType.plainText.identifier])
-            textField.pasteConfiguration = pasteConfiguration
-            let pasteControl = UIPasteControl(configuration: UIPasteControl.Configuration())
-            pasteControl.target = textField
-            pasteControl.accessibilityLabel = L10n.text("貼上座標")
-            pasteControl.frame = CGRect(x: 0, y: 0, width: 34, height: 34)
-            textField.rightView = pasteControl
-            textField.rightViewMode = .always
+            textField.placeholder = "25.033964,121.564468"
+            textField.keyboardType = .numbersAndPunctuation
+            textField.autocorrectionType = .no
+            textField.autocapitalizationType = .none
+            // Use one fixed right-side control area; a separate clear button
+            // would compete for the same trailing position in an alert field.
+            textField.clearButtonMode = .never
+            CoordinateAlertPasteControl.install(on: textField)
             textField.addTarget(self, action: #selector(self.coordinateTextDidChange(_:)), for: .editingChanged)
         }
 

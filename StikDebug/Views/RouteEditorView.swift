@@ -157,7 +157,7 @@ struct RouteEditorView: View {
                 do {
                     let values = try CoordinateImportParser.parse(url: url)
                     await MainActor.run {
-                        model.replaceWaypoints(values)
+                        guard model.replaceWaypoints(values) else { return }
                         model.statusMessage = L10n.format("已匯入 %d 個航點。", values.count)
                     }
                 } catch { await MainActor.run { model.presentedError = error.localizedDescription } }

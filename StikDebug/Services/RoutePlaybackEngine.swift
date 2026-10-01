@@ -468,6 +468,8 @@ final class RoutePlaybackEngine: ObservableObject {
     }
 
     #if DEBUG
+    var testRouteGeometryForTesting: RouteGeometry? { geometry }
+
     func testSetStateForTesting(_ newState: PlaybackRunState, currentCoordinate: RouteCoordinate? = nil) {
         if let currentCoordinate {
             self.currentCoordinate = currentCoordinate

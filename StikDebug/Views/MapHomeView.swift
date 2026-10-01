@@ -22,6 +22,7 @@ struct MapHomeView: View {
     @State private var favoriteName = ""
     @State private var favoriteRouteName = ""
     @State private var favoriteCoordinate: RouteCoordinate?
+    @State private var routeSpeedText = ""
     @FocusState private var isSpeedFieldFocused: Bool
 
     var body: some View {
@@ -58,6 +59,9 @@ struct MapHomeView: View {
                 .onTapGesture { point in
                     if let coordinate = proxy.convert(point, from: .local) {
                         if model.quickRouteMode == .route {
+                            // Panning and tapping a map while a route snapshot
+                            // is playing must never mutate its editable draft.
+                            guard !model.isAnyRouteActive else { return }
                             model.addWaypointAndSwitchToRoute(RouteCoordinate(coordinate))
                         } else {
                             model.select(coordinate)
@@ -76,6 +80,7 @@ struct MapHomeView: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 150)
+                    .disabled(model.isAnyRouteActive)
                 }
                 ToolbarItemGroup(placement: .topBarLeading) {
                     if model.quickRouteMode == .singlePoint {
@@ -138,8 +143,16 @@ struct MapHomeView: View {
         .sheet(isPresented: $showRoutePaste) {
             RoutePasteView(
                 hasExistingWaypoints: !model.waypoints.isEmpty,
-                onReplace: { values in model.replaceWaypoints(values); fitRoute(); statusAfterImport(values.count) },
-                onAppend: { values in model.appendWaypoints(values); fitRoute(); statusAfterImport(values.count) }
+                onReplace: { values in
+                    guard model.replaceWaypoints(values) else { return }
+                    fitRoute()
+                    statusAfterImport(values.count)
+                },
+                onAppend: { values in
+                    guard model.appendWaypoints(values) else { return }
+                    fitRoute()
+                    statusAfterImport(values.count)
+                }
             )
         }
         .fileImporter(isPresented: $showRouteImporter, allowedContentTypes: CoordinateImportParser.supportedContentTypes) { result in
@@ -147,7 +160,11 @@ struct MapHomeView: View {
             Task.detached {
                 do {
                     let values = try CoordinateImportParser.parse(url: url)
-                    await MainActor.run { model.replaceWaypoints(values); fitRoute(); statusAfterImport(values.count) }
+                    await MainActor.run {
+                        guard model.replaceWaypoints(values) else { return }
+                        fitRoute()
+                        statusAfterImport(values.count)
+                    }
                 } catch { await MainActor.run { model.presentedError = error.localizedDescription } }
             }
         }
@@ -172,7 +189,7 @@ struct MapHomeView: View {
             Button(L10n.text("儲存")) { let coordinate = favoriteCoordinate; Task { await model.addFavorite(name: favoriteName, coordinate: coordinate); favoriteName = ""; favoriteCoordinate = nil } }
             Button(L10n.text("取消"), role: .cancel) {}
         }
-        .alert(L10n.text("收藏喜愛路線"), isPresented: $showFavoriteRouteName) {
+        .alert(L10n.text("收藏目前路線"), isPresented: $showFavoriteRouteName) {
             TextField(L10n.text("名稱"), text: $favoriteRouteName)
             Button(L10n.text("儲存")) {
                 let name = favoriteRouteName
@@ -254,7 +271,8 @@ struct MapHomeView: View {
                     },
                     onCancelPreview: { model.cancelRoutePreview() },
                     onEndRoute: {},
-                    onRestoreRealLocation: {}
+                    onRestoreRealLocation: {},
+                    onFavoriteUnsavedRoute: {}
                 )
             } else if isPlaybackActive {
                 // Active Route Card
@@ -264,7 +282,11 @@ struct MapHomeView: View {
                     onEdit: {},
                     onCancelPreview: {},
                     onEndRoute: { model.stopAndHoldCurrentLocation() },
-                    onRestoreRealLocation: { Task { await model.returnToRealLocation() } }
+                    onRestoreRealLocation: { Task { await model.returnToRealLocation() } },
+                    onFavoriteUnsavedRoute: {
+                        favoriteRouteName = model.suggestedFavoriteRouteName()
+                        showFavoriteRouteName = true
+                    }
                 )
             } else if model.quickRouteMode == .singlePoint {
                 singlePointFloatingContent
@@ -292,17 +314,7 @@ struct MapHomeView: View {
 
     @ViewBuilder
     private var singlePointFloatingContent: some View {
-        if let active = model.activeSimulatedCoordinate, !model.simulationMode.isRouteSimulation {
-            ActiveSimulationFloatingCard(
-                coordinate: active,
-                onSaveFavorite: {
-                    favoriteCoordinate = active
-                    favoriteName = model.suggestedFavoriteName()
-                    showFavoriteName = true
-                },
-                onRestore: { Task { await model.returnToRealLocation() } }
-            )
-        } else if let candidate = candidateCoordinate {
+        if let candidate = candidateCoordinate {
             PlaceFloatingCard(
                 coordinate: candidate,
                 onSaveFavorite: {
@@ -314,6 +326,16 @@ struct MapHomeView: View {
                     favoriteName = model.suggestedFavoriteName()
                     showFavoriteName = true
                 }
+            )
+        } else if let active = model.activeSimulatedCoordinate, !model.simulationMode.isRouteSimulation {
+            ActiveSimulationFloatingCard(
+                coordinate: active,
+                onSaveFavorite: {
+                    favoriteCoordinate = active
+                    favoriteName = model.suggestedFavoriteName()
+                    showFavoriteName = true
+                },
+                onRestore: { Task { await model.returnToRealLocation() } }
             )
         } else if model.simulationMode.isSimulating {
             // Active route simulation while in single point view
@@ -414,9 +436,10 @@ struct MapHomeView: View {
                             .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
                             .disabled(playback.state == .reconnecting)
                             .accessibilityLabel(L10n.text("降低速度 0.1 公里每小時"))
-                        TextField("18.6", value: $model.speedKmh, format: .number.precision(.fractionLength(1)))
+                        TextField("18.6", text: $routeSpeedText)
                             .keyboardType(.decimalPad).focused($isSpeedFieldFocused).frame(width: 58)
                             .textFieldStyle(.roundedBorder).disabled(playback.state == .reconnecting)
+                            .onSubmit(commitPlanningSpeedEdit)
                             .accessibilityLabel(L10n.text("播放速度"))
                         Button { model.adjustPlaybackSpeed(by: 0.1) } label: { Image(systemName: "plus") }
                             .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
@@ -480,7 +503,20 @@ struct MapHomeView: View {
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
-                Button(L10n.text("完成")) { isSpeedFieldFocused = false }
+                Button(L10n.text("完成"), action: commitPlanningSpeedEdit)
+            }
+        }
+        .onChange(of: isSpeedFieldFocused) { _, focused in
+            routeSpeedText = focused
+                ? ""
+                : model.speedKmh.formatted(.number.precision(.fractionLength(1)))
+        }
+        .onAppear {
+            routeSpeedText = model.speedKmh.formatted(.number.precision(.fractionLength(1)))
+        }
+        .onChange(of: model.speedKmh) { _, speed in
+            if !isSpeedFieldFocused {
+                routeSpeedText = speed.formatted(.number.precision(.fractionLength(1)))
             }
         }
     }
@@ -488,11 +524,25 @@ struct MapHomeView: View {
     // MARK: - Helpers
 
     private var candidateCoordinate: RouteCoordinate? {
-        guard let selected = model.selectedCoordinate else { return nil }
-        if case .singlePoint(let active) = model.simulationMode, selected == active {
-            return nil
+        let active: RouteCoordinate?
+        if case .singlePoint(let coordinate) = model.simulationMode {
+            active = coordinate
+        } else {
+            active = nil
         }
-        return selected
+        guard let preferred = MapSinglePointCardPriority.coordinate(
+            active: active,
+            selected: model.selectedCoordinate
+        ), preferred != active else { return nil }
+        return preferred
+    }
+
+    private func commitPlanningSpeedEdit() {
+        if let value = PlaybackSpeedEntryPolicy.committedValue(routeSpeedText, preserving: model.speedKmh) {
+            model.speedKmh = value
+        }
+        routeSpeedText = model.speedKmh.formatted(.number.precision(.fractionLength(1)))
+        isSpeedFieldFocused = false
     }
 
     private var activeSimulatedCoordinate: RouteCoordinate? {

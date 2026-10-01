@@ -23,6 +23,65 @@ struct RouteCoordinate: Codable, Hashable, Identifiable {
     }
 }
 
+/// The map's single-point card prefers a distinct user selection over the
+/// coordinate that is currently being simulated, so a new target can be
+/// acted on without first restoring real location.
+enum MapSinglePointCardPriority {
+    static func coordinate(active: RouteCoordinate?, selected: RouteCoordinate?) -> RouteCoordinate? {
+        if let selected, selected != active { return selected }
+        return active ?? selected
+    }
+}
+
+/// A stable, JSON based route clipboard format. The existing coordinate
+/// importer can read the `waypoints` coordinate objects, while the metadata
+/// remains available for future import implementations.
+struct RouteCopyDocument: Codable, Equatable {
+    let name: String
+    let waypoints: [RouteCoordinate]
+    let isClosedLoop: Bool
+    let playbackMode: RoutePlaybackMode
+
+    init(name: String, waypoints: [RouteCoordinate], isClosedLoop: Bool, playbackMode: RoutePlaybackMode) {
+        self.name = name
+        self.waypoints = waypoints
+        self.isClosedLoop = isClosedLoop
+        self.playbackMode = playbackMode.normalized(isClosedLoop: isClosedLoop)
+    }
+}
+
+enum RouteCopySerializer {
+    static func serialize(_ document: RouteCopyDocument) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(document)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileWriteInapplicableStringEncoding)
+        }
+        return text
+    }
+
+    static func deserialize(_ text: String) throws -> RouteCopyDocument {
+        try JSONDecoder().decode(RouteCopyDocument.self, from: Data(text.utf8))
+    }
+}
+
+/// Direct numeric entry accepts only supported values. Invalid or blank text
+/// produces no update, leaving the previously committed playback speed intact.
+enum PlaybackSpeedEntryPolicy {
+    static func committedValue(_ text: String, preserving currentValue: Double) -> Double? {
+        guard currentValue.isFinite,
+              currentValue >= PlaybackSpeedPolicy.minimum,
+              currentValue <= PlaybackSpeedPolicy.maximum else { return nil }
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(normalized), value.isFinite,
+              value >= PlaybackSpeedPolicy.minimum,
+              value <= PlaybackSpeedPolicy.maximum else { return nil }
+        return value
+    }
+}
+
 enum RouteMode: String, Codable, CaseIterable, Identifiable {
     case straight
     case navigation

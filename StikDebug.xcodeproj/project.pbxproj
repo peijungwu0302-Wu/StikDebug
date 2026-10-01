@@ -478,8 +478,8 @@
 					"$(PROJECT_DIR)/StikDebug/idevice",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
-				MARKETING_VERSION = 1.2.16;
-				CURRENT_PROJECT_VERSION = 12;
+				MARKETING_VERSION = 1.2.17;
+				CURRENT_PROJECT_VERSION = 13;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/StikDebug/idevice/libidevice_ffi.a",
@@ -549,8 +549,8 @@
 					"$(PROJECT_DIR)/StikDebug/idevice",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
-				MARKETING_VERSION = 1.2.16;
-				CURRENT_PROJECT_VERSION = 12;
+				MARKETING_VERSION = 1.2.17;
+				CURRENT_PROJECT_VERSION = 13;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/StikDebug/idevice/libidevice_ffi.a",

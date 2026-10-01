@@ -1,8 +1,168 @@
 import Foundation
 import Testing
+import UIKit
 @testable import RouteLocation
 
 struct V1_2_14UXTests {
+    @Test func routeCopyDocumentPreservesRouteAndPlaybackMetadata() throws {
+        let coordinates = [
+            RouteCoordinate(latitude: 25.033996, longitude: 121.561216),
+            RouteCoordinate(latitude: 25.040123, longitude: 121.570456),
+            RouteCoordinate(latitude: 25.028765, longitude: 121.568321)
+        ]
+        let document = RouteCopyDocument(
+            name: "臺北鐵三角",
+            waypoints: coordinates,
+            isClosedLoop: true,
+            playbackMode: .infiniteLoop
+        )
+
+        let text = try RouteCopySerializer.serialize(document)
+        let decoded = try RouteCopySerializer.deserialize(text)
+
+        #expect(decoded == document)
+        #expect(decoded.waypoints == coordinates)
+        #expect(try CoordinateImportParser.parseInline(text) == coordinates)
+    }
+
+    @Test func speedTextReplacementKeepsOldValueUntilValidCommit() {
+        #expect(PlaybackSpeedEntryPolicy.committedValue("42.5", preserving: 18.6) == 42.5)
+        #expect(PlaybackSpeedEntryPolicy.committedValue("", preserving: 18.6) == nil)
+        #expect(PlaybackSpeedEntryPolicy.committedValue("fast", preserving: 18.6) == nil)
+        #expect(PlaybackSpeedEntryPolicy.committedValue("0", preserving: 18.6) == nil)
+        #expect(PlaybackSpeedEntryPolicy.committedValue("-2", preserving: 18.6) == nil)
+        #expect(PlaybackSpeedEntryPolicy.committedValue("301", preserving: 18.6) == nil)
+    }
+
+    @Test func selectedCandidateTakesPriorityOverActiveSinglePoint() {
+        let active = RouteCoordinate(latitude: 25, longitude: 121)
+        let candidate = RouteCoordinate(latitude: 35, longitude: 139)
+        #expect(MapSinglePointCardPriority.coordinate(active: active, selected: candidate) == candidate)
+        #expect(MapSinglePointCardPriority.coordinate(active: active, selected: active) == active)
+        #expect(MapSinglePointCardPriority.coordinate(active: nil, selected: candidate) == candidate)
+        #expect(MapSinglePointCardPriority.coordinate(active: active, selected: nil) == active)
+    }
+
+    @Test @MainActor func routeDraftMutationsAreRejectedUntilPlaybackStops() async throws {
+        let model = RouteLocationModel(simulationService: NoopLocationSink())
+        let a = RouteCoordinate(latitude: 25, longitude: 121)
+        let b = RouteCoordinate(latitude: 25.01, longitude: 121.01)
+        let d = RouteCoordinate(latitude: 25.02, longitude: 121.02)
+        #expect(model.addWaypoint(a))
+        #expect(model.addWaypoint(b))
+        let originalGeometry = model.geometry
+        let originalName = model.routeName
+        try await model.playback.start(
+            routeName: "Snapshot",
+            geometry: originalGeometry,
+            speedKmh: 18.6,
+            mode: .infiniteLoop
+        )
+
+        for state in [PlaybackRunState.running, .paused, .reconnecting] {
+            model.testSetSimulationModeForTesting(.routePlaying)
+            model.playback.testSetStateForTesting(state)
+            model.statusMessage = nil
+            #expect(!model.addWaypoint(d, notifyIfLocked: false))
+            #expect(model.statusMessage == nil)
+            #expect(!model.addWaypoint(d))
+            #expect(model.statusMessage == L10n.text("路線播放中，請先停止路線再編輯。"))
+            model.appendWaypoints([d])
+            model.replaceWaypoints([a, d])
+            model.removeWaypoints(at: IndexSet(integer: 0))
+            model.moveWaypoints(from: IndexSet(integer: 0), to: 1)
+            model.updateWaypoint(at: 0, latitude: 36, longitude: 140)
+            model.clearWaypoints()
+            model.clearCurrentDraft()
+            model.isClosedLoop = false
+            model.playbackMode = .finite(5)
+            model.routeMode = .navigation
+            model.routeName = "Mutated while playing"
+            #expect(model.waypoints == [a, b])
+            #expect(model.geometry == originalGeometry)
+            #expect(model.isClosedLoop)
+            #expect(model.playbackMode == .infiniteLoop)
+            #expect(model.routeMode == .straight)
+            #expect(model.routeName == originalName)
+            #expect(model.playback.testRouteGeometryForTesting?.coordinates == originalGeometry.coordinates)
+        }
+
+        model.stopRoutePlayback()
+        #expect(model.addWaypoint(d))
+        #expect(model.waypoints == [a, b, d])
+    }
+
+    @Test @MainActor func activeSinglePointShowsSelectedCandidateAndRetargetsDirectly() async throws {
+        let sink = RetargetRecordingSink()
+        let model = RouteLocationModel(
+            persistence: RoutePersistenceStore(rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            simulationService: sink
+        )
+        let active = RouteCoordinate(latitude: 25, longitude: 121)
+        let selected = RouteCoordinate(latitude: 35, longitude: 139)
+        await model.executeTeleport(to: active)
+        model.selectedCoordinate = selected
+
+        #expect(MapSinglePointCardPriority.coordinate(active: model.activeSimulatedCoordinate, selected: model.selectedCoordinate) == selected)
+
+        let completed = AsyncSignal()
+        model.testTeleportCompletion = { Task { await completed.signal() } }
+        model.requestSinglePointSimulation(at: selected)
+        #expect(await completed.wait(timeout: .seconds(3)))
+        #expect(model.activeSimulatedCoordinate == selected)
+        #expect(await sink.clearCallCount() == 0)
+        await model.returnToRealLocation()
+    }
+
+    @Test @MainActor func currentSavedRouteCanBeFavoritedAndUnfavoritedWithoutDuplicate() async throws {
+        let store = RoutePersistenceStore(rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let model = RouteLocationModel(persistence: store, simulationService: NoopLocationSink())
+        model.addWaypoint(RouteCoordinate(latitude: 25, longitude: 121))
+        model.addWaypoint(RouteCoordinate(latitude: 25.01, longitude: 121.01))
+        #expect(await model.saveCurrentRoute(named: "臺北鐵三角"))
+        let original = try #require(model.currentSavedRoute)
+
+        #expect(await model.toggleFavoriteCurrentRoute())
+        #expect(model.currentSavedRoute?.id == original.id)
+        #expect(model.currentRouteIsFavorite)
+        let routesAfterFavorite = try await store.loadRoutes()
+        #expect(routesAfterFavorite.count == 1)
+
+        #expect(await model.toggleFavoriteCurrentRoute())
+        #expect(!model.currentRouteIsFavorite)
+        let routesAfterUnfavorite = try await store.loadRoutes()
+        #expect(routesAfterUnfavorite.count == 1)
+    }
+
+    @Test @MainActor func favoritingUnsavedPlayingRoutePersistsOneFavoriteSnapshot() async throws {
+        let store = RoutePersistenceStore(rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let model = RouteLocationModel(persistence: store, simulationService: NoopLocationSink())
+        model.addWaypoint(RouteCoordinate(latitude: 25, longitude: 121))
+        model.addWaypoint(RouteCoordinate(latitude: 25.01, longitude: 121.01))
+        model.testSetSimulationModeForTesting(.routePlaying)
+        model.playback.testSetStateForTesting(.running)
+
+        #expect(!(await model.saveCurrentRoute(named: "不可編輯")))
+        #expect(await model.favoriteCurrentRoute(named: "目前路線"))
+        #expect(model.savedRoutes.count == 1)
+        #expect(model.currentRouteIsFavorite)
+        #expect(model.currentSavedRoute?.name == "目前路線")
+        let persistedRoutes = try await store.loadRoutes()
+        #expect(persistedRoutes.count == 1)
+        #expect(persistedRoutes.first?.isFavorite == true)
+        model.stopRoutePlayback()
+    }
+
+    @Test @MainActor func coordinateAlertPasteLayoutKeepsPasteVisibleFromPresentation() {
+        let field = UITextField()
+        let pasteControl = CoordinateAlertPasteControl.install(on: field)
+
+        #expect(field.rightViewMode == .always)
+        #expect(field.rightView != nil)
+        #expect(pasteControl.superview === field.rightView)
+        #expect(field.rightView?.constraints.contains(where: { $0.firstAttribute == .width }) == true)
+    }
+
     @Test func playbackRepeatModesRoundTripAndMigrateLegacyValues() throws {
         #expect(try JSONDecoder().decode(RoutePlaybackMode.self, from: Data(#""once""#.utf8)) == .once)
         #expect(try JSONDecoder().decode(RoutePlaybackMode.self, from: Data(#""infiniteLoop""#.utf8)) == .infiniteLoop)

@@ -16,18 +16,39 @@ enum PlaybackRecoveryPreference: String, CaseIterable, Identifiable {
 @MainActor
 final class RouteLocationModel: ObservableObject {
     @Published var selectedCoordinate: RouteCoordinate?
-    @Published var waypoints: [RouteCoordinate] = []
-    @Published var routeName = L10n.text("新路線")
-    @Published var routeMode: RouteMode = .straight { didSet { routeInputsChanged() } }
-    @Published var navigationTransport: NavigationTransportMode = .automobile { didSet { routeInputsChanged() } }
+    @Published private(set) var waypoints: [RouteCoordinate] = []
+    @Published var routeName = L10n.text("新路線") {
+        didSet {
+            guard !restoreRouteConfigurationAfterRejectedEdit else { return }
+            guard !isAnyRouteActive else { restoreRouteConfiguration(oldValue, setter: { self.routeName = $0 }); return }
+        }
+    }
+    @Published var routeMode: RouteMode = .straight {
+        didSet {
+            guard !restoreRouteConfigurationAfterRejectedEdit else { return }
+            guard !isAnyRouteActive else { restoreRouteConfiguration(oldValue, setter: { self.routeMode = $0 }); return }
+            routeInputsChanged()
+        }
+    }
+    @Published var navigationTransport: NavigationTransportMode = .automobile {
+        didSet {
+            guard !restoreRouteConfigurationAfterRejectedEdit else { return }
+            guard !isAnyRouteActive else { restoreRouteConfiguration(oldValue, setter: { self.navigationTransport = $0 }); return }
+            routeInputsChanged()
+        }
+    }
     @Published var isClosedLoop = true {
         didSet {
+            guard !restoreRouteConfigurationAfterRejectedEdit else { return }
+            guard !isAnyRouteActive else { restoreRouteConfiguration(oldValue, setter: { self.isClosedLoop = $0 }); return }
             if !isClosedLoop, playbackMode != .once { playbackMode = .once }
             routeInputsChanged()
         }
     }
     @Published var playbackMode: RoutePlaybackMode = .infiniteLoop {
         didSet {
+            guard !restoreRouteConfigurationAfterRejectedEdit else { return }
+            guard !isAnyRouteActive else { restoreRouteConfiguration(oldValue, setter: { self.playbackMode = $0 }); return }
             let normalized = playbackMode.normalized(isClosedLoop: isClosedLoop)
             if normalized != playbackMode { playbackMode = normalized }
         }
@@ -88,6 +109,7 @@ final class RouteLocationModel: ObservableObject {
     private let navigationResolver = NavigationRouteResolver()
     private let simulationService: any LocationSimulationSink
     private var teleportTask: Task<Void, Never>?
+    private var restoreRouteConfigurationAfterRejectedEdit = false
     private var singlePointHoldGeneration = 0
     /// Each user retarget request owns a generation.  A delayed write or
     /// recovery from an older request may finish, but it must not commit a
@@ -269,58 +291,70 @@ final class RouteLocationModel: ObservableObject {
 
     func addSelectedWaypoint() {
         guard let selectedCoordinate else { return }
-        addWaypoint(selectedCoordinate)
-        self.selectedCoordinate = nil
+        if addWaypoint(selectedCoordinate) { self.selectedCoordinate = nil }
     }
 
     func addSelectedWaypointAndSwitchToRoute() {
         guard let selectedCoordinate else { return }
-        addWaypointAndSwitchToRoute(selectedCoordinate)
-        self.selectedCoordinate = nil
+        if addWaypointAndSwitchToRoute(selectedCoordinate) { self.selectedCoordinate = nil }
     }
 
-    func addWaypoint(_ coordinate: RouteCoordinate) {
-        guard coordinate.isValid else { presentedError = RouteLocationError.insufficientWaypoints.localizedDescription; return }
+    @discardableResult
+    func addWaypoint(_ coordinate: RouteCoordinate, notifyIfLocked: Bool = true) -> Bool {
+        guard canMutateRouteDraft(notifyIfLocked: notifyIfLocked) else { return false }
+        guard coordinate.isValid else { presentedError = RouteLocationError.insufficientWaypoints.localizedDescription; return false }
         if waypoints.last != coordinate { waypoints.append(coordinate); routeInputsChanged() }
+        return true
     }
 
-    func addWaypointAndSwitchToRoute(_ coordinate: RouteCoordinate) {
-        addWaypoint(coordinate)
+    @discardableResult
+    func addWaypointAndSwitchToRoute(_ coordinate: RouteCoordinate) -> Bool {
+        guard addWaypoint(coordinate, notifyIfLocked: true) else { return false }
         quickRouteMode = .route
         ToastManager.shared.show(L10n.text("已加入路線"), kind: .success)
+        return true
     }
 
-    func replaceWaypoints(_ coordinates: [RouteCoordinate]) {
+    @discardableResult
+    func replaceWaypoints(_ coordinates: [RouteCoordinate]) -> Bool {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return false }
         waypoints = coordinates.filter(\.isValid)
         routeInputsChanged()
         quickRouteMode = .route
         previewingRoute = nil
         mapFocusRevision = UUID()
         statusMessage = L10n.text("已匯入路線預覽。")
+        return true
     }
 
-    func appendWaypoints(_ coordinates: [RouteCoordinate]) {
+    @discardableResult
+    func appendWaypoints(_ coordinates: [RouteCoordinate]) -> Bool {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return false }
         let values = coordinates.filter(\.isValid)
-        guard !values.isEmpty else { return }
+        guard !values.isEmpty else { return false }
         for coordinate in values where waypoints.last != coordinate { waypoints.append(coordinate) }
         routeInputsChanged()
         quickRouteMode = .route
         previewingRoute = nil
         mapFocusRevision = UUID()
         statusMessage = L10n.text("已附加航點並預覽路線。")
+        return true
     }
 
     func removeWaypoints(at offsets: IndexSet) {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         waypoints.remove(atOffsets: offsets)
         routeInputsChanged()
     }
 
     func moveWaypoints(from offsets: IndexSet, to destination: Int) {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         waypoints.move(fromOffsets: offsets, toOffset: destination)
         routeInputsChanged()
     }
 
     func updateWaypoint(at index: Int, latitude: Double, longitude: Double) {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         guard waypoints.indices.contains(index) else { return }
         let updated = RouteCoordinate(latitude: latitude, longitude: longitude)
         guard updated.isValid else { presentedError = CoordinateImportError.invalidCoordinate(line: index + 1).localizedDescription; return }
@@ -329,18 +363,21 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func clearWaypoints() {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         waypoints = []
         loadedRouteID = nil
         routeInputsChanged()
     }
 
     func undoLastWaypoint() {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         guard !waypoints.isEmpty else { return }
         waypoints.removeLast()
         routeInputsChanged()
     }
 
     func clearCurrentDraft() {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         waypoints = []
         loadedRouteID = nil
         routeName = L10n.text("新路線")
@@ -350,6 +387,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func clearCurrentRoute() {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         navigationResolver.cancel()
         stopRoutePlayback(clearMarker: true)
         if simulationMode.isRouteSimulation {
@@ -369,11 +407,13 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func recalculateNavigation() async {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         guard !isResolvingNavigation else { return }
         isResolvingNavigation = true
         defer { isResolvingNavigation = false }
         do {
             let resolved = try await navigationResolver.resolve(waypoints: waypoints, closedLoop: isClosedLoop, transport: navigationTransport)
+            guard canMutateRouteDraft(notifyIfLocked: true) else { return }
             geometry = resolved
             navigationGeometryNeedsRecalculation = false
             statusMessage = L10n.text("導航路線已計算完成，可以儲存。")
@@ -386,6 +426,11 @@ final class RouteLocationModel: ObservableObject {
 
     @discardableResult
     func saveCurrentRoute(named requestedName: String? = nil, asCopy: Bool = false) async -> Bool {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return false }
+        return await persistCurrentRoute(named: requestedName, asCopy: asCopy)
+    }
+
+    private func persistCurrentRoute(named requestedName: String?, asCopy: Bool) async -> Bool {
         do {
             guard waypoints.count >= 2 else { throw RouteLocationError.insufficientWaypoints }
             if routeMode == .navigation, navigationGeometryNeedsRecalculation { throw RouteLocationError.navigationNeedsRecalculation }
@@ -407,7 +452,7 @@ final class RouteLocationModel: ObservableObject {
             )
             try await persistence.saveRoute(route)
             loadedRouteID = route.id
-            routeName = finalName
+            if !isAnyRouteActive { routeName = finalName }
             await reloadRoutes()
             statusMessage = L10n.text("路線已儲存，可離線播放。")
             return true
@@ -423,14 +468,38 @@ final class RouteLocationModel: ObservableObject {
     /// accidental duplicate copy.
     @discardableResult
     func favoriteCurrentRoute(named requestedName: String? = nil) async -> Bool {
-        guard await saveCurrentRoute(named: requestedName, asCopy: false),
+        guard await persistCurrentRoute(named: requestedName, asCopy: false),
               let loadedRouteID,
               let route = savedRoutes.first(where: { $0.id == loadedRouteID }) else { return false }
         if !route.isFavorite { await toggleFavoriteRoute(route) }
         return true
     }
 
+    var currentSavedRoute: SavedRoute? {
+        guard let loadedRouteID else { return nil }
+        return savedRoutes.first { $0.id == loadedRouteID }
+    }
+
+    var currentRouteIsFavorite: Bool { currentSavedRoute?.isFavorite == true }
+
+    @discardableResult
+    func toggleFavoriteCurrentRoute() async -> Bool {
+        guard let route = currentSavedRoute else { return false }
+        await toggleFavoriteRoute(route)
+        return savedRoutes.first(where: { $0.id == route.id })?.isFavorite == !route.isFavorite
+    }
+
+    func currentRouteCopyText() -> String? {
+        try? RouteCopySerializer.serialize(RouteCopyDocument(
+            name: playback.routeName.isEmpty ? routeName : playback.routeName,
+            waypoints: waypoints,
+            isClosedLoop: isClosedLoop,
+            playbackMode: playbackMode
+        ))
+    }
+
     func renameRoute(_ route: SavedRoute, to requestedName: String) async {
+        guard !isActiveRoute(route) else { showRouteEditingLockedMessage(); return }
         let name = requestedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { presentedError = L10n.text("請輸入路線名稱。"); return }
         var updated = route
@@ -477,6 +546,7 @@ final class RouteLocationModel: ObservableObject {
         case .stopped:
             if simulationMode.isRouteSimulation {
                 simulationMode = .idle
+                if let currentSavedRoute { routeName = currentSavedRoute.name }
             }
         case .paused:
             if case .routePlaying = simulationMode {
@@ -524,6 +594,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func loadRoute(_ route: SavedRoute) {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         navigationResolver.cancel()
         loadedRouteID = route.id
         routeName = route.name
@@ -539,6 +610,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func previewRoute(_ route: SavedRoute) {
+        guard !isAnyRouteActive else { showRouteEditingLockedMessage(); return }
         previewingRoute = route
         mapFocusRevision = UUID()
     }
@@ -564,6 +636,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func startRoute(_ route: SavedRoute) async {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         previewingRoute = nil
         loadRoute(route)
         await markRouteUsed(id: route.id)
@@ -593,6 +666,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func deleteRoute(_ route: SavedRoute) async {
+        guard !isActiveRoute(route) else { showRouteEditingLockedMessage(); return }
         do {
             try await persistence.deleteRoute(id: route.id)
             if loadedRouteID == route.id { loadedRouteID = nil }
@@ -984,6 +1058,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func startPlayback() async {
+        guard !isAnyRouteActive else { showRouteEditingLockedMessage(); return }
         if isCellularBootstrapPreparationNeeded {
             let firstCoord = geometry.coordinates.first
             requestBootstrapIfCellular(targetCoordinate: firstCoord) { [weak self] in
@@ -1092,6 +1167,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     private func routeInputsChanged() {
+        guard !isAnyRouteActive else { return }
         guard !waypoints.isEmpty else { geometry = RouteGeometry(coordinates: []); navigationGeometryNeedsRecalculation = routeMode == .navigation; return }
         if routeMode == .straight {
             geometry = RouteBuilder.straightGeometry(waypoints: waypoints, closedLoop: isClosedLoop)
@@ -1099,6 +1175,27 @@ final class RouteLocationModel: ObservableObject {
         } else {
             navigationGeometryNeedsRecalculation = true
         }
+    }
+
+    private func canMutateRouteDraft(notifyIfLocked: Bool) -> Bool {
+        guard !isAnyRouteActive else {
+            if notifyIfLocked { showRouteEditingLockedMessage() }
+            return false
+        }
+        return true
+    }
+
+    private func showRouteEditingLockedMessage() {
+        let message = L10n.text("路線播放中，請先停止路線再編輯。")
+        statusMessage = message
+        ToastManager.shared.show(message, kind: .info)
+    }
+
+    private func restoreRouteConfiguration<Value>(_ previous: Value, setter: (Value) -> Void) {
+        restoreRouteConfigurationAfterRejectedEdit = true
+        setter(previous)
+        restoreRouteConfigurationAfterRejectedEdit = false
+        showRouteEditingLockedMessage()
     }
 
     private func setCoordinateWithBoundedRecovery(

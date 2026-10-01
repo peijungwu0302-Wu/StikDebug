@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import UIKit
 
 enum RouteFloatingCardMode {
     case preview(SavedRoute)
@@ -16,8 +17,8 @@ struct RouteFloatingCard: View {
     let onCancelPreview: () -> Void
     let onEndRoute: () -> Void
     let onRestoreRealLocation: () -> Void
+    let onFavoriteUnsavedRoute: () -> Void
 
-    @State private var showMoreActions = false
     @State private var isEditingSpeed = false
     @State private var editedSpeed = ""
     @FocusState private var speedFieldFocused: Bool
@@ -38,25 +39,16 @@ struct RouteFloatingCard: View {
             isEditingSpeed = false
             speedFieldFocused = false
         }
+        .onChange(of: speedFieldFocused) { _, focused in
+            guard !focused, isEditingSpeed else { return }
+            editedSpeed = String(format: "%.1f", playback.speedKmh)
+            isEditingSpeed = false
+        }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button(L10n.text("完成")) { commitSpeedEdit() }
             }
-        }
-        .confirmationDialog(L10n.text("更多操作"), isPresented: $showMoreActions, titleVisibility: .hidden) {
-            if let current = model.activeSimulatedCoordinate {
-                Button(L10n.text("收藏目前位置")) {
-                    Task { await model.addFavorite(name: model.suggestedFavoriteName(), coordinate: current) }
-                }
-            }
-            Button(L10n.text("停止並停留目前位置"), role: .destructive) {
-                onEndRoute()
-            }
-            Button(L10n.text("恢復真實位置"), role: .destructive) {
-                onRestoreRealLocation()
-            }
-            Button(L10n.text("取消"), role: .cancel) {}
         }
     }
 
@@ -155,30 +147,34 @@ struct RouteFloatingCard: View {
                 )
                 .tint(.blue)
                 .frame(minWidth: 120)
+                if let current = model.activeSimulatedCoordinate {
+                    Text(String(format: "%.6f, %.6f", current.latitude, current.longitude))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .contentShape(Rectangle())
+                        .onLongPressGesture(minimumDuration: 0.5) {
+                            CoordinateClipboard.copy(current, toastKey: "已複製目前座標")
+                        }
+                        .accessibilityLabel(L10n.text("目前模擬座標"))
+                        .accessibilityHint(L10n.text("長按以複製目前座標"))
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 4)
             activeSpeedControl(isReconnecting: isReconnecting)
-        }
-        if let current = model.activeSimulatedCoordinate {
-            HStack {
-                Text(L10n.text("目前位置")).font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button { CoordinateClipboard.copy(current) } label: { Image(systemName: "doc.on.doc") }
-                    .buttonStyle(.plain).frame(minWidth: 44, minHeight: 44)
-                    .accessibilityLabel(L10n.text("複製座標"))
-            }
         }
 
         HStack {
             if isRunning {
                 Button(L10n.text("暫停移動")) { playback.pause() }
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .accessibilityLabel(L10n.text("暫停移動"))
             } else if isPaused {
                 Button(L10n.text("繼續")) { Task { await playback.resume() } }
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .accessibilityLabel(L10n.text("繼續"))
             } else if isReconnecting {
                 Text(L10n.text("重新連線中…"))
@@ -186,29 +182,54 @@ struct RouteFloatingCard: View {
                     .foregroundStyle(.secondary)
             }
 
-            Spacer()
+            Spacer(minLength: 8)
 
-            Button(L10n.text("更多…")) { showMoreActions = true }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityLabel(L10n.text("更多操作"))
+            Button(action: copyCurrentRoute) {
+                Image(systemName: "doc.on.doc")
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L10n.text("複製路線"))
+
+            Menu {
+                if model.currentSavedRoute != nil {
+                    Button(L10n.text(model.currentRouteIsFavorite ? "取消收藏目前路線" : "收藏目前路線")) {
+                        Task { await model.toggleFavoriteCurrentRoute() }
+                    }
+                } else {
+                    Button(L10n.text("收藏目前路線"), action: onFavoriteUnsavedRoute)
+                }
+                Button(L10n.text("停止並停留目前位置"), role: .destructive, action: onEndRoute)
+                Button(L10n.text("停止路線並恢復真實位置"), role: .destructive, action: onRestoreRealLocation)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityLabel(L10n.text("更多路線操作"))
         }
+    }
+
+    private func copyCurrentRoute() {
+        guard let value = model.currentRouteCopyText() else { return }
+        UIPasteboard.general.string = value
+        ToastManager.shared.show(L10n.text("已複製路線"), kind: .info)
     }
 
     private func beginSpeedEdit() {
         guard playback.state == .running || playback.state == .paused else { return }
-        editedSpeed = String(format: "%.1f", playback.speedKmh)
+        // Keep the committed speed in the model until a valid replacement is
+        // submitted. Starting with an empty edit value lets users type over
+        // the old number immediately.
+        editedSpeed = ""
         isEditingSpeed = true
         speedFieldFocused = true
     }
 
     private func commitSpeedEdit() {
-        let normalized = editedSpeed.replacingOccurrences(of: ",", with: ".")
-        if let value = Double(normalized), value.isFinite {
+        if let value = PlaybackSpeedEntryPolicy.committedValue(editedSpeed, preserving: playback.speedKmh) {
             model.setPlaybackSpeed(value)
-        } else {
-            editedSpeed = String(format: "%.1f", playback.speedKmh)
         }
+        editedSpeed = String(format: "%.1f", playback.speedKmh)
         speedFieldFocused = false
         isEditingSpeed = false
     }

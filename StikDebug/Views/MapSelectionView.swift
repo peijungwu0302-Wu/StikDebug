@@ -288,7 +288,7 @@ struct QuickRouteMapView: View {
                 .onTapGesture { point in
                     if let coordinate = proxy.convert(point, from: .local) {
                         if model.quickRouteMode == .route {
-                            model.addWaypoint(RouteCoordinate(coordinate))
+                            model.addWaypoint(RouteCoordinate(coordinate), notifyIfLocked: false)
                         } else {
                             model.select(coordinate)
                         }
@@ -325,8 +325,9 @@ struct QuickRouteMapView: View {
         .sheet(isPresented: $showSearch) {
             LocationSearchPicker { coordinate in
                 if model.quickRouteMode == .route {
-                    model.addWaypoint(coordinate)
-                    ToastManager.shared.show(L10n.text("已新增航點。"), kind: .success)
+                    if model.addWaypoint(coordinate, notifyIfLocked: true) {
+                        ToastManager.shared.show(L10n.text("已新增航點。"), kind: .success)
+                    }
                 } else {
                     model.select(coordinate.clCoordinate)
                 }

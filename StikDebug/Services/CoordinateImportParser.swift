@@ -51,6 +51,9 @@ enum CoordinateImportParser {
 
     static func parseInline(_ text: String) throws -> [RouteCoordinate] {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoordinateImportError.emptyInput }
+        if let data = text.data(using: .utf8), let routeJSON = try? parseJSON(data), !routeJSON.isEmpty {
+            return routeJSON
+        }
         var result: [RouteCoordinate] = []
         var headers: (lat: Int, lon: Int)?
         for (offset, rawLine) in text.components(separatedBy: .newlines).enumerated() {

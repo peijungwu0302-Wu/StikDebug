@@ -896,3 +896,12 @@
 "路線播放完成，目前停留在最後位置。" = "Route playback finished; staying at the final location.";
 "點一下編輯速度" = "Tap to edit speed";
 "最近使用：%@" = "Recently used: %@";
+"複製路線" = "Copy Route";
+"已複製路線" = "Route copied";
+"已複製目前座標" = "Current coordinate copied";
+"目前模擬座標" = "Current simulated coordinate";
+"長按以複製目前座標" = "Touch and hold to copy the current coordinate";
+"收藏目前路線" = "Favorite Current Route";
+"取消收藏目前路線" = "Unfavorite Current Route";
+"停止路線並恢復真實位置" = "Stop Route and Restore Real Location";
+"路線播放中，請先停止路線再編輯。" = "The route is playing. Stop it before editing.";
