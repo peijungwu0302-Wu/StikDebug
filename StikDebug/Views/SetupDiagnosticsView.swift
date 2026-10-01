@@ -43,12 +43,7 @@ struct SetupDiagnosticsView: View {
                     status(L10n.text("VPN 介面"), model.connectionMonitor.usesVPNInterface ? L10n.text("已偵測") : L10n.text("未偵測"), .gray, info: L10n.text("顯示系統是否偵測到 VPN 介面。這只能作為提示，不等同於 DVT 工作階段已成功連線。"))
                 }
                 Section(L10n.text("配對檔案")) {
-                    HStack {
-                            Text(L10n.text("配對驗證狀態"))
-                        Spacer()
-                        Text(pairingState.label)
-                            .foregroundStyle(pairingState == .present ? .green : (pairingState == .invalid ? .red : .orange))
-                    }
+                    pairingValidationStatusRow
                     HStack {
                             Text(L10n.text("來源"))
                         Spacer()
@@ -576,6 +571,24 @@ struct SetupDiagnosticsView: View {
 
     private var effectiveTunnelHealthy: Bool {
         tunnel.isConnected || model.connectionMonitor.deviceSession == .connected || dataPath.hasRecentSuccess
+    }
+
+    private var pairingValidationStatusRow: some View {
+        let label = pairingState.label
+        let color = pairingStateColor
+        return HStack {
+            Text(L10n.text("配對驗證狀態"))
+            Spacer()
+            Text(label).foregroundStyle(color)
+        }
+    }
+
+    private var pairingStateColor: Color {
+        switch pairingState {
+        case .present: return .green
+        case .invalid: return .red
+        case .checking, .missing: return .orange
+        }
     }
 
     private var rsdStatus: String {
