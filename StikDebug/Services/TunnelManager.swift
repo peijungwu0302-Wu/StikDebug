@@ -276,6 +276,7 @@ final class TunnelManager: ObservableObject {
             cellularCompatibilitySuggested = false
             BootstrapTraceStore.shared.recordEvent(.rsdReady)
             LogManager.shared.addInfoLog("Tunnel connected successfully")
+            OptionalDDIPreparationCoordinator.shared.ensureReadinessBestEffort()
             mountDeveloperDiskImageIfNeeded()
         case .failure(let error):
             isConnected = false

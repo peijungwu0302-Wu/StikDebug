@@ -90,6 +90,12 @@ final class MountingProgress: ObservableObject {
         isDownloading = false
     }
 
+    @MainActor
+    func recordOptionalDDIAlreadyMounted() {
+        coolisMounted = true
+        lastErrorMessage = nil
+    }
+
     private func mount() {
         let currentlyMounted = isMounted()
         DispatchQueue.main.async {

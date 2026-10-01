@@ -110,7 +110,8 @@ final class OptionalDDIPreparationCoordinator {
 
     func ensureReadinessBestEffort() {
         let mounting = MountingProgress.shared
-        guard !hasAttempted,
+        guard TunnelManager.shared.isConnected,
+              !hasAttempted,
               OptionalDDIReadinessPolicy.shouldStartAttempt(
                 isMounted: mounting.coolisMounted,
                 isMounting: mounting.isMounting || preparationTask != nil
@@ -120,6 +121,15 @@ final class OptionalDDIPreparationCoordinator {
         mounting.beginOptionalDDIDownload()
         preparationTask = Task { [weak self] in
             guard let self else { return }
+            let alreadyMounted = await Task.detached(priority: .utility) {
+                isMounted()
+            }.value
+            if alreadyMounted {
+                MountingProgress.shared.recordOptionalDDIAlreadyMounted()
+                MountingProgress.shared.finishOptionalDDIDownload()
+                self.preparationTask = nil
+                return
+            }
             do {
                 try await DeveloperDiskImageService.shared.downloadMissingFiles()
                 MountingProgress.shared.finishOptionalDDIDownload()
