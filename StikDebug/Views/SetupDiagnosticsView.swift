@@ -122,89 +122,7 @@ struct SetupDiagnosticsView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
-                Section(L10n.text("健康同步")) {
-                    Toggle(L10n.text("路線播放時同步步數"), isOn: $healthSteps.isEnabled)
-                        .disabled(healthSteps.capabilityStatus.disablesHealthKitActions && !healthSteps.isEnabled)
-                        .onChange(of: healthSteps.isEnabled) { _, enabled in
-                            if enabled, healthSteps.authorizationState == .notDetermined {
-                                Task { await healthSteps.requestAuthorization() }
-                            }
-                        }
-                    HStack {
-                        Text(L10n.text("HealthKit 狀態"))
-                        Spacer()
-                        Text(healthSteps.capabilityStatus.message)
-                            .foregroundStyle(healthSteps.capabilityStatus.disablesHealthKitActions ? .secondary : .green)
-                    }
-                    HStack {
-                        Text(L10n.text("步數寫入權限"))
-                        Spacer()
-                        Text(healthSteps.authorizationState.label)
-                            .foregroundStyle(.secondary)
-                    }
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(L10n.text("計算方式")).font(.caption).foregroundStyle(.secondary)
-                        Picker(L10n.text("計算方式"), selection: $healthSteps.calculationMode) {
-                            ForEach(StepCalculationMode.allCases) { mode in
-                                Text(mode.title).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                    if healthSteps.calculationMode == .fixedCadence {
-                        HStack {
-                            Text(L10n.text("步頻"))
-                            Spacer()
-                            TextField("160", value: $healthSteps.cadenceStepsPerMinute, format: .number.precision(.fractionLength(0)))
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 80)
-                            Text(L10n.text("步／分鐘"))
-                        }
-                    } else {
-                        HStack {
-                            Text(L10n.text("步長"))
-                            Spacer()
-                            TextField("0.80", value: $healthSteps.strideLengthMeters, format: .number.precision(.fractionLength(2)))
-                                .keyboardType(.decimalPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 80)
-                            Text(L10n.text("公尺／步"))
-                        }
-                    }
-                    HStack {
-                        Text(L10n.text("最近一次寫入"))
-                        Spacer()
-                        Text(healthSteps.lastWriteStatus.label)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let lastError = healthSteps.lastError {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(L10n.text("最近錯誤")).font(.caption).foregroundStyle(.red)
-                            Text(lastError.formattedDetails)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Button(L10n.text("測試寫入 10 步")) {
-                        Task {
-                            let result = await healthSteps.testWriteTenSteps()
-                            switch result {
-                            case .success(let msg):
-                                ToastManager.shared.show(msg, kind: .success)
-                            case .failure(let err):
-                                ToastManager.shared.show(L10n.format("寫入失敗：%@ (%d)", err.localizedDescription, err.code), kind: .error)
-                            }
-                        }
-                    }
-                    .disabled(healthSteps.capabilityStatus.disablesHealthKitActions)
-                    Button(L10n.text("手動新增 RouteLocation 步數")) {
-                        showManualStepEntry = true
-                    }
-                    .disabled(healthSteps.capabilityStatus.disablesHealthKitActions)
-                    Text(L10n.text("只在路線實際播放時按新增時間或距離批次寫入；單點傳送不會增加步數。HealthKit 權限或錯誤不會影響定位模擬。"))
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
+                healthSyncDiagnosticsSection
                 Section(L10n.text("行動網路啟動策略")) {
                     VStack(alignment: .leading, spacing: 6) {
                         Picker(L10n.text("啟動策略"), selection: $shortcutService.cellularBootstrapPolicy) {
@@ -468,6 +386,101 @@ struct SetupDiagnosticsView: View {
         } message: {
             Text(selfRefresh.lastErrorMessage ?? L10n.text("重新整理需要 SideStore 支援。"))
         }
+    }
+
+    private var healthSyncDiagnosticsSection: some View {
+        Section(L10n.text("健康同步")) {
+            Toggle(L10n.text("路線播放時同步步數"), isOn: $healthSteps.isEnabled)
+                .disabled(healthSteps.capabilityStatus.disablesHealthKitActions && !healthSteps.isEnabled)
+                .onChange(of: healthSteps.isEnabled) { _, enabled in handleHealthSyncToggle(enabled) }
+            HStack {
+                Text(L10n.text("HealthKit 狀態"))
+                Spacer()
+                Text(healthSteps.capabilityStatus.message)
+                    .foregroundStyle(healthSteps.capabilityStatus.disablesHealthKitActions ? .secondary : .green)
+            }
+            HStack {
+                Text(L10n.text("步數寫入權限"))
+                Spacer()
+                Text(healthSteps.authorizationState.label)
+                    .foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L10n.text("計算方式")).font(.caption).foregroundStyle(.secondary)
+                Picker(L10n.text("計算方式"), selection: $healthSteps.calculationMode) {
+                    ForEach(StepCalculationMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+            if healthSteps.calculationMode == .fixedCadence {
+                cadenceControl
+            } else {
+                strideLengthControl
+            }
+            HStack {
+                Text(L10n.text("最近一次寫入"))
+                Spacer()
+                Text(healthSteps.lastWriteStatus.label)
+                    .foregroundStyle(.secondary)
+            }
+            if let lastError = healthSteps.lastError {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.text("最近錯誤")).font(.caption).foregroundStyle(.red)
+                    Text(lastError.formattedDetails)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Button(L10n.text("測試寫入 10 步")) {
+                Task {
+                    let result = await healthSteps.testWriteTenSteps()
+                    switch result {
+                    case .success(let msg):
+                        ToastManager.shared.show(msg, kind: .success)
+                    case .failure(let err):
+                        ToastManager.shared.show(L10n.format("寫入失敗：%@ (%d)", err.localizedDescription, err.code), kind: .error)
+                    }
+                }
+            }
+            .disabled(healthSteps.capabilityStatus.disablesHealthKitActions)
+            Button(L10n.text("手動新增 RouteLocation 步數")) {
+                showManualStepEntry = true
+            }
+            .disabled(healthSteps.capabilityStatus.disablesHealthKitActions)
+            Text(L10n.text("只在路線實際播放時按新增時間或距離批次寫入；單點傳送不會增加步數。HealthKit 權限或錯誤不會影響定位模擬。"))
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    private var cadenceControl: some View {
+        HStack {
+            Text(L10n.text("步頻"))
+            Spacer()
+            TextField("160", value: $healthSteps.cadenceStepsPerMinute, format: .number.precision(.fractionLength(0)))
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 80)
+            Text(L10n.text("步／分鐘"))
+        }
+    }
+
+    private var strideLengthControl: some View {
+        HStack {
+            Text(L10n.text("步長"))
+            Spacer()
+            TextField("0.80", value: $healthSteps.strideLengthMeters, format: .number.precision(.fractionLength(2)))
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 80)
+            Text(L10n.text("公尺／步"))
+        }
+    }
+
+    private func handleHealthSyncToggle(_ enabled: Bool) {
+        guard enabled, healthSteps.authorizationState == .notDetermined else { return }
+        Task { await healthSteps.requestAuthorization() }
     }
 
     private var ddiStatus: String {
