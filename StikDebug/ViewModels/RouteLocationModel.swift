@@ -89,6 +89,10 @@ final class RouteLocationModel: ObservableObject {
     private let simulationService: any LocationSimulationSink
     private var teleportTask: Task<Void, Never>?
     private var singlePointHoldGeneration = 0
+    /// Each user retarget request owns a generation.  A delayed write or
+    /// recovery from an older request may finish, but it must not commit a
+    /// stale coordinate after a newer request has won.
+    private var singlePointRetargetGeneration = 0
     private var loadedRouteID: UUID?
     private var cancellables: Set<AnyCancellable> = []
     private var persistenceLoadTask: Task<Void, Never>?
@@ -458,7 +462,17 @@ final class RouteLocationModel: ObservableObject {
 
     func syncPlaybackState(_ state: PlaybackRunState) {
         switch state {
-        case .completed, .stopped:
+        case .completed:
+            // Natural finite/one-shot completion leaves the final DVT
+            // coordinate active.  Convert the route into a single-point hold
+            // instead of claiming that simulation is idle or clearing the
+            // device location.  startSinglePointHold does not change the
+            // playback engine state, so repeated .completed publications do
+            // not recurse.
+            guard simulationMode.isRouteSimulation, let finalCoordinate = playback.currentCoordinate else { return }
+            startSinglePointHold(at: finalCoordinate)
+            statusMessage = L10n.text("路線播放完成，目前停留在最後位置。")
+        case .stopped:
             if simulationMode.isRouteSimulation {
                 simulationMode = .idle
             }
@@ -852,15 +866,42 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func executeTeleport(to target: RouteCoordinate) async {
+        singlePointRetargetGeneration &+= 1
+        let generation = singlePointRetargetGeneration
+        let preservesSinglePointKeepAlive: Bool
+        if case .singlePoint = simulationMode {
+            preservesSinglePointKeepAlive = true
+        } else {
+            preservesSinglePointKeepAlive = false
+        }
+        await executeTeleport(
+            to: target,
+            generation: generation,
+            preservesSinglePointKeepAlive: preservesSinglePointKeepAlive
+        )
+    }
+
+    private func executeTeleport(
+        to target: RouteCoordinate,
+        generation: Int,
+        preservesSinglePointKeepAlive: Bool
+    ) async {
+        guard generation == singlePointRetargetGeneration else { return }
         cancelSinglePointHold()
-        stopRoutePlayback(clearMarker: false)
+        // A single-point → single-point retarget does not need to stop the
+        // already-stopped playback engine.  Avoid releasing its shared
+        // keep-alive lease while the existing location session is healthy.
+        if !preservesSinglePointKeepAlive {
+            stopRoutePlayback(clearMarker: false)
+        }
         let alreadyWritten = (locationAlreadyWrittenByBootstrap == target)
         locationAlreadyWrittenByBootstrap = nil
 
         if alreadyWritten {
+            guard generation == singlePointRetargetGeneration else { return }
             startSinglePointHold(at: target)
             statusMessage = L10n.text("已成功模擬所選位置。")
-            await recordRecent(coordinate: target, kind: "simulate")
+            await recordRecent(coordinate: target, kind: "simulate", retargetGeneration: generation)
             return
         }
 
@@ -876,10 +917,15 @@ final class RouteLocationModel: ObservableObject {
 
         do {
             try await setCoordinateWithBoundedRecovery(target, skipLegacyTransportRecovery: forceStaleSessionRecovery)
+            guard generation == singlePointRetargetGeneration else { return }
             startSinglePointHold(at: target)
             statusMessage = L10n.text("已成功模擬所選位置。")
-            await recordRecent(coordinate: target, kind: "simulate")
+            await recordRecent(coordinate: target, kind: "simulate", retargetGeneration: generation)
         } catch {
+            // A newer request may have taken ownership while the old write
+            // was retrying.  In that case do not clean shared handles or
+            // publish an error for the stale operation.
+            guard generation == singlePointRetargetGeneration else { return }
             if forceStaleSessionRecovery {
                 LocationSimulationCommandQueue.shared.sync {
                     cleanup_prepared_location_simulation_session()
@@ -888,14 +934,18 @@ final class RouteLocationModel: ObservableObject {
                 LocationSessionCoordinator.shared.endSession()
                 do {
                     let disposition = try await performStalePreparedSessionRecovery(target)
+                    guard generation == singlePointRetargetGeneration else { return }
                     if disposition == .needsLocationWrite {
                         try await simulationService.setCoordinate(target)
+                        guard generation == singlePointRetargetGeneration else { return }
                     }
+                    guard generation == singlePointRetargetGeneration else { return }
                     startSinglePointHold(at: target)
                     statusMessage = L10n.text("已成功模擬所選位置。")
-                    await recordRecent(coordinate: target, kind: "simulate")
+                    await recordRecent(coordinate: target, kind: "simulate", retargetGeneration: generation)
                     return
                 } catch {
+                    guard generation == singlePointRetargetGeneration else { return }
                     LocationSessionCoordinator.shared.markSessionDegraded(error: error)
                     presentedError = error.localizedDescription
                     return
@@ -1092,8 +1142,14 @@ final class RouteLocationModel: ObservableObject {
         } catch { presentedError = L10n.format("無法儲存喜愛地點：%@", error.localizedDescription) }
     }
 
-    func recordRecent(coordinate: RouteCoordinate, title: String? = nil, kind: String = "simulate") async {
+    func recordRecent(
+        coordinate: RouteCoordinate,
+        title: String? = nil,
+        kind: String = "simulate",
+        retargetGeneration: Int? = nil
+    ) async {
         await waitForInitialPersistenceLoad()
+        if let retargetGeneration, retargetGeneration != singlePointRetargetGeneration { return }
         guard coordinate.isValid else { return }
         recentLocations.removeAll { existing in
             abs(existing.coordinate.latitude - coordinate.latitude) < 0.000001 &&
@@ -1168,4 +1224,10 @@ final class RouteLocationModel: ObservableObject {
         guard let data = try? JSONEncoder().encode(manualFavoriteOrder) else { return }
         UserDefaults.standard.set(data, forKey: Self.manualFavoriteOrderKey)
     }
+
+    #if DEBUG
+    func testSetSimulationModeForTesting(_ mode: SimulationMode) {
+        simulationMode = mode
+    }
+    #endif
 }

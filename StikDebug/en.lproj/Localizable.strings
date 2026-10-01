@@ -893,5 +893,6 @@
 "再次模擬" = "Simulate Again";
 "模擬位置" = "Simulated Location";
 "沒有帳號、分析、遙測、後端、CloudKit 或路線上傳。只有在你要求地圖圖磚、搜尋、導航計算或地點／地址查詢時才會連接 Apple 服務。" = "No accounts, analytics, telemetry, backend, CloudKit, or route uploads. Apple services are contacted only when you request map tiles, search, navigation calculation, or place/address lookup.";
+"路線播放完成，目前停留在最後位置。" = "Route playback finished; staying at the final location.";
 "點一下編輯速度" = "Tap to edit speed";
 "最近使用：%@" = "Recently used: %@";

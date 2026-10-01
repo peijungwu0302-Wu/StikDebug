@@ -65,7 +65,7 @@ struct RouteFloatingCard: View {
     @ViewBuilder
     private func previewContent(route: SavedRoute) -> some View {
         let geometryText = route.isClosedLoop ? L10n.text("封閉") : L10n.text("開放")
-        let repeatText = playbackRepeatText(route.playbackMode)
+        let repeatText = playbackRepeatText(route.playbackMode, isClosedLoop: route.isClosedLoop)
 
         HStack {
             Image(systemName: "eye.fill").foregroundStyle(.blue)
@@ -104,9 +104,9 @@ struct RouteFloatingCard: View {
         }
     }
 
-    private func playbackRepeatText(_ mode: RoutePlaybackMode) -> String {
+    private func playbackRepeatText(_ mode: RoutePlaybackMode, isClosedLoop: Bool) -> String {
         switch mode {
-        case .once: return L10n.text("1 次")
+        case .once: return L10n.text(isClosedLoop ? "1 圈" : "1 次")
         case .infiniteLoop: return "∞"
         case .finite(let count): return L10n.format("%d 圈", count)
         }
@@ -142,7 +142,7 @@ struct RouteFloatingCard: View {
             }
         }
 
-        Text("\(playback.traveledDistance.formattedCardDistance) / \(model.geometry.totalDistance.formattedCardDistance) · \(playback.speedKmh.formatted(.number.precision(.fractionLength(1)))) km/h")
+        Text("\(playback.traveledDistance.formattedCardDistance) / \(model.geometry.totalDistance.formattedCardDistance)")
             .font(.footnote)
             .foregroundStyle(.secondary)
 

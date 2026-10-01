@@ -285,9 +285,13 @@ final class RoutePlaybackEngine: ObservableObject {
                 }
             }
             if PlaybackMath.isComplete(traveled: traveledDistance, total: geometry?.totalDistance ?? 0, mode: mode) {
-                state = .completed
                 task = nil
+                // Release the route playback lease before publishing
+                // completion.  RouteLocationModel may immediately convert
+                // natural completion into a single-point hold and acquire
+                // the shared lease for that retained final coordinate.
                 releaseKeepAlive()
+                state = .completed
                 return
             }
         }
@@ -464,7 +468,10 @@ final class RoutePlaybackEngine: ObservableObject {
     }
 
     #if DEBUG
-    func testSetStateForTesting(_ newState: PlaybackRunState) {
+    func testSetStateForTesting(_ newState: PlaybackRunState, currentCoordinate: RouteCoordinate? = nil) {
+        if let currentCoordinate {
+            self.currentCoordinate = currentCoordinate
+        }
         state = newState
     }
     #endif

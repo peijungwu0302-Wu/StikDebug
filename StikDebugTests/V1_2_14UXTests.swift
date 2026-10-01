@@ -39,6 +39,67 @@ struct V1_2_14UXTests {
         model.stopRoutePlayback(clearMarker: false)
     }
 
+    @Test @MainActor func naturalOnceCompletionKeepsFinalCoordinateAsSinglePoint() async throws {
+        let sink = RetargetRecordingSink()
+        let model = RouteLocationModel(
+            persistence: RoutePersistenceStore(rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            simulationService: sink
+        )
+        model.playbackMode = .once
+        model.testSetSimulationModeForTesting(.routePlaying)
+
+        let final = RouteCoordinate(latitude: 25.01, longitude: 121.01)
+        model.playback.testSetStateForTesting(.completed, currentCoordinate: final)
+
+        #expect(model.simulationMode == .singlePoint(final))
+        #expect(model.activeSimulatedCoordinate == final)
+        #expect(await sink.clearCallCount() == 0)
+        await model.returnToRealLocation()
+    }
+
+    @Test @MainActor func naturalFiniteCompletionKeepsFinalCoordinateAsSinglePoint() async throws {
+        let sink = RetargetRecordingSink()
+        let model = RouteLocationModel(
+            persistence: RoutePersistenceStore(rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            simulationService: sink
+        )
+        model.playbackMode = .finite(3)
+        model.testSetSimulationModeForTesting(.routePlaying)
+
+        let final = RouteCoordinate(latitude: 25.01, longitude: 121.01)
+        model.playback.testSetStateForTesting(.completed, currentCoordinate: final)
+
+        #expect(model.simulationMode == .singlePoint(final))
+        #expect(model.activeSimulatedCoordinate == final)
+        #expect(await sink.clearCallCount() == 0)
+        await model.returnToRealLocation()
+    }
+
+    @Test @MainActor func latestSinglePointRetargetRequestWinsOverDelayedOlderWrite() async throws {
+        let a = RouteCoordinate(latitude: 25, longitude: 121)
+        let b = RouteCoordinate(latitude: 35, longitude: 139)
+        let c = RouteCoordinate(latitude: 37, longitude: -122)
+        let sink = DelayedRetargetSink(blockedCoordinate: b)
+        let model = RouteLocationModel(
+            persistence: RoutePersistenceStore(rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            simulationService: sink
+        )
+
+        await model.executeTeleport(to: a)
+        let delayedB = Task { @MainActor in await model.executeTeleport(to: b) }
+        await sink.waitForBlockedWrite()
+
+        let newestC = Task { @MainActor in await model.executeTeleport(to: c) }
+        await newestC.value
+        await sink.releaseBlockedWrite()
+        await delayedB.value
+
+        #expect(model.activeSimulatedCoordinate == c)
+        #expect(model.recentLocations.first?.coordinate == c)
+        #expect(!model.recentLocations.contains(where: { $0.coordinate == b }))
+        await model.returnToRealLocation()
+    }
+
     @Test func favoriteSortPolicySupportsManualAndDistance() {
         let origin = RouteCoordinate(latitude: 25, longitude: 121)
         let near = FavoriteLocation(name: "Near", coordinate: origin)
@@ -157,6 +218,13 @@ struct V1_2_14UXTests {
         #expect(try CoordinateImportParser.parseInline("latitude=25.033964 longitude=121.564468").first == RouteCoordinate(latitude: 25.033964, longitude: 121.564468))
         #expect(try CoordinateImportParser.parseInline("https://maps.google.com/maps/@25.033964,121.564468,17z").first == RouteCoordinate(latitude: 25.033964, longitude: 121.564468))
         #expect(try CoordinateImportParser.parseInline("25.033964 121.564468").first == RouteCoordinate(latitude: 25.033964, longitude: 121.564468))
+    }
+
+    @Test func coordinateAlertValidationEnablesOnlyValidInput() {
+        #expect(CoordinateAlertInputValidation.coordinate(in: "") == nil)
+        #expect(CoordinateAlertInputValidation.coordinate(in: "not a coordinate") == nil)
+        #expect(CoordinateAlertInputValidation.coordinate(in: "25.033964,121.564468") == RouteCoordinate(latitude: 25.033964, longitude: 121.564468))
+        #expect(CoordinateAlertInputValidation.coordinate(in: "https://maps.google.com/maps/@25.033964,121.564468,17z") == RouteCoordinate(latitude: 25.033964, longitude: 121.564468))
     }
 
     @Test func timezoneComparisonUsesTaiwanBaseline() {
@@ -375,6 +443,29 @@ private actor RetargetRecordingSink: LocationSimulationSink {
 
     func updates() -> [RouteCoordinate] { values }
     func clearCallCount() -> Int { clears }
+}
+
+private actor DelayedRetargetSink: LocationSimulationSink {
+    private let blockedCoordinate: RouteCoordinate
+    private let started = AsyncSignal()
+    private let release = AsyncGate()
+    private var values: [RouteCoordinate] = []
+
+    init(blockedCoordinate: RouteCoordinate) {
+        self.blockedCoordinate = blockedCoordinate
+    }
+
+    func setCoordinate(_ coordinate: RouteCoordinate) async throws {
+        values.append(coordinate)
+        guard coordinate == blockedCoordinate else { return }
+        await started.signal()
+        await release.wait()
+    }
+
+    func clearSimulatedLocation() async throws {}
+
+    func waitForBlockedWrite() async { await started.wait() }
+    func releaseBlockedWrite() async { await release.signal() }
 }
 
 private actor TestPlaceGeocodingClient: PlaceGeocodingClient {

@@ -511,7 +511,7 @@ struct MapHomeView: View {
         let geometry = model.isClosedLoop ? L10n.text("封閉") : L10n.text("開放")
         let repeatText: String
         switch model.playbackMode {
-        case .once: repeatText = L10n.text("1 次")
+        case .once: repeatText = L10n.text(model.isClosedLoop ? "1 圈" : "1 次")
         case .infiniteLoop: repeatText = "∞"
         case .finite(let count): repeatText = L10n.format("%d 圈", count)
         }
