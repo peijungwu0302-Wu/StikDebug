@@ -1,0 +1,383 @@
+name: Promote RouteLocation Release Artifact
+
+on:
+  push:
+    tags:
+      - 'routelocation-v*'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full feature-CI-approved commit SHA
+        required: true
+        type: string
+      version:
+        description: App version to verify (for this release, 1.2.19)
+        required: true
+        type: string
+      dry_run:
+        description: Verify exact artifact provenance and IPA metadata without publishing
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: route-location-promotion-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Verify and promote tested IPA
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+      INPUT_VERSION: ${{ inputs.version }}
+      INPUT_DRY_RUN: ${{ inputs.dry_run }}
+
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Resolve expected release identity
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            SOURCE_SHA="$INPUT_SOURCE_SHA"
+            VERSION="$INPUT_VERSION"
+            DRY_RUN="$INPUT_DRY_RUN"
+            if [[ "$DRY_RUN" != "true" ]]; then
+              echo "workflow_dispatch is restricted to dry-run verification." >&2
+              exit 1
+            fi
+            git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+          else
+            [[ "$GITHUB_REF" == refs/tags/routelocation-v* ]]
+            SOURCE_SHA="$GITHUB_SHA"
+            VERSION="${GITHUB_REF_NAME#routelocation-v}"
+            DRY_RUN=false
+            TAG_COMMIT=$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")
+            if [[ "$TAG_COMMIT" != "$SOURCE_SHA" ]]; then
+              echo "Tag target mismatch: tag=$TAG_COMMIT event=$SOURCE_SHA" >&2
+              exit 1
+            fi
+          fi
+
+          [[ "$SOURCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$(git rev-parse "$SOURCE_SHA^{commit}")" == "$SOURCE_SHA" ]]
+
+          PROJECT_SETTINGS=$(python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          text = Path("StikDebug.xcodeproj/project.pbxproj").read_text(encoding="utf-8-sig")
+          blocks = re.findall(r"isa = XCBuildConfiguration;.*?buildSettings = \{(.*?)\};", text, re.S)
+          app = [block for block in blocks if re.search(r'PRODUCT_BUNDLE_IDENTIFIER\s*=\s*com\.routelocation\.app\s*;', block)]
+          if len(app) != 2:
+              raise SystemExit(f"Expected Debug and Release app settings, found {len(app)}")
+          values = []
+          for block in app:
+              def setting(name):
+                  match = re.search(rf"{name}\s*=\s*([^;]+);", block)
+                  if not match:
+                      raise SystemExit(f"Missing {name} in app target")
+                  return match.group(1).strip().strip('"')
+              values.append({
+                  "version": setting("MARKETING_VERSION"),
+                  "build": setting("CURRENT_PROJECT_VERSION"),
+                  "bundle": setting("PRODUCT_BUNDLE_IDENTIFIER"),
+                  "deployment": setting("IPHONEOS_DEPLOYMENT_TARGET"),
+              })
+          if len({json.dumps(value, sort_keys=True) for value in values}) != 1:
+              raise SystemExit(f"Debug/Release app settings differ: {values}")
+          print(json.dumps(values[0]))
+          PY
+          )
+          EXPECTED_PROJECT_VERSION=$(jq -r .version <<<"$PROJECT_SETTINGS")
+          EXPECTED_BUILD=$(jq -r .build <<<"$PROJECT_SETTINGS")
+          BUNDLE_ID=$(jq -r .bundle <<<"$PROJECT_SETTINGS")
+          MIN_OS=$(jq -r .deployment <<<"$PROJECT_SETTINGS")
+          RELEASE_NOTES_FILE=".github/RELEASE_NOTES_v${VERSION}.md"
+          if [[ "$EXPECTED_PROJECT_VERSION" != "$VERSION" || "$BUNDLE_ID" != "com.routelocation.app" || "$MIN_OS" != "17.4" ]]; then
+            echo "Project metadata mismatch: $PROJECT_SETTINGS vs release $VERSION" >&2
+            exit 1
+          fi
+          if [[ "$DRY_RUN" != "true" && ! -f "$RELEASE_NOTES_FILE" ]]; then
+            echo "Missing version-specific release notes: $RELEASE_NOTES_FILE" >&2
+            exit 1
+          fi
+
+          {
+            echo "source_sha=$SOURCE_SHA"
+            echo "version=$VERSION"
+            echo "build=$EXPECTED_BUILD"
+            echo "bundle_id=$BUNDLE_ID"
+            echo "min_os=$MIN_OS"
+            echo "dry_run=$DRY_RUN"
+            echo "tag=routelocation-v$VERSION"
+            echo "release_notes_file=$RELEASE_NOTES_FILE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Find exact successful feature artifact
+        id: artifact
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          EXPECTED_NAME="RouteLocation-unsigned-${SOURCE_SHA}"
+          RUNS_JSON=$(gh api "repos/$REPOSITORY/actions/workflows/build_ipa.yml/runs?head_sha=$SOURCE_SHA&per_page=100")
+          mapfile -t RUN_IDS < <(jq -r --arg sha "$SOURCE_SHA" '
+            .workflow_runs[]
+            | select(.head_sha == $sha and .event == "push" and .conclusion == "success")
+            | select(.head_branch | startswith("feat/"))
+            | select(.path | contains("build_ipa.yml"))
+            | .id
+          ' <<<"$RUNS_JSON")
+          if [[ ${#RUN_IDS[@]} -eq 0 ]]; then
+            echo "No successful feature push run from build_ipa.yml exists for $SOURCE_SHA" >&2
+            exit 1
+          fi
+
+          CANDIDATES="$RUNNER_TEMP/artifact-candidates.jsonl"
+          : > "$CANDIDATES"
+          for RUN_ID in "${RUN_IDS[@]}"; do
+            RUN_JSON=$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID")
+            RUN_SHA=$(jq -r .head_sha <<<"$RUN_JSON")
+            RUN_CONCLUSION=$(jq -r .conclusion <<<"$RUN_JSON")
+            RUN_EVENT=$(jq -r .event <<<"$RUN_JSON")
+            RUN_BRANCH=$(jq -r .head_branch <<<"$RUN_JSON")
+            RUN_PATH=$(jq -r .path <<<"$RUN_JSON")
+            if [[ "$RUN_SHA" != "$SOURCE_SHA" || "$RUN_CONCLUSION" != success || "$RUN_EVENT" != push || "$RUN_BRANCH" != feat/* || "$RUN_PATH" != *build_ipa.yml* ]]; then
+              continue
+            fi
+            ARTIFACTS_JSON=$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100")
+            jq -c --arg name "$EXPECTED_NAME" --arg sha "$SOURCE_SHA" --argjson run_id "$RUN_ID" '
+              .artifacts[]
+              | select(.name == $name and .expired == false)
+              | select((.workflow_run.id == $run_id) and (.workflow_run.head_sha == $sha) and (.workflow_run.head_branch | startswith("feat/")))
+              | {run_id: $run_id, artifact_id: .id, name: .name, size: .size_in_bytes, digest: (.digest // "")}
+            ' <<<"$ARTIFACTS_JSON" >> "$CANDIDATES"
+          done
+
+          COUNT=$(wc -l < "$CANDIDATES" | tr -d ' ')
+          if [[ "$COUNT" -ne 1 ]]; then
+            echo "Expected exactly one non-expired artifact named $EXPECTED_NAME; found $COUNT candidates." >&2
+            if [[ "$COUNT" -gt 0 ]]; then cat "$CANDIDATES" >&2; fi
+            exit 1
+          fi
+          CANDIDATE=$(head -n 1 "$CANDIDATES")
+          RUN_ID=$(jq -r .run_id <<<"$CANDIDATE")
+          ARTIFACT_ID=$(jq -r .artifact_id <<<"$CANDIDATE")
+          ARTIFACT_NAME=$(jq -r .name <<<"$CANDIDATE")
+          ARTIFACT_SIZE=$(jq -r .size <<<"$CANDIDATE")
+          ARTIFACT_DIGEST=$(jq -r .digest <<<"$CANDIDATE")
+          ARTIFACT_ZIP="$RUNNER_TEMP/route-location-candidate.zip"
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
+            --output "$ARTIFACT_ZIP"
+
+          VERIFY_REPORT="$RUNNER_TEMP/verified-ipa-report.json"
+          python3 tools/verify_release_artifact.py \
+            --archive "$ARTIFACT_ZIP" \
+            --source-sha "$SOURCE_SHA" \
+            --version "$VERSION" \
+            --build "${{ steps.release.outputs.build }}" \
+            --bundle-id "${{ steps.release.outputs.bundle_id }}" \
+            --min-os "${{ steps.release.outputs.min_os }}" \
+            --expected-digest "$ARTIFACT_DIGEST" \
+            --expected-size "$ARTIFACT_SIZE" \
+            --extract-to "$RUNNER_TEMP/verified-ipa" > "$VERIFY_REPORT"
+
+          IPA_REPORT=$(jq -c .ipas "$VERIFY_REPORT")
+          VERSIONED_NAME="RouteLocation-v${VERSION}-unsigned.ipa"
+          VERSIONED_SHA=$(jq -r --arg name "$VERSIONED_NAME" '.ipas[$name].sha256' "$VERIFY_REPORT")
+          VERSIONED_SIZE=$(jq -r --arg name "$VERSIONED_NAME" '.ipas[$name].bytes' "$VERIFY_REPORT")
+          GENERIC_SHA=$(jq -r '.ipas["RouteLocation-unsigned.ipa"].sha256' "$VERIFY_REPORT")
+          GENERIC_SIZE=$(jq -r '.ipas["RouteLocation-unsigned.ipa"].bytes' "$VERIFY_REPORT")
+          ARTIFACT_COMPUTED_SHA=$(jq -r .artifactSHA256 "$VERIFY_REPORT")
+          echo "Verified exact source $SOURCE_SHA via workflow run $RUN_ID, artifact $ARTIFACT_ID ($ARTIFACT_NAME)."
+          echo "Artifact zip digest: $ARTIFACT_COMPUTED_SHA; IPA records: $IPA_REPORT"
+          {
+            echo "run_id=$RUN_ID"
+            echo "artifact_id=$ARTIFACT_ID"
+            echo "artifact_name=$ARTIFACT_NAME"
+            echo "artifact_size=$ARTIFACT_SIZE"
+            echo "artifact_digest=$ARTIFACT_COMPUTED_SHA"
+            echo "versioned_name=$VERSIONED_NAME"
+            echo "versioned_size=$VERSIONED_SIZE"
+            echo "versioned_sha256=$VERSIONED_SHA"
+            echo "generic_size=$GENERIC_SIZE"
+            echo "generic_sha256=$GENERIC_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Complete promotion dry-run without publishing
+        if: steps.release.outputs.dry_run == 'true'
+        run: |
+          echo "DRY RUN PASS: exact successful feature artifact provenance, artifact archive digest, IPA identity, Info.plist metadata, file names, sizes, and hashes verified. No Release or source.json was changed."
+
+      - name: Create production GitHub Release and upload verified IPAs
+        if: steps.release.outputs.dry_run != 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          VERSIONED_NAME: ${{ steps.artifact.outputs.versioned_name }}
+          RELEASE_NOTES_FILE: ${{ steps.release.outputs.release_notes_file }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "A GitHub Release already exists for $TAG; refusing to overwrite it." >&2
+            exit 1
+          fi
+          gh release create "$TAG" \
+            "$RUNNER_TEMP/verified-ipa/$VERSIONED_NAME#${VERSIONED_NAME}" \
+            "$RUNNER_TEMP/verified-ipa/RouteLocation-unsigned.ipa#RouteLocation-unsigned.ipa" \
+            --title "RouteLocation v$VERSION" \
+            --notes-file "$RELEASE_NOTES_FILE"
+          echo "Published $TAG from the verified artifact; no build or test command ran in this workflow."
+
+      - name: Verify published Release assets
+        if: steps.release.outputs.dry_run != 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSIONED_NAME: ${{ steps.artifact.outputs.versioned_name }}
+          VERSIONED_SIZE: ${{ steps.artifact.outputs.versioned_size }}
+          VERSIONED_SHA: ${{ steps.artifact.outputs.versioned_sha256 }}
+          GENERIC_SIZE: ${{ steps.artifact.outputs.generic_size }}
+          GENERIC_SHA: ${{ steps.artifact.outputs.generic_sha256 }}
+        run: |
+          set -euo pipefail
+          RELEASE_JSON=$(gh api "repos/$REPOSITORY/releases/tags/$TAG")
+          jq -e --arg tag "$TAG" --arg title "RouteLocation v${{ steps.release.outputs.version }}" '
+            .tag_name == $tag and .name == $title and .draft == false and .prerelease == false
+          ' <<<"$RELEASE_JSON" >/dev/null
+          jq -e --arg versioned "$VERSIONED_NAME" --argjson versioned_size "$VERSIONED_SIZE" --argjson generic_size "$GENERIC_SIZE" '
+            ([.assets[] | select(.name == $versioned and .size == $versioned_size)] | length) == 1 and
+            ([.assets[] | select(.name == "RouteLocation-unsigned.ipa" and .size == $generic_size)] | length) == 1
+          ' <<<"$RELEASE_JSON" >/dev/null
+          jq -c --arg versioned "$VERSIONED_NAME" '{url: .html_url, draft: .draft, prerelease: .prerelease, assets: [.assets[] | select(.name == $versioned or .name == "RouteLocation-unsigned.ipa") | {id, name, size, digest, browser_download_url}]}' <<<"$RELEASE_JSON"
+          REMOTE_VERSIONED_DIGEST=$(jq -r --arg name "$VERSIONED_NAME" '.assets[] | select(.name == $name) | (.digest // "")' <<<"$RELEASE_JSON")
+          REMOTE_GENERIC_DIGEST=$(jq -r '.assets[] | select(.name == "RouteLocation-unsigned.ipa") | (.digest // "")' <<<"$RELEASE_JSON")
+          if [[ -n "$REMOTE_VERSIONED_DIGEST" && "${REMOTE_VERSIONED_DIGEST#sha256:}" != "$VERSIONED_SHA" ]]; then
+            echo "Versioned release asset digest differs from verified IPA." >&2
+            exit 1
+          fi
+          if [[ -n "$REMOTE_GENERIC_DIGEST" && "${REMOTE_GENERIC_DIGEST#sha256:}" != "$GENERIC_SHA" ]]; then
+            echo "Generic release asset digest differs from verified IPA." >&2
+            exit 1
+          fi
+
+      - name: Checkout current main for SideStore metadata update
+        if: steps.release.outputs.dry_run != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: source-update
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Update SideStore source from the published IPA
+        if: steps.release.outputs.dry_run != 'true'
+        id: source_update
+        working-directory: source-update
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          VERSIONED_NAME: ${{ steps.artifact.outputs.versioned_name }}
+          VERSIONED_SIZE: ${{ steps.artifact.outputs.versioned_size }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$SOURCE_SHA" HEAD
+          if python3 -c 'import json,sys; d=json.load(open("source.json", encoding="utf-8")); sys.exit(any(v.get("version")==sys.argv[1] for v in d["apps"][0]["versions"]))' "$VERSION"; then
+            echo "source.json already contains $VERSION before production promotion; refusing an ambiguous duplicate release." >&2
+            exit 1
+          fi
+          python3 - "$RUNNER_TEMP/previous-source-versions.json" <<'PY'
+          import json, sys
+          source = json.load(open("source.json", encoding="utf-8"))
+          json.dump(source["apps"][0]["versions"], open(sys.argv[1], "w", encoding="utf-8"))
+          PY
+          DESCRIPTION="RouteLocation v${VERSION}: System/Light/Dark appearance; coordinate-only text size; improved Route Player coordinate width; shared favorite ordering; optional best-effort DDI; optional Health Sync capability messaging; bilingual documentation. / RouteLocation v${VERSION}：新增外觀與座標文字大小設定、改善路線座標顯示、共用收藏排序、DDI 選用 best-effort 狀態、Health Sync 能力說明與中英文文件。"
+          python3 tools/update_source_json.py \
+            --source-path source.json \
+            --ipa-path "$RUNNER_TEMP/verified-ipa/$VERSIONED_NAME" \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --description "$DESCRIPTION" \
+            --repo "$REPOSITORY" \
+            --min-os "${{ steps.release.outputs.min_os }}" \
+            --date "$(date -u +%F)"
+
+          python3 - "$VERSION" "$TAG" "$VERSIONED_SIZE" "$DESCRIPTION" "$RUNNER_TEMP/previous-source-versions.json" <<'PY'
+          import json, sys
+          version, tag, expected_size, expected_description, previous_versions_path = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]
+          source = json.load(open("source.json", encoding="utf-8"))
+          versions = source["apps"][0]["versions"]
+          matching = [entry for entry in versions if entry.get("version") == version]
+          previous_versions = json.load(open(previous_versions_path, encoding="utf-8"))
+          if len(matching) != 1 or versions[0] is not matching[0]:
+              raise SystemExit("Expected exactly one newest v1.2.19 source entry")
+          expected_url = f"https://github.com/peijungwu0302-Wu/StikDebug/releases/download/{tag}/RouteLocation-v{version}-unsigned.ipa"
+          if matching[0].get("size") != expected_size or matching[0].get("downloadURL") != expected_url or matching[0].get("minOSVersion") != "17.4" or matching[0].get("localizedDescription") != expected_description:
+              raise SystemExit(f"Source metadata mismatch: {matching[0]}")
+          if [entry for entry in versions if entry.get("version") != version] != previous_versions:
+              raise SystemExit("Historical source versions were removed or changed unexpectedly")
+          if not any(entry.get("version") == "1.2.18" for entry in versions[1:]):
+              raise SystemExit("The previous v1.2.18 source entry was not retained")
+          PY
+
+          git status --short
+          git add source.json
+          if [[ "$(git diff --cached --name-only)" != "source.json" ]]; then
+            echo "Promotion metadata update modified files other than source.json." >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(release): update source.json for $TAG [skip ci]"
+          [[ "$(git rev-parse HEAD^)" == "$SOURCE_SHA" ]]
+          git push origin HEAD:main
+          echo "source_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify public SideStore source
+        if: steps.release.outputs.dry_run != 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          VERSIONED_SIZE: ${{ steps.artifact.outputs.versioned_size }}
+          DESCRIPTION: >-
+            RouteLocation v${{ steps.release.outputs.version }}: System/Light/Dark appearance; coordinate-only text size; improved Route Player coordinate width; shared favorite ordering; optional best-effort DDI; optional Health Sync capability messaging; bilingual documentation. / RouteLocation v${{ steps.release.outputs.version }}：新增外觀與座標文字大小設定、改善路線座標顯示、共用收藏排序、DDI 選用 best-effort 狀態、Health Sync 能力說明與中英文文件。
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            "https://raw.githubusercontent.com/$REPOSITORY/main/source.json?promotion=${GITHUB_RUN_ID}" \
+            --output "$RUNNER_TEMP/public-source.json"
+          python3 - "$RUNNER_TEMP/public-source.json" "$VERSION" "$TAG" "$VERSIONED_SIZE" "$DESCRIPTION" <<'PY'
+          import json, sys
+          path, version, tag, expected_size, expected_description = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5]
+          source = json.load(open(path, encoding="utf-8"))
+          versions = source["apps"][0]["versions"]
+          matching = [entry for entry in versions if entry.get("version") == version]
+          expected_url = f"https://github.com/peijungwu0302-Wu/StikDebug/releases/download/{tag}/RouteLocation-v{version}-unsigned.ipa"
+          if len(matching) != 1 or versions[0] != matching[0]:
+              raise SystemExit("Public source does not expose exactly one newest v1.2.19 entry")
+          if matching[0].get("size") != expected_size or matching[0].get("downloadURL") != expected_url or matching[0].get("minOSVersion") != "17.4" or matching[0].get("localizedDescription") != expected_description:
+              raise SystemExit(f"Public source metadata mismatch: {matching[0]}")
+          if not any(entry.get("version") == "1.2.18" for entry in versions[1:]):
+              raise SystemExit("Public source no longer retains v1.2.18")
+          print(json.dumps({"public_source": "https://raw.githubusercontent.com/peijungwu0302-Wu/StikDebug/main/source.json", "version": version, "downloadURL": expected_url, "size": expected_size}, sort_keys=True))
+          PY
