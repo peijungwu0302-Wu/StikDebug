@@ -40,12 +40,16 @@ enum CoordinateAlertPasteControl {
             pasteControl.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             pasteControl.centerYAnchor.constraint(equalTo: container.centerYAnchor)
         ])
-        container.setNeedsLayout()
-        container.layoutIfNeeded()
         textField.rightView = container
         textField.rightViewMode = .always
         textField.setNeedsLayout()
         textField.layoutIfNeeded()
+        // UIAlertController can configure its text field before that field
+        // has a non-zero frame. UITextField then lays out rightView using the
+        // current zero-sized field bounds, so restore the explicit accessory
+        // size afterward; the alert's next layout pass positions it normally.
+        container.frame = CGRect(origin: container.frame.origin, size: trailingContainerSize)
+        container.setNeedsLayout()
         container.layoutIfNeeded()
         return pasteControl
     }
