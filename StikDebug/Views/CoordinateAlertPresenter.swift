@@ -105,18 +105,21 @@ final class CoordinateAlertHostController: UIViewController {
 @MainActor
 final class CoordinateEntryModalViewController: UIViewController {
     private(set) var coordinateTextField = UITextField()
-    private(set) var pasteControl: UIPasteControl!
+    private(set) var pasteControl: UIPasteControl?
+    private(set) var pasteControlContainer = UIView()
     private(set) var inputRowStack = UIStackView()
     private(set) var previewButton = UIButton(type: .system)
     private(set) var simulateButton = UIButton(type: .system)
     private(set) var cancelButton = UIButton(type: .system)
     private(set) var initialFocusWasRequested = false
+    private(set) var cardCenterYConstraint: NSLayoutConstraint?
 
     private let cardView = UIView()
     private let cardStack = UIStackView()
     private let actionRow = UIStackView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
+    private var pasteControlConstraints: [NSLayoutConstraint] = []
     private var hasFinished = false
 
     var onSubmit: (RouteCoordinate, Bool) -> Void
@@ -140,6 +143,11 @@ final class CoordinateEntryModalViewController: UIViewController {
         super.viewDidLoad()
         buildInterface()
         updateActionAvailability()
+        observePasteControlAvailabilityChanges()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     func requestInitialFocus() {
@@ -167,24 +175,26 @@ final class CoordinateEntryModalViewController: UIViewController {
         cardView.layer.shadowOffset = CGSize(width: 0, height: 8)
         view.addSubview(cardView)
 
-        let visibleArea = UILayoutGuide()
-        view.addLayoutGuide(visibleArea)
-
-        let preferredCardWidth = cardView.widthAnchor.constraint(equalTo: visibleArea.widthAnchor, multiplier: 0.9)
+        let preferredCardWidth = cardView.widthAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.widthAnchor,
+            multiplier: 0.9
+        )
         preferredCardWidth.priority = .defaultHigh
+        let centerYConstraint = cardView.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor)
+        centerYConstraint.priority = .defaultHigh
+        cardCenterYConstraint = centerYConstraint
         NSLayoutConstraint.activate([
             dimmingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             dimmingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             dimmingView.topAnchor.constraint(equalTo: view.topAnchor),
             dimmingView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            visibleArea.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
-            visibleArea.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
-            visibleArea.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            visibleArea.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-
-            cardView.centerXAnchor.constraint(equalTo: visibleArea.centerXAnchor),
-            cardView.centerYAnchor.constraint(equalTo: visibleArea.centerYAnchor),
+            cardView.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            cardView.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            cardView.topAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            cardView.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            cardView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            centerYConstraint,
             preferredCardWidth,
             cardView.widthAnchor.constraint(lessThanOrEqualToConstant: 420)
         ])
@@ -255,21 +265,69 @@ final class CoordinateEntryModalViewController: UIViewController {
         coordinateTextField.returnKeyType = .done
         coordinateTextField.addTarget(self, action: #selector(coordinateTextDidChange(_:)), for: .editingChanged)
 
-        pasteControl = CoordinateAlertPasteControl.makeSibling(for: coordinateTextField)
+        pasteControlContainer.translatesAutoresizingMaskIntoConstraints = false
         inputRowStack.axis = .horizontal
         inputRowStack.alignment = .fill
         inputRowStack.distribution = .fill
         inputRowStack.spacing = 8
         inputRowStack.addArrangedSubview(coordinateTextField)
-        inputRowStack.addArrangedSubview(pasteControl)
+        inputRowStack.addArrangedSubview(pasteControlContainer)
         coordinateTextField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         coordinateTextField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         NSLayoutConstraint.activate([
             coordinateTextField.heightAnchor.constraint(equalToConstant: 48),
-            pasteControl.widthAnchor.constraint(equalToConstant: 92),
-            pasteControl.heightAnchor.constraint(equalToConstant: 48)
+            pasteControlContainer.widthAnchor.constraint(equalToConstant: 92),
+            pasteControlContainer.heightAnchor.constraint(equalToConstant: 48)
         ])
+        refreshPasteControl()
+    }
+
+    /// Recreates the native control without inspecting pasteboard contents or
+    /// changing the text field that UIKit targets for the user-initiated paste.
+    func refreshPasteControl() {
+        guard isViewLoaded else { return }
+
+        NSLayoutConstraint.deactivate(pasteControlConstraints)
+        pasteControlConstraints.removeAll()
+        pasteControl?.removeFromSuperview()
+        let replacement = CoordinateAlertPasteControl.makeSibling(for: coordinateTextField)
+        replacement.translatesAutoresizingMaskIntoConstraints = false
+        pasteControlContainer.addSubview(replacement)
+        pasteControlConstraints = [
+            replacement.leadingAnchor.constraint(equalTo: pasteControlContainer.leadingAnchor),
+            replacement.trailingAnchor.constraint(equalTo: pasteControlContainer.trailingAnchor),
+            replacement.topAnchor.constraint(equalTo: pasteControlContainer.topAnchor),
+            replacement.bottomAnchor.constraint(equalTo: pasteControlContainer.bottomAnchor)
+        ]
+        NSLayoutConstraint.activate(pasteControlConstraints)
+        pasteControl = replacement
+    }
+
+    private func observePasteControlAvailabilityChanges() {
+        let center = NotificationCenter.default
+        center.addObserver(
+            self,
+            selector: #selector(pasteboardAvailabilityDidChange(_:)),
+            name: UIPasteboard.changedNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(pasteboardAvailabilityDidChange(_:)),
+            name: UIPasteboard.removedNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(pasteboardAvailabilityDidChange(_:)),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+
+    @objc private func pasteboardAvailabilityDidChange(_ notification: Notification) {
+        refreshPasteControl()
     }
 
     private func configureButtons() {

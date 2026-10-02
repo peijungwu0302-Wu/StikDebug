@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       version:
-        description: App version to verify (for this release, 1.2.19)
+        description: App version to verify
         required: true
         type: string
       dry_run:
@@ -107,6 +107,7 @@ jobs:
           EXPECTED_BUILD=$(jq -r .build <<<"$PROJECT_SETTINGS")
           BUNDLE_ID=$(jq -r .bundle <<<"$PROJECT_SETTINGS")
           MIN_OS=$(jq -r .deployment <<<"$PROJECT_SETTINGS")
+          SOURCE_DESCRIPTION="RouteLocation v${VERSION} improves coordinate-entry reliability: the native Paste control recovers after clipboard or app lifecycle changes, and the coordinate input modal remains stable when the keyboard opens. / RouteLocation v${VERSION} 改善座標輸入穩定性：原生「貼上」控制項在剪貼簿或 App 狀態切換後可恢復，且鍵盤彈出時輸入視窗保持穩定。"
           RELEASE_NOTES_FILE=".github/RELEASE_NOTES_v${VERSION}.md"
           if [[ "$EXPECTED_PROJECT_VERSION" != "$VERSION" || "$BUNDLE_ID" != "com.routelocation.app" || "$MIN_OS" != "17.4" ]]; then
             echo "Project metadata mismatch: $PROJECT_SETTINGS vs release $VERSION" >&2
@@ -126,6 +127,7 @@ jobs:
             echo "dry_run=$DRY_RUN"
             echo "tag=routelocation-v$VERSION"
             echo "release_notes_file=$RELEASE_NOTES_FILE"
+            echo "source_description=$SOURCE_DESCRIPTION"
           } >> "$GITHUB_OUTPUT"
 
       - name: Find exact successful feature artifact
@@ -299,16 +301,23 @@ jobs:
           SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
           VERSIONED_NAME: ${{ steps.artifact.outputs.versioned_name }}
           VERSIONED_SIZE: ${{ steps.artifact.outputs.versioned_size }}
+          DESCRIPTION: ${{ steps.release.outputs.source_description }}
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$SOURCE_SHA" HEAD
           python3 tools/ensure_source_version_absent.py "$VERSION" source.json
-          python3 - "$RUNNER_TEMP/previous-source-versions.json" <<'PY'
+          python3 - "$RUNNER_TEMP/previous-source-versions.json" "$GITHUB_OUTPUT" <<'PY'
           import json, sys
-          source = json.load(open("source.json", encoding="utf-8"))
-          json.dump(source["apps"][0]["versions"], open(sys.argv[1], "w", encoding="utf-8"))
+          with open("source.json", encoding="utf-8") as source_file:
+              source = json.load(source_file)
+          versions = source["apps"][0]["versions"]
+          if not versions:
+              raise SystemExit("source.json has no prior release to preserve")
+          with open(sys.argv[1], "w", encoding="utf-8") as previous_file:
+              json.dump(versions, previous_file)
+          with open(sys.argv[2], "a", encoding="utf-8") as outputs:
+              print(f"previous_version={versions[0]['version']}", file=outputs)
           PY
-          DESCRIPTION="RouteLocation v${VERSION}: System/Light/Dark appearance; coordinate-only text size; improved Route Player coordinate width; shared favorite ordering; optional best-effort DDI; optional Health Sync capability messaging; bilingual documentation. / RouteLocation v${VERSION}：新增外觀與座標文字大小設定、改善路線座標顯示、共用收藏排序、DDI 選用 best-effort 狀態、Health Sync 能力說明與中英文文件。"
           python3 tools/update_source_json.py \
             --source-path source.json \
             --ipa-path "$RUNNER_TEMP/verified-ipa/$VERSIONED_NAME" \
@@ -327,14 +336,15 @@ jobs:
           matching = [entry for entry in versions if entry.get("version") == version]
           previous_versions = json.load(open(previous_versions_path, encoding="utf-8"))
           if len(matching) != 1 or versions[0] is not matching[0]:
-              raise SystemExit("Expected exactly one newest v1.2.19 source entry")
+              raise SystemExit(f"Expected exactly one newest {version} source entry")
           expected_url = f"https://github.com/peijungwu0302-Wu/StikDebug/releases/download/{tag}/RouteLocation-v{version}-unsigned.ipa"
           if matching[0].get("size") != expected_size or matching[0].get("downloadURL") != expected_url or matching[0].get("minOSVersion") != "17.4" or matching[0].get("localizedDescription") != expected_description:
               raise SystemExit(f"Source metadata mismatch: {matching[0]}")
           if [entry for entry in versions if entry.get("version") != version] != previous_versions:
               raise SystemExit("Historical source versions were removed or changed unexpectedly")
-          if not any(entry.get("version") == "1.2.18" for entry in versions[1:]):
-              raise SystemExit("The previous v1.2.18 source entry was not retained")
+          previous_version = previous_versions[0]["version"]
+          if not any(entry.get("version") == previous_version for entry in versions[1:]):
+              raise SystemExit(f"The previous release {previous_version} was not retained")
           PY
 
           git status --short
@@ -356,14 +366,14 @@ jobs:
           TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
           VERSIONED_SIZE: ${{ steps.artifact.outputs.versioned_size }}
-          DESCRIPTION: >-
-            RouteLocation v${{ steps.release.outputs.version }}: System/Light/Dark appearance; coordinate-only text size; improved Route Player coordinate width; shared favorite ordering; optional best-effort DDI; optional Health Sync capability messaging; bilingual documentation. / RouteLocation v${{ steps.release.outputs.version }}：新增外觀與座標文字大小設定、改善路線座標顯示、共用收藏排序、DDI 選用 best-effort 狀態、Health Sync 能力說明與中英文文件。
+          PREVIOUS_VERSION: ${{ steps.source_update.outputs.previous_version }}
+          DESCRIPTION: ${{ steps.release.outputs.source_description }}
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --location \
             "https://raw.githubusercontent.com/$REPOSITORY/main/source.json?promotion=${GITHUB_RUN_ID}" \
             --output "$RUNNER_TEMP/public-source.json"
-          python3 - "$RUNNER_TEMP/public-source.json" "$VERSION" "$TAG" "$VERSIONED_SIZE" "$DESCRIPTION" <<'PY'
+          python3 - "$RUNNER_TEMP/public-source.json" "$VERSION" "$TAG" "$VERSIONED_SIZE" "$DESCRIPTION" "$PREVIOUS_VERSION" <<'PY'
           import json, sys
           path, version, tag, expected_size, expected_description = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5]
           source = json.load(open(path, encoding="utf-8"))
@@ -371,10 +381,11 @@ jobs:
           matching = [entry for entry in versions if entry.get("version") == version]
           expected_url = f"https://github.com/peijungwu0302-Wu/StikDebug/releases/download/{tag}/RouteLocation-v{version}-unsigned.ipa"
           if len(matching) != 1 or versions[0] != matching[0]:
-              raise SystemExit("Public source does not expose exactly one newest v1.2.19 entry")
+              raise SystemExit(f"Public source does not expose exactly one newest {version} entry")
           if matching[0].get("size") != expected_size or matching[0].get("downloadURL") != expected_url or matching[0].get("minOSVersion") != "17.4" or matching[0].get("localizedDescription") != expected_description:
               raise SystemExit(f"Public source metadata mismatch: {matching[0]}")
-          if not any(entry.get("version") == "1.2.18" for entry in versions[1:]):
-              raise SystemExit("Public source no longer retains v1.2.18")
+          previous_version = sys.argv[6]
+          if not any(entry.get("version") == previous_version for entry in versions[1:]):
+              raise SystemExit(f"Public source no longer retains previous release {previous_version}")
           print(json.dumps({"public_source": "https://raw.githubusercontent.com/peijungwu0302-Wu/StikDebug/main/source.json", "version": version, "downloadURL": expected_url, "size": expected_size}, sort_keys=True))
           PY

@@ -39,6 +39,14 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         self.assertIn('git rev-parse HEAD^', workflow)
         self.assertIn("previous-source-versions.json", workflow)
 
+    def test_promotion_source_checks_are_version_agnostic_and_preserve_history(self) -> None:
+        workflow = (ROOT / ".github/workflows/promote_release.yml").read_text(encoding="utf-8")
+
+        self.assertNotIn("1.2.19", workflow)
+        self.assertNotIn("1.2.18", workflow)
+        self.assertIn('f"Expected exactly one newest {version} source entry"', workflow)
+        self.assertIn('if [entry for entry in versions if entry.get("version") != version] != previous_versions:', workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

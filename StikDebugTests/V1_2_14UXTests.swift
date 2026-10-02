@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import UIKit
+import UniformTypeIdentifiers
 @testable import RouteLocation
 
 struct V1_2_14UXTests {
@@ -183,13 +184,17 @@ struct V1_2_14UXTests {
 
         let field = controller.coordinateTextField
         let pasteControl = try #require(controller.pasteControl)
+        let pasteContainer = controller.pasteControlContainer
         #expect(field.rightView == nil)
         #expect(field.leftView == nil)
-        #expect(field.superview === pasteControl.superview)
+        #expect(field.superview === controller.inputRowStack)
+        #expect(pasteControl.superview === pasteContainer)
         #expect(controller.inputRowStack.arrangedSubviews.contains(where: { $0 === field }))
-        #expect(controller.inputRowStack.arrangedSubviews.contains(where: { $0 === pasteControl }))
+        #expect(controller.inputRowStack.arrangedSubviews.contains(where: { $0 === pasteContainer }))
         #expect(field.bounds.width > 140)
         #expect(field.bounds.height >= 44)
+        #expect(pasteContainer.bounds.width == 92)
+        #expect(pasteContainer.bounds.height == 48)
         #expect(pasteControl.bounds.width >= 80)
         #expect(pasteControl.bounds.height >= 44)
         #expect(!pasteControl.isHidden)
@@ -201,6 +206,63 @@ struct V1_2_14UXTests {
         #expect(pasteControl.accessibilityLabel == L10n.text("貼上座標"))
         controller.requestInitialFocus()
         #expect(controller.initialFocusWasRequested)
+
+        let centeredAgainst = controller.cardCenterYConstraint?.secondItem as? UILayoutGuide
+        #expect(centeredAgainst === controller.view.safeAreaLayoutGuide)
+        #expect(centeredAgainst !== controller.view.keyboardLayoutGuide)
+    }
+
+    @Test @MainActor func coordinateEntryPasteConfigurationAcceptsPlainTextOnly() {
+        let controller = CoordinateEntryModalViewController(onSubmit: { _, _ in }, onCancel: {})
+        controller.loadViewIfNeeded()
+        let identifiers = controller.coordinateTextField.pasteConfiguration?.acceptableTypeIdentifiers ?? []
+
+        #expect(identifiers == [UTType.plainText.identifier])
+        #expect(!identifiers.contains(UTType.url.identifier))
+    }
+
+    @Test @MainActor func coordinatePasteControlRefreshRecreatesOnlyControlAndPreservesInput() throws {
+        let controller = CoordinateEntryModalViewController(onSubmit: { _, _ in }, onCancel: {})
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+
+        let field = controller.coordinateTextField
+        field.text = "25.033964, 121.564468"
+        controller.requestInitialFocus()
+        var previousControl = try #require(controller.pasteControl)
+
+        for _ in 0..<3 {
+            controller.refreshPasteControl()
+            let refreshedControl = try #require(controller.pasteControl)
+            #expect(refreshedControl !== previousControl)
+            #expect(refreshedControl.target === field)
+            #expect(field.text == "25.033964, 121.564468")
+            #expect(controller.coordinateTextField === field)
+            #expect(controller.initialFocusWasRequested)
+            #expect(controller.pasteControlContainer.subviews.filter { $0 is UIPasteControl }.count == 1)
+            previousControl = refreshedControl
+        }
+
+        controller.view.layoutIfNeeded()
+        #expect(controller.pasteControlContainer.bounds.width == 92)
+        #expect(controller.pasteControlContainer.bounds.height == 48)
+        #expect(field.bounds.width > 140)
+    }
+
+    @Test @MainActor func coordinatePasteControlRefreshesOnPasteboardAndForegroundNotifications() throws {
+        let controller = CoordinateEntryModalViewController(onSubmit: { _, _ in }, onCancel: {})
+        controller.loadViewIfNeeded()
+        let initialControl = try #require(controller.pasteControl)
+
+        NotificationCenter.default.post(name: UIPasteboard.changedNotification, object: UIPasteboard.general)
+        let afterPasteboardChange = try #require(controller.pasteControl)
+        #expect(afterPasteboardChange !== initialControl)
+
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        let afterForegrounding = try #require(controller.pasteControl)
+        #expect(afterForegrounding !== afterPasteboardChange)
+        #expect(controller.pasteControlContainer.subviews.filter { $0 is UIPasteControl }.count == 1)
     }
 
     @Test @MainActor func coordinateEntryModalActionsEnableOnlyForValidInput() throws {
