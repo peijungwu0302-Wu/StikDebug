@@ -302,10 +302,7 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$SOURCE_SHA" HEAD
-          if python3 -c 'import json,sys; d=json.load(open("source.json", encoding="utf-8")); sys.exit(any(v.get("version")==sys.argv[1] for v in d["apps"][0]["versions"]))' "$VERSION"; then
-            echo "source.json already contains $VERSION before production promotion; refusing an ambiguous duplicate release." >&2
-            exit 1
-          fi
+          python3 tools/ensure_source_version_absent.py "$VERSION" source.json
           python3 - "$RUNNER_TEMP/previous-source-versions.json" <<'PY'
           import json, sys
           source = json.load(open("source.json", encoding="utf-8"))

@@ -34,6 +34,7 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         dry_run_block = workflow.split("- name: Complete promotion dry-run", 1)[1].split("- name: Create production GitHub Release", 1)[0]
         self.assertIn("No Release or source.json was changed", dry_run_block)
         self.assertIn("steps.release.outputs.dry_run != 'true'", workflow)
+        self.assertIn('python3 tools/ensure_source_version_absent.py "$VERSION" source.json', workflow)
         self.assertIn('--ipa-path "$RUNNER_TEMP/verified-ipa/$VERSIONED_NAME"', workflow)
         self.assertIn('git rev-parse HEAD^', workflow)
         self.assertIn("previous-source-versions.json", workflow)
