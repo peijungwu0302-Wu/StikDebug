@@ -8,6 +8,7 @@ struct RouteEditorView: View {
     @State private var showImporter = false
     @State private var showSearch = false
     @State private var showSaveSheet = false
+    @State private var showClearConfirmation = false
     @State private var renamingRoute: SavedRoute?
     @FocusState private var speedFieldFocused: Bool
 
@@ -54,7 +55,7 @@ struct RouteEditorView: View {
                     Text(L10n.text("支援文字、CSV、JSON、GeoJSON、GPX 與 KML。"))
                         .font(.caption).foregroundStyle(.secondary)
                     if model.selectedCoordinate != nil { Button(L10n.text("加入地圖所選位置")) { model.addSelectedWaypoint() } }
-                    Button(L10n.text("全部清除"), role: .destructive) { model.clearWaypoints() }.disabled(model.waypoints.isEmpty)
+                    Button(L10n.text("全部清除"), role: .destructive) { showClearConfirmation = true }.disabled(model.waypoints.isEmpty)
                 }
 
                 Section(L10n.text("播放")) {
@@ -70,6 +71,11 @@ struct RouteEditorView: View {
                         Text(L10n.text("3 圈")).tag(RoutePlaybackMode.finite(3))
                         Text(L10n.text("5 圈")).tag(RoutePlaybackMode.finite(5))
                         Text(L10n.text("無限")).tag(RoutePlaybackMode.infiniteLoop)
+                    }
+                    .disabled(!model.isClosedLoop)
+                    if !model.isClosedLoop {
+                        Text(L10n.text("開放路線只能播放一次；需要多圈時請開啟封閉路線。"))
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                     LabeledContent(L10n.text("距離"), value: model.geometry.totalDistance.formattedRouteDistance)
                     LabeledContent(L10n.text("預估單圈時間"), value: model.estimatedLapDuration?.formattedDuration ?? "—")
@@ -133,6 +139,10 @@ struct RouteEditorView: View {
             }
         }
         .sheet(isPresented: $showPaste) { CoordinatePasteView { model.replaceWaypoints($0) } }
+        .confirmationDialog(L10n.text("確定要清除目前的路線草稿嗎？"), isPresented: $showClearConfirmation, titleVisibility: .visible) {
+            Button(L10n.text("全部清除"), role: .destructive) { model.clearWaypoints() }
+            Button(L10n.text("取消"), role: .cancel) {}
+        }
         .sheet(isPresented: $showSearch) { LocationSearchPicker { model.addWaypoint($0) } }
         .sheet(isPresented: $showSaveSheet) {
             RouteSaveView(initialName: model.routeName, updatingExisting: model.hasLoadedRoute) { name, asCopy in

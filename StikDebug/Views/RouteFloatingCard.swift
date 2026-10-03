@@ -113,7 +113,9 @@ struct RouteFloatingCard: View {
         let isReconnecting = playback.state == .reconnecting
 
         HStack {
-            if isReconnecting {
+            if playback.state.interruptionMessage != nil {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            } else if isReconnecting {
                 Image(systemName: "arrow.triangle.2.circlepath")
                     .foregroundStyle(.orange)
             } else {
@@ -132,6 +134,11 @@ struct RouteFloatingCard: View {
                 Text(lapText)
                     .font(.caption.bold())
             }
+        }
+
+        if let message = playback.state.interruptionMessage {
+            Text(message).font(.caption).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
         }
 
         let progressTotal = PlaybackMath.completionDistance(total: model.geometry.totalDistance, mode: model.playbackMode)
@@ -167,7 +174,7 @@ struct RouteFloatingCard: View {
         }
         .frame(maxWidth: .infinity, minHeight: 56, alignment: .topLeading)
         .overlay(alignment: .topTrailing) {
-            activeSpeedControl(isReconnecting: isReconnecting)
+            activeSpeedControl(isReconnecting: !playback.state.allowsSpeedEditing)
         }
 
         HStack {
@@ -185,6 +192,8 @@ struct RouteFloatingCard: View {
                 Text(L10n.text("重新連線中…"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            } else if playback.state.interruptionMessage != nil {
+                Text(L10n.text("路線已中斷")).font(.footnote).foregroundStyle(.orange)
             }
 
             Spacer(minLength: 8)
@@ -204,7 +213,7 @@ struct RouteFloatingCard: View {
                 } else {
                     Button(L10n.text("收藏目前路線"), action: onFavoriteUnsavedRoute)
                 }
-                Button(L10n.text("停止並停留目前位置"), role: .destructive, action: onEndRoute)
+                Button(L10n.text("停止並停留目前位置"), action: onEndRoute)
                 Button(L10n.text("停止路線並恢復真實位置"), role: .destructive, action: onRestoreRealLocation)
             } label: {
                 Image(systemName: "ellipsis.circle")

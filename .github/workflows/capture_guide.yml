@@ -1,0 +1,76 @@
+name: Capture RouteLocation Guide
+
+on:
+  push:
+    branches: ['feat/**']
+    paths:
+      - 'StikDebug/Views/UserGuideView.swift'
+      - 'StikDebug/Views/SettingsView.swift'
+      - 'StikDebug/*/Localizable.strings'
+      - 'StikDebugUITests/RouteLocationGuideUITests.swift'
+      - 'StikDebug.xcodeproj/xcshareddata/xcschemes/StikDebug.xcscheme'
+      - '.github/workflows/capture_guide.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    name: Real simulator guide screenshots
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Prepare clean iPhone simulator
+        run: |
+          set -euo pipefail
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
+          xcrun simctl shutdown "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl erase "$DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID"
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl status_bar "$DEVICE_ID" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
+          echo "SCREENSHOT_DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/guide-capture"
+          git rev-parse HEAD > "$RUNNER_TEMP/guide-capture/source-commit.txt"
+          xcodebuild -version > "$RUNNER_TEMP/guide-capture/xcode-version.txt"
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/guide-capture/simulator-devices.json"
+
+      - name: Navigate the shipped app and capture both languages
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project StikDebug.xcodeproj \
+            -scheme StikDebug \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SCREENSHOT_DEVICE_ID" \
+            -only-testing:StikDebugUITests/RouteLocationGuideUITests \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RUNNER_TEMP/guide-capture/GuideScreenshots.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "$RUNNER_TEMP/guide-capture/xcodebuild.log"
+
+      - name: Export original screenshot attachments
+        if: always()
+        run: |
+          set -euo pipefail
+          RESULT="$RUNNER_TEMP/guide-capture/GuideScreenshots.xcresult"
+          if [[ -d "$RESULT" ]]; then
+            xcrun xcresulttool export attachments \
+              --path "$RESULT" \
+              --output-path "$RUNNER_TEMP/guide-capture/screenshots"
+          fi
+
+      - name: Upload capture evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: RouteLocation-guide-screenshots-${{ github.sha }}
+          path: ${{ runner.temp }}/guide-capture
+          if-no-files-found: error
+          retention-days: 14

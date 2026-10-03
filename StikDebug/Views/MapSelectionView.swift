@@ -390,10 +390,11 @@ struct QuickRouteMapView: View {
             TextField(L10n.text("圈數"), text: $customRepeatText)
                 .keyboardType(.numberPad)
             Button(L10n.text("套用")) {
-                if let count = Int(customRepeatText.trimmingCharacters(in: .whitespacesAndNewlines)), (1...9999).contains(count) {
+                if let count = RouteRepeatEntryPolicy.finiteCount(customRepeatText) {
                     model.playbackMode = model.isClosedLoop ? .finite(count) : .once
                 }
             }
+            .disabled(!model.isClosedLoop || RouteRepeatEntryPolicy.finiteCount(customRepeatText) == nil)
             Button(L10n.text("取消"), role: .cancel) {}
         } message: {
             Text(L10n.text("請輸入 1 到 9999 圈。"))
@@ -450,7 +451,7 @@ struct QuickRouteMapView: View {
     }
 
     private var isPlaybackActive: Bool {
-        playback.state == .running || playback.state == .reconnecting
+        model.isAnyRouteActive && playback.state.showsRouteControls
     }
 
     @ViewBuilder
@@ -504,6 +505,10 @@ struct QuickRouteMapView: View {
 
     @ViewBuilder
     private var activePlaybackContent: some View {
+        if let message = playback.state.interruptionMessage {
+            Label(message, systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.orange)
+        }
         HStack {
             Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
                 .foregroundStyle(.blue)
@@ -760,9 +765,14 @@ struct QuickRouteMapView: View {
                                 Text(L10n.text("5 圈")).tag(RoutePlaybackMode.finite(5))
                                 Text(L10n.text("無限")).tag(RoutePlaybackMode.infiniteLoop)
                             }
+                            .disabled(!model.isClosedLoop)
                             Button(L10n.text("自訂…")) {
                                 customRepeatText = model.playbackMode.finiteCount.map(String.init) ?? ""
                                 showCustomRepeat = true
+                            }
+                            .disabled(!model.isClosedLoop)
+                            if !model.isClosedLoop {
+                                Text(L10n.text("開放路線只能播放一次；需要多圈時請開啟封閉路線。"))
                             }
                         } label: {
                             Label(routeRepeatSummary, systemImage: "repeat")

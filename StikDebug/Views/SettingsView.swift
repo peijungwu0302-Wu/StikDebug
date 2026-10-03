@@ -23,6 +23,14 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    NavigationLink {
+                        UserGuideView()
+                    } label: {
+                        Label(L10n.text("使用指南"), systemImage: "book.closed")
+                    }
+                    .accessibilityIdentifier("settings.userGuide")
+                }
                 Section(L10n.text("一般")) {
                     HStack {
                         Text(L10n.text("預設速度 (km/h)"))
@@ -453,6 +461,9 @@ private struct PairingSettingsSection: View {
         .onAppear {
             pairingState = pairingPresent ? L10n.text("已存在") : L10n.text("缺少")
         }
+        .onReceive(NotificationCenter.default.publisher(for: .pairingFileImported)) { _ in
+            pairingState = pairingPresent ? L10n.text("已存在") : L10n.text("缺少")
+        }
     }
 }
 
@@ -482,7 +493,13 @@ private struct SigningAndRefreshSectionViewProxy: View {
                 if let url = URL(string: "sidestore://"), UIApplication.shared.canOpenURL(url) {
                     UIApplication.shared.open(url)
                 } else if let url = SideStoreSourceConfig.sideStoreDeepLinkURL {
-                    UIApplication.shared.open(url)
+                    UIApplication.shared.open(url) { success in
+                        if !success {
+                            Task { @MainActor in
+                                ToastManager.shared.show(L10n.text("未偵測到 SideStore App。"), kind: .info)
+                            }
+                        }
+                    }
                 } else {
                     ToastManager.shared.show(L10n.text("未偵測到 SideStore App。"), kind: .info)
                 }

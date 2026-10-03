@@ -20,7 +20,12 @@ struct ActiveSimulationMiniPlayer: View {
                     } else if model.simulationMode.isRouteSimulation {
                         let isReconnecting = playback.state == .reconnecting
                         let isPlaying = model.simulationMode == .routePlaying
-                        if isReconnecting {
+                        if playback.state.interruptionMessage != nil {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange).font(.caption)
+                            Text(L10n.format("%@ · %@", playback.routeName, L10n.text("路線已中斷")))
+                                .font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(1)
+                        } else if isReconnecting {
                             Image(systemName: "arrow.triangle.2.circlepath")
                                 .foregroundStyle(.orange)
                                 .font(.caption)
@@ -45,7 +50,7 @@ struct ActiveSimulationMiniPlayer: View {
             .buttonStyle(.plain)
             .accessibilityLabel(L10n.text("返回地圖並查看模擬狀態"))
 
-            if model.simulationMode.isRouteSimulation && playback.state != .reconnecting {
+            if model.simulationMode.isRouteSimulation && playback.state.allowsSpeedEditing {
                 let isPlaying = model.simulationMode == .routePlaying
                 Button {
                     if isPlaying {
