@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MyLibraryView: View {
     @EnvironmentObject private var model: RouteLocationModel
+    @EnvironmentObject private var tutorialUI: TutorialUIContext
     @Binding var selectedTab: RouteLocationTab
     @State private var selectedSection: MyLibrarySection = .places
     @AppStorage(LibraryDisplayDensity.preferenceKey) private var densityRawValue = LibraryDisplayDensity.compact.rawValue
@@ -16,6 +17,7 @@ struct MyLibraryView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .tutorialTarget(.routeLibrary)
                 .padding(.horizontal)
                 .padding(.vertical, 8)
                 
@@ -28,6 +30,7 @@ struct MyLibraryView: View {
                 }
             }
             .navigationTitle(L10n.text("我的"))
+            .onChange(of: selectedSection) { _, section in tutorialUI.librarySection = section.rawValue }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {

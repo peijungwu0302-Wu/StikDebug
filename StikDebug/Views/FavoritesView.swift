@@ -101,7 +101,7 @@ struct FavoritesView: View {
                 guard model.librarySortOption == .manual else { return }
                 var ids = model.sortedFavorites.map(\.id)
                 ids.move(fromOffsets: offsets, toOffset: destination)
-                model.setManualFavoriteOrder(ids)
+                Task { await model.setManualFavoriteOrder(ids) }
             }
         }
     }

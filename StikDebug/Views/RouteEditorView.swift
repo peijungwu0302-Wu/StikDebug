@@ -4,6 +4,7 @@ import UIKit
 struct RouteEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: RouteLocationModel
+    @EnvironmentObject private var tutorialUI: TutorialUIContext
     @State private var showPaste = false
     @State private var showImporter = false
     @State private var showSearch = false
@@ -120,9 +121,11 @@ struct RouteEditorView: View {
                 }
             }
             .navigationTitle(L10n.text("路線"))
+            .safeAreaInset(edge: .bottom) { TutorialSheetHint() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.text("完成")) { dismiss() }
+                        .tutorialTarget(.routeEditorConfirm)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     EditButton()
@@ -138,6 +141,8 @@ struct RouteEditorView: View {
                 }
             }
         }
+        .onAppear { tutorialUI.editorVisible = true; tutorialUI.modalVisible = true }
+        .onDisappear { tutorialUI.editorVisible = false; tutorialUI.modalVisible = false }
         .sheet(isPresented: $showPaste) { CoordinatePasteView { model.replaceWaypoints($0) } }
         .confirmationDialog(L10n.text("確定要清除目前的路線草稿嗎？"), isPresented: $showClearConfirmation, titleVisibility: .visible) {
             Button(L10n.text("全部清除"), role: .destructive) { model.clearWaypoints() }
@@ -202,6 +207,7 @@ struct RouteSaveView: View {
                 }
             }
             .navigationTitle(L10n.text("儲存路線"))
+            .safeAreaInset(edge: .bottom) { TutorialSheetHint() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(L10n.text("取消")) { dismiss() } }
                 ToolbarItemGroup(placement: .confirmationAction) {

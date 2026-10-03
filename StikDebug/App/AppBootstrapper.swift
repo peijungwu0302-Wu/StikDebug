@@ -11,6 +11,10 @@ enum AppBootstrapper {
     static func configure() {
         registerDefaultSettings()
         applyDocumentPickerCopyWorkaround()
+        #if DEBUG && targetEnvironment(simulator)
+        // Screenshot fixtures never initialize real transport observation.
+        if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--guide-demo=") }) { return }
+        #endif
         Task { @MainActor in ConnectionMonitor.shared.start() }
     }
 

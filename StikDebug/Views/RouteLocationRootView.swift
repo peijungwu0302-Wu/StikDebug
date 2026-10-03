@@ -10,6 +10,12 @@ struct RouteLocationRootView: View {
     @EnvironmentObject private var playback: RoutePlaybackEngine
     @State private var selectedTab: RouteLocationTab = .map
     @State private var showPairingImporter = false
+    @State private var settingsNavigationRevision = UUID()
+    @StateObject private var tutorial = GuidedTutorialCoordinator()
+    @StateObject private var tutorialUI = TutorialUIContext()
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var shortcut = ShortcutBootstrapService.shared
+    @ObservedObject private var connection = ConnectionMonitor.shared
     @AppStorage(AppLanguage.defaultsKey) private var appLanguage = AppLanguage.traditionalChinese.rawValue
     @AppStorage("RouteLocation.showMiniPlayer") private var showMiniPlayer = true
     @ObservedObject private var toast = ToastManager.shared
@@ -21,9 +27,11 @@ struct RouteLocationRootView: View {
                     .tabItem { Label(L10n.text("地圖"), systemImage: "map") }
                     .tag(RouteLocationTab.map)
                 MyLibraryView(selectedTab: $selectedTab)
+                    .tutorialTarget(.myTab)
                     .tabItem { Label(L10n.text("我的"), systemImage: "tray.full") }
                     .tag(RouteLocationTab.my)
                 SettingsView()
+                    .id(settingsNavigationRevision)
                     .tabItem { Label(L10n.text("設定"), systemImage: "gearshape") }
                     .tag(RouteLocationTab.settings)
             }
@@ -39,6 +47,39 @@ struct RouteLocationRootView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: selectedTab)
         .animation(.easeInOut(duration: 0.25), value: model.simulationMode.isSimulating)
+        .tutorialSurface()
+        #if DEBUG && targetEnvironment(simulator)
+        .modifier(GuideScreenshotPresentationModifier())
+        #endif
+        .onChange(of: tutorialUI.requestedFlow) { _, flow in
+            guard let flow else { return }
+            tutorialUI.resetPresentation()
+            if flow == .cellular { settingsNavigationRevision = UUID() }
+            selectedTab = flow == .cellular ? .settings : .map
+            tutorial.start(flow, snapshot: tutorialSnapshot)
+            tutorial.observe(tutorialSnapshot)
+            tutorialUI.requestedFlow = nil
+        }
+        .onChange(of: tutorialSnapshot) { _, state in tutorial.observe(state) }
+        .onChange(of: tutorial.isActive) { _, active in
+            if !active { tutorialUI.resetPresentation() }
+        }
+        .onChange(of: model.showModeSwitchAlert) { _, visible in if visible { tutorial.interrupt() } }
+        .onChange(of: model.showActiveRouteSwitchAlert) { _, visible in if visible { tutorial.interrupt() } }
+        .onChange(of: tutorial.completedFlow) { _, flow in
+            if flow != nil { toast.show(L10n.text("tutorial.completed"), kind: .success) }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                tutorial.resume(snapshot: tutorialSnapshot)
+                Task { await model.retryFailedPersistenceLoads() }
+            } else {
+                tutorial.suspend()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataDidBecomeAvailableNotification)) { _ in
+            Task { await model.retryFailedPersistenceLoads() }
+        }
         .onChange(of: selectedTab) { _, _ in
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
@@ -112,6 +153,7 @@ struct RouteLocationRootView: View {
                 onForceConnect: { model.confirmBootstrapPreflightForce() },
                 onCancel: { model.cancelBootstrapPreflight() }
             )
+            .safeAreaInset(edge: .bottom) { TutorialSheetHint() }
         }
         .overlay(alignment: .top) {
             if let message = toast.current {
@@ -122,5 +164,43 @@ struct RouteLocationRootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: toast.current)
+        .environmentObject(tutorial)
+        .environmentObject(tutorialUI)
+    }
+
+    private var tutorialSnapshot: GuidedTutorialSnapshot {
+        var state = GuidedTutorialSnapshot()
+        state.selectedCoordinate = model.selectedCoordinate
+        state.activeCoordinate = model.activeSimulatedCoordinate
+        state.simulationIdle = !model.simulationMode.isSimulating
+        switch playback.state {
+        case .running: state.playback = .running
+        case .paused: state.playback = .paused
+        case .reconnecting: state.playback = .reconnecting
+        case .stopped: state.playback = .stopped
+        case .completed: state.playback = .completed
+        case .error: state.playback = .error
+        }
+        state.waypointCount = model.waypoints.count
+        state.favoriteIDs = Set(model.favorites.map(\.id))
+        state.routeIDs = Set(model.savedRoutes.map(\.id))
+        state.mapFocusRevision = model.mapFocusRevision
+        state.simulationSuccessRevision = model.successfulSinglePointRevision
+        state.restoreSuccessRevision = model.successfulRestoreRevision
+        if let id = tutorialUI.selectedFavoriteID,
+           model.favorites.contains(where: { $0.id == id && $0.coordinate == model.selectedCoordinate }) {
+            state.selectedFavoriteID = id
+        }
+        state.previewRouteID = model.previewingRoute?.id
+        state.loadedRouteID = model.currentSavedRoute?.id
+        state.tab = selectedTab == .map ? "map" : (selectedTab == .my ? "my" : "settings")
+        state.editorVisible = tutorialUI.editorVisible
+        state.coordinateEntryVisible = tutorialUI.coordinateEntryVisible
+        state.quickRouteIsRoute = model.quickRouteMode == .route
+        state.productionError = model.presentedError != nil
+        state.recoveryAlert = model.showPlaybackRecoveryConsent
+        state.connectionPreparing = shortcut.activeTransaction != nil
+        state.connectionReady = connection.locationDataPathHealthy
+        return state
     }
 }

@@ -41,6 +41,7 @@ enum CoordinateAlertPasteControl {
 /// Hosts a compact, alert-like coordinate modal without asking UITextField to
 /// lay out the paste control inside its editable text region.
 struct CoordinateAlertPresenter: UIViewControllerRepresentable {
+    @EnvironmentObject private var tutorial: GuidedTutorialCoordinator
     @Binding var isPresented: Bool
     let onSubmit: (RouteCoordinate, Bool) -> Void
 
@@ -51,6 +52,7 @@ struct CoordinateAlertPresenter: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: CoordinateAlertHostController, context: Context) {
         controller.isPresented = $isPresented
         controller.onSubmit = onSubmit
+        controller.tutorial = tutorial
         if isPresented {
             controller.presentCoordinateModalIfNeeded()
         } else {
@@ -62,6 +64,7 @@ struct CoordinateAlertPresenter: UIViewControllerRepresentable {
 final class CoordinateAlertHostController: UIViewController {
     var isPresented: Binding<Bool>?
     var onSubmit: ((RouteCoordinate, Bool) -> Void)?
+    weak var tutorial: GuidedTutorialCoordinator?
     private weak var activeModal: CoordinateEntryModalViewController?
 
     override func viewDidLoad() {
@@ -77,8 +80,12 @@ final class CoordinateAlertHostController: UIViewController {
             self?.finishPresentation()
             self?.onSubmit?(coordinate, simulateImmediately)
         }, onCancel: { [weak self] in
+            self?.tutorial?.skip()
             self?.finishPresentation()
         })
+        if tutorial?.isActive == true {
+            modal.onSkipTutorial = { [weak self] in self?.tutorial?.skip() }
+        }
         modal.modalPresentationStyle = .overFullScreen
         modal.modalTransitionStyle = .crossDissolve
         modal.isModalInPresentation = true
@@ -124,6 +131,9 @@ final class CoordinateEntryModalViewController: UIViewController {
 
     var onSubmit: (RouteCoordinate, Bool) -> Void
     var onCancel: () -> Void
+    // Optional, UI-only tutorial actions. Neither action invokes simulation.
+    var onSkipTutorial: (() -> Void)?
+    private var tutorialControls: UIStackView?
 
     init(
         onSubmit: @escaping (RouteCoordinate, Bool) -> Void,
@@ -142,6 +152,7 @@ final class CoordinateEntryModalViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         buildInterface()
+        configureTutorialControlsIfNeeded()
         updateActionAvailability()
         observePasteControlAvailabilityChanges()
     }
@@ -154,6 +165,42 @@ final class CoordinateEntryModalViewController: UIViewController {
         guard !initialFocusWasRequested else { return }
         initialFocusWasRequested = true
         coordinateTextField.becomeFirstResponder()
+    }
+
+    private func configureTutorialControlsIfNeeded() {
+        guard onSkipTutorial != nil else { return }
+        let demo = UIButton(type: .system)
+        demo.setTitle(L10n.text("tutorial.demo.coordinate"), for: .normal)
+        demo.accessibilityIdentifier = "tutorial.demo.coordinate"
+        demo.addAction(UIAction { [weak self] _ in
+            // Public demo text only; preview and simulation still require the
+            // user's existing production buttons and normal validation.
+            self?.coordinateTextField.text = "25.033964, 121.564468"
+            self?.updateActionAvailability()
+        }, for: .touchUpInside)
+        let skip = UIButton(type: .system)
+        skip.setTitle(L10n.text("tutorial.skip"), for: .normal)
+        skip.accessibilityIdentifier = "tutorial.skip"
+        skip.addAction(UIAction { [weak self] _ in
+            self?.onSkipTutorial?()
+            self?.tutorialControls?.removeFromSuperview()
+            self?.tutorialControls = nil
+            self?.onSkipTutorial = nil
+        }, for: .touchUpInside)
+        let controls = UIStackView(arrangedSubviews: [demo, skip])
+        controls.axis = .horizontal
+        controls.distribution = .fillEqually
+        controls.backgroundColor = .secondarySystemBackground
+        controls.layer.cornerRadius = 12
+        controls.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(controls)
+        NSLayoutConstraint.activate([
+            controls.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            controls.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            controls.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            controls.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+        ])
+        tutorialControls = controls
     }
 
     private func buildInterface() {

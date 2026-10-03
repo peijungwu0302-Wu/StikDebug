@@ -99,12 +99,14 @@ struct PlaceFloatingCard: View {
                     Text(L10n.text("在此模擬")).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent).accessibilityLabel(L10n.text("在此模擬"))
+                .tutorialTarget(.simulate)
                 Button { model.addWaypointAndSwitchToRoute(coordinate) } label: { Image(systemName: "point.topleft.down.to.point.bottomright.curvepath") }
                     .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
                     .accessibilityLabel(L10n.text("加入路線"))
                 Button(action: onSaveFavorite) { Image(systemName: "star") }
                     .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
                     .accessibilityLabel(L10n.text("收藏地點"))
+                    .tutorialTarget(.favorite)
             }
         }
     }
@@ -182,9 +184,11 @@ struct ActiveSimulationFloatingCard: View {
             HStack {
                 Button(action: onSaveFavorite) { Label(L10n.text("收藏目前模擬位置"), systemImage: "star") }
                     .buttonStyle(.plain).accessibilityLabel(L10n.text("收藏目前模擬位置"))
+                    .tutorialTarget(.favorite)
                 Spacer()
                 Button(L10n.text("恢復真實位置"), role: .destructive, action: onRestore)
                     .buttonStyle(.bordered).accessibilityLabel(L10n.text("恢復真實定位"))
+                    .tutorialTarget(.restore)
             }
         }
     }

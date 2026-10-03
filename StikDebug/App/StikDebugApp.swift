@@ -18,6 +18,9 @@ struct RouteLocationApp: App {
         WindowGroup {
             MainTabView()
                 .task {
+                    #if DEBUG && targetEnvironment(simulator)
+                    if GuideScreenshotFixture.scenario != nil { return }
+                    #endif
                     CellularAssistedBootstrapStateMachine.shared.beginForegroundRecoveryCycle()
                     CellularAssistedBootstrapStateMachine.shared.handleStaleRecoveryIfNeeded()
                     OptionalDDIPreparationCoordinator.shared.ensureReadinessBestEffort()
@@ -33,6 +36,9 @@ struct RouteLocationApp: App {
     }
 
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        #if DEBUG && targetEnvironment(simulator)
+        if GuideScreenshotFixture.scenario != nil { return }
+        #endif
         switch newPhase {
         case .active:
             CellularAssistedBootstrapStateMachine.shared.beginForegroundRecoveryCycle()

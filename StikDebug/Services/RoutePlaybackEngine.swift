@@ -474,6 +474,14 @@ final class RoutePlaybackEngine: ObservableObject {
     var testRouteGeometryForTesting: RouteGeometry? { geometry }
     var testPlaybackTaskForTesting: Task<Void, Never>? { task }
 
+    #if targetEnvironment(simulator)
+    /// Screenshot metadata only; does not start a playback clock or device write.
+    func testSetScreenshotMetadataForTesting(name: String, speed: Double) {
+        routeName = name
+        speedKmh = speed
+    }
+    #endif
+
     func testSetStateForTesting(_ newState: PlaybackRunState, currentCoordinate: RouteCoordinate? = nil) {
         if let currentCoordinate {
             self.currentCoordinate = currentCoordinate

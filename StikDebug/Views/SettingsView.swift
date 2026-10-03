@@ -191,6 +191,7 @@ struct SettingsView: View {
                     NavigationLink(L10n.text("完整設定與診斷")) {
                         SetupDiagnosticsView()
                     }
+                    .tutorialTarget(.cellularSettings)
                 }
                 
                 Section(L10n.text("簽名與更新")) {

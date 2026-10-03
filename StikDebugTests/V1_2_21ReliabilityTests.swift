@@ -23,6 +23,44 @@ private struct ReliabilityLibrary {
 }
 
 struct V1_2_21PersistenceTests {
+    @Test func failedLibrariesRetryIndependentlyWithoutReloadingHealthyCollections() async throws {
+        let library = ReliabilityLibrary()
+        defer { library.cleanUp() }
+        let store = library.store
+        _ = try await store.loadFavorites()
+        _ = try await store.loadRoutes()
+        let recentFile = try library.writeCorruptFile("recent-locations.json")
+        await #expect(throws: (any Error).self) { try await store.loadRecentLocations() }
+        let failed = await store.retryFailedLibraries()
+        #expect(failed.recents == nil)
+        await #expect(throws: (any Error).self) { try await store.saveRecentLocations([]) }
+        // A healthy collection is not read again, even if its file changes.
+        _ = try library.writeCorruptFile("locations.json")
+        try Data("[]".utf8).write(to: recentFile)
+        let recovered = await store.retryFailedLibraries()
+        #expect(recovered.recents == [])
+        #expect(recovered.favorites == nil)
+        #expect(recovered.routes == nil)
+        try await store.saveRecentLocations([])
+        let noFailures = await store.retryFailedLibraries()
+        #expect(noFailures.recents == nil)
+    }
+
+    @Test func temporaryUnavailableFavoriteFileUnlocksOnlyAfterSuccessfulRetry() async throws {
+        let library = ReliabilityLibrary()
+        defer { library.cleanUp() }
+        let file = library.root.appendingPathComponent("locations.json")
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: true)
+        let store = library.store
+        await #expect(throws: (any Error).self) { try await store.loadFavorites() }
+        _ = await store.retryFailedLibraries()
+        await #expect(throws: (any Error).self) { try await store.saveFavorites([]) }
+        try FileManager.default.removeItem(at: file)
+        try Data("[]".utf8).write(to: file)
+        let recovered = await store.retryFailedLibraries()
+        #expect(recovered.favorites == [])
+        try await store.saveFavorites([])
+    }
     @Test func failedFavoriteLoadPreventsOverwritingOriginal() async throws {
         let library = ReliabilityLibrary()
         defer { library.cleanUp() }
@@ -134,6 +172,166 @@ struct V1_2_21PersistenceTests {
 @MainActor
 struct V1_2_21LibraryModelTests {
     init() { TestBootstrapEnvironment.reset() }
+
+    @Test(arguments: ["add", "addIfNeeded", "update", "delete", "move", "manual", "used"])
+    func failedFavoriteWriteNeverPublishesCandidate(operation: String) async throws {
+        let library = ReliabilityLibrary()
+        defer { library.cleanUp() }
+        let store = library.store
+        let first = FavoriteLocation(name: "First", coordinate: RouteCoordinate(latitude: 25, longitude: 121))
+        let second = FavoriteLocation(name: "Second", coordinate: RouteCoordinate(latitude: 26, longitude: 122))
+        try await store.saveFavorites([first, second])
+        let model = RouteLocationModel(persistence: store, simulationService: ReliabilityNoopSink())
+        await model.recordRecent(coordinate: first.coordinate)
+        let snapshot = model.favorites
+        let order = model.manualFavoriteOrder
+        let file = library.root.appendingPathComponent("locations.json")
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: true)
+        switch operation {
+        case "add": await model.addFavorite(name: "Third", coordinate: first.coordinate)
+        case "addIfNeeded": await model.addFavoriteIfNeeded(name: "Third", coordinate: first.coordinate)
+        case "update": await model.updateFavorite(first, name: "Changed", note: nil)
+        case "delete": await model.deleteFavorites(at: IndexSet(integer: 0))
+        case "move": await model.moveFavorites(from: IndexSet(integer: 0), to: 2)
+        case "manual": await model.setManualFavoriteOrder([second.id, first.id])
+        case "used": await model.markFavoriteUsed(first)
+        default: Issue.record("Unexpected mutation")
+        }
+        #expect(model.favorites == snapshot)
+        #expect(model.manualFavoriteOrder == order)
+        #expect(model.presentedError != nil)
+    }
+
+    @Test func concurrentFavoriteCandidatesPreserveEveryCommittedAddition() async throws {
+        let library = ReliabilityLibrary()
+        defer { library.cleanUp() }
+        let store = library.store
+        let model = RouteLocationModel(persistence: store, simulationService: ReliabilityNoopSink())
+        await withTaskGroup(of: Void.self) { group in
+            for index in 0..<12 {
+                group.addTask { await model.addFavorite(name: "Item \(index)", coordinate: RouteCoordinate(latitude: 25, longitude: 121)) }
+            }
+        }
+        #expect(model.favorites.count == 12)
+        #expect(Set(model.favorites.map(\.name)).count == 12)
+        let persisted = try await store.loadFavorites()
+        #expect(Set(persisted.map(\.id)) == Set(model.favorites.map(\.id)))
+    }
+
+    @Test func cancelledFavoriteRequestDoesNotBlockLaterMutations() async throws {
+        let library = ReliabilityLibrary()
+        defer { library.cleanUp() }
+        let model = RouteLocationModel(persistence: library.store, simulationService: ReliabilityNoopSink())
+        let cancelled = Task { await model.addFavorite(name: "Cancelled", coordinate: RouteCoordinate(latitude: 25, longitude: 121)) }
+        cancelled.cancel()
+        await cancelled.value
+        await model.addFavorite(name: "Kept", coordinate: RouteCoordinate(latitude: 25, longitude: 121))
+        #expect(model.favorites.map(\.name) == ["Kept"])
+    }
+
+    @Test func lifecycleRecoveryPublishesOnlyRecoveredLibrary() async throws {
+        let library = ReliabilityLibrary()
+        defer { library.cleanUp() }
+        let file = try library.writeCorruptFile("locations.json")
+        let model = RouteLocationModel(persistence: library.store, simulationService: ReliabilityNoopSink())
+        let point = RouteCoordinate(latitude: 25, longitude: 121)
+        await model.recordRecent(coordinate: point)
+        let recentIDs = model.recentLocations.map(\.id)
+        try Data("[]".utf8).write(to: file)
+        await model.retryFailedPersistenceLoads()
+        await model.addFavorite(name: "Recovered", coordinate: point)
+        #expect(model.favorites.map(\.name) == ["Recovered"])
+        #expect(model.recentLocations.map(\.id) == recentIDs)
+    }
+
+    @Test(arguments: ["record", "delete", "clear"])
+    func recentMutationWaitsForRecoveredSnapshotPublication(operation: String) async throws {
+        let library = ReliabilityLibrary()
+        defer { library.cleanUp() }
+        let store = library.store
+        let old = RecentLocation(coordinate: RouteCoordinate(latitude: 25, longitude: 121), title: "Old", kind: "simulate")
+        let preserved = RecentLocation(coordinate: RouteCoordinate(latitude: 26, longitude: 122), title: "Preserved", kind: "simulate")
+        try await store.saveRecentLocations([old, preserved])
+        let file = library.root.appendingPathComponent("recent-locations.json")
+        let original = try Data(contentsOf: file)
+        _ = try library.writeCorruptFile("recent-locations.json")
+        let model = RouteLocationModel(persistence: store, simulationService: ReliabilityNoopSink())
+        await model.retryFailedPersistenceLoads()
+        #expect(model.recentLocations.isEmpty)
+        try original.write(to: file)
+
+        let barrier = ReliabilitySuspendingSink()
+        try await barrier.setCoordinate(old.coordinate)
+        model.testBeforeRecoveredLibrariesPublish = { try? await barrier.setCoordinate(old.coordinate) }
+        let (queuedEvents, queuedSignal) = AsyncStream<Void>.makeStream()
+        model.testPersistenceMutationQueued = { queuedSignal.yield(()); queuedSignal.finish() }
+        let recovery = Task { await model.retryFailedPersistenceLoads() }
+        try await barrier.waitForSuspendedCommand()
+        let mutation = Task {
+            switch operation {
+            case "record": await model.recordRecent(coordinate: RouteCoordinate(latitude: 27, longitude: 123), title: "New")
+            case "delete": await model.deleteRecentLocation(old)
+            default: await model.clearRecentLocations()
+            }
+        }
+        do { try await waitForReliabilityEvent(queuedEvents) }
+        catch {
+            await barrier.finishCommand(failing: false)
+            await recovery.value
+            await mutation.value
+            throw error
+        }
+        #expect(model.recentLocations.isEmpty)
+        await barrier.finishCommand(failing: false)
+        await recovery.value
+        await mutation.value
+        let disk = try await store.loadRecentLocations()
+        #expect(disk.map(\.id) == model.recentLocations.map(\.id))
+        switch operation {
+        case "record":
+            #expect(disk.count == 3)
+            #expect(disk.contains { $0.id == old.id })
+            #expect(disk.contains { $0.id == preserved.id })
+        case "delete": #expect(disk.map(\.id) == [preserved.id])
+        default: #expect(disk.isEmpty)
+        }
+    }
+
+    @Test func routeMutationWaitsForRecoveredRoutePublication() async throws {
+        let library = ReliabilityLibrary()
+        defer { library.cleanUp() }
+        let store = library.store
+        let route = reliabilityRoute()
+        try await store.saveRoute(route)
+        let file = library.root.appendingPathComponent("routes/\(route.id.uuidString).json")
+        let original = try Data(contentsOf: file)
+        _ = try library.writeCorruptFile("routes/\(route.id.uuidString).json")
+        let model = RouteLocationModel(persistence: store, simulationService: ReliabilityNoopSink())
+        await model.retryFailedPersistenceLoads()
+        #expect(model.savedRoutes.isEmpty)
+        try original.write(to: file)
+        let barrier = ReliabilitySuspendingSink()
+        try await barrier.setCoordinate(route.waypoints[0])
+        model.testBeforeRecoveredLibrariesPublish = { try? await barrier.setCoordinate(route.waypoints[0]) }
+        let (queuedEvents, queuedSignal) = AsyncStream<Void>.makeStream()
+        model.testPersistenceMutationQueued = { queuedSignal.yield(()); queuedSignal.finish() }
+        let recovery = Task { await model.retryFailedPersistenceLoads() }
+        try await barrier.waitForSuspendedCommand()
+        let mutation = Task { await model.renameRoute(route, to: "Recovered rename") }
+        do { try await waitForReliabilityEvent(queuedEvents) }
+        catch {
+            await barrier.finishCommand(failing: false)
+            await recovery.value
+            await mutation.value
+            throw error
+        }
+        await barrier.finishCommand(failing: false)
+        await recovery.value
+        await mutation.value
+        #expect(model.savedRoutes.first?.name == "Recovered rename")
+        #expect(try await store.loadRoutes().first?.name == "Recovered rename")
+    }
 
     @Test func corruptFavoritesRejectAdditionWithoutPhantomOrSuccessToast() async throws {
         let library = ReliabilityLibrary()
@@ -375,7 +573,8 @@ struct V1_2_21PauseRaceTests {
         #expect(engine.traveledDistance == pausedDistance)
     }
 
-    @Test func pauseSurvivesPendingRunLoopFailure() async throws {
+    @Test(arguments: [false, true])
+    func pauseSurvivesPendingRunLoopCompletion(failing: Bool) async throws {
         let sink = ReliabilitySuspendingSink()
         let engine = RoutePlaybackEngine(sink: sink, updateInterval: 0.001, acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: {})
         let route = reliabilityRoute()
@@ -385,9 +584,72 @@ struct V1_2_21PauseRaceTests {
         try await sink.waitForSuspendedCommand()
         engine.pause()
         let pausedDistance = engine.traveledDistance
-        await sink.finishCommand(failing: true)
+        let pausedCoordinate = engine.currentCoordinate
+        await sink.finishCommand(failing: failing)
         await pending.value
         #expect(engine.state == .paused)
         #expect(engine.traveledDistance == pausedDistance)
+        #expect(engine.currentCoordinate == pausedCoordinate)
+    }
+
+    @Test(arguments: [false, true])
+    func pauseResumeRejectsOldTransportCompletion(failing: Bool) async throws {
+        let sink = ReliabilitySuspendingSink()
+        let engine = RoutePlaybackEngine(sink: sink, updateInterval: 60, uptime: { 100 }, acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: {})
+        let route = reliabilityRoute()
+        try await engine.start(routeName: route.name, geometry: route.resolvedGeometry, speedKmh: 18.6, mode: .infiniteLoop, startingOffset: 100)
+        defer { engine.stop() }
+        let old = Task { await engine.verifyConnectionAfterTransportChange() }
+        try await sink.waitForSuspendedCommand()
+        engine.pause()
+        let distance = engine.traveledDistance
+        let coordinate = engine.currentCoordinate
+        let lap = engine.lapNumber
+        await engine.resume()
+        try engine.setSpeed(42.5)
+        await sink.finishCommand(failing: failing)
+        await old.value
+        #expect(engine.state == .running)
+        #expect(engine.traveledDistance == distance)
+        #expect(engine.currentCoordinate == coordinate)
+        #expect(engine.lapNumber == lap)
+        #expect(engine.speedKmh == 42.5)
+    }
+
+    @Test(arguments: [false, true])
+    func resumedRunLoopIsNotReplacedByOldRunLoopCompletion(failing: Bool) async throws {
+        let sink = ReliabilitySuspendingSink()
+        let engine = RoutePlaybackEngine(sink: sink, updateInterval: 0.001, uptime: { 100 }, acquireKeepAlive: {}, releaseKeepAlive: {}, reconnectAction: {})
+        let route = reliabilityRoute()
+        try await engine.start(routeName: route.name, geometry: route.resolvedGeometry, speedKmh: 18.6, mode: .infiniteLoop, startingOffset: 100)
+        defer { engine.stop() }
+        let old = try #require(engine.testPlaybackTaskForTesting)
+        try await sink.waitForSuspendedCommand()
+        engine.pause()
+        let distance = engine.traveledDistance
+        let coordinate = engine.currentCoordinate
+        await engine.resume()
+        await sink.finishCommand(failing: failing)
+        await old.value
+        #expect(engine.state == .running)
+        #expect(engine.traveledDistance == distance)
+        #expect(engine.currentCoordinate == coordinate)
+        #expect(engine.testPlaybackTaskForTesting != nil)
+    }
+}
+
+private func waitForReliabilityEvent(_ events: AsyncStream<Void>) async throws {
+    enum WaitError: Error { case timedOut }
+    try await withThrowingTaskGroup(of: Void.self) { group in
+        group.addTask {
+            for await _ in events { return }
+            try Task.checkCancellation()
+        }
+        group.addTask {
+            try await Task.sleep(for: .seconds(5))
+            throw WaitError.timedOut
+        }
+        defer { group.cancelAll() }
+        try await group.next()
     }
 }

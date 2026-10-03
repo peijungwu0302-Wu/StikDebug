@@ -96,6 +96,7 @@ struct MyRoutesView: View {
             }
         }
         .listStyle(.plain)
+        .tutorialTarget(.openSavedRoute)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MyPlacesView: View {
     @EnvironmentObject private var model: RouteLocationModel
+    @EnvironmentObject private var tutorialUI: TutorialUIContext
     @Binding var selectedTab: RouteLocationTab
     @State private var editingFavorite: FavoriteLocation?
     @State private var showAdd = false
@@ -19,6 +20,7 @@ struct MyPlacesView: View {
                 ForEach(model.sortedFavorites) { favorite in
                     Button {
                         model.focusOnMap(favorite.coordinate)
+                        tutorialUI.selectedFavoriteID = favorite.id
                         selectedTab = .map
                     } label: {
                         let density = LibraryDisplayDensity(rawValue: densityRawValue) ?? .compact
@@ -73,11 +75,12 @@ struct MyPlacesView: View {
                     guard model.librarySortOption == .manual else { return }
                     var ids = model.sortedFavorites.map(\.id)
                     ids.move(fromOffsets: offsets, toOffset: destination)
-                    model.setManualFavoriteOrder(ids)
+                    Task { await model.setManualFavoriteOrder(ids) }
                 }
             }
         }
         .listStyle(.plain)
+        .tutorialTarget(.favoriteLibrary)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 EditButton()

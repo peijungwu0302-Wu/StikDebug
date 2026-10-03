@@ -563,7 +563,7 @@ struct V1_2_14UXTests {
         await model.addFavoriteIfNeeded(name: "捷徑位置", coordinate: coordinate)
         #expect(model.favorites.count == 1)
         let ids = model.favorites.map(\.id)
-        model.setManualFavoriteOrder(ids)
+        await model.setManualFavoriteOrder(ids)
         #expect(model.sortedFavorites.map(\.id) == ids)
         let loaded = try await RoutePersistenceStore(rootURL: root).loadFavorites()
         #expect(loaded.count == 1)

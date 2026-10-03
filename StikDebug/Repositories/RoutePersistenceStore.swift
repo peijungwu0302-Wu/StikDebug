@@ -13,6 +13,11 @@ enum PersistenceError: LocalizedError {
 }
 
 actor RoutePersistenceStore {
+    struct RecoveredLibraries {
+        var favorites: [FavoriteLocation]?
+        var recents: [RecentLocation]?
+        var routes: [SavedRoute]?
+    }
     private enum Library: Hashable { case favorites, recents, routes }
     private var loadedLibraries: Set<Library> = []
     private var readFailures: [Library: Error] = [:]
@@ -66,6 +71,17 @@ actor RoutePersistenceStore {
 
     func ensureFavoritesWritable() throws {
         try ensureWritable(.favorites)
+    }
+
+    /// Retry only failed collections after protected data becomes available or
+    /// the app is foregrounded. A failed retry leaves the existing write lock.
+    /// Successful collections are deliberately neither read nor republished.
+    func retryFailedLibraries() -> RecoveredLibraries {
+        var recovered = RecoveredLibraries()
+        if readFailures[.favorites] != nil { recovered.favorites = try? loadFavorites() }
+        if readFailures[.recents] != nil { recovered.recents = try? loadRecentLocations() }
+        if readFailures[.routes] != nil { recovered.routes = try? loadRoutes() }
+        return recovered
     }
 
     func loadRecentLocations() throws -> [RecentLocation] {

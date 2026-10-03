@@ -15,6 +15,8 @@ enum PlaybackRecoveryPreference: String, CaseIterable, Identifiable {
 
 @MainActor
 final class RouteLocationModel: ObservableObject {
+    @Published private(set) var successfulRestoreRevision = UUID()
+    @Published private(set) var successfulSinglePointRevision = UUID()
     @Published var selectedCoordinate: RouteCoordinate?
     @Published private(set) var waypoints: [RouteCoordinate] = []
     @Published var routeName = L10n.text("新路線") {
@@ -106,6 +108,10 @@ final class RouteLocationModel: ObservableObject {
     let playback: RoutePlaybackEngine
     let connectionMonitor: ConnectionMonitor
     private let persistence: RoutePersistenceStore
+    // Serialize candidate construction through publication across actor awaits.
+    // A cancelled waiter still takes/releases its turn without performing work.
+    private var persistenceMutationInProgress = false
+    private var persistenceMutationWaiters: [CheckedContinuation<Void, Never>] = []
     private let navigationResolver = NavigationRouteResolver()
     private let simulationService: any LocationSimulationSink
     private var teleportTask: Task<Void, Never>?
@@ -122,6 +128,8 @@ final class RouteLocationModel: ObservableObject {
     var testPlaybackAfterBootstrapCompletion: (@MainActor () -> Void)?
     var testPlaybackStartInvocationCount: Int = 0
     var testRetryDelayHandler: (@MainActor (TimeInterval) async throws -> Void)?
+    var testBeforeRecoveredLibrariesPublish: (@MainActor () async -> Void)?
+    var testPersistenceMutationQueued: (@MainActor () -> Void)?
     var testTeleportCompletion: (@MainActor () -> Void)?
     #endif
     private static let speedKey = "RouteLocation.lastSpeedKmh"
@@ -431,6 +439,10 @@ final class RouteLocationModel: ObservableObject {
     }
 
     private func persistCurrentRoute(named requestedName: String?, asCopy: Bool) async -> Bool {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
+        await waitForInitialPersistenceLoad()
+        guard !Task.isCancelled else { return false }
         do {
             guard waypoints.count >= 2 else { throw RouteLocationError.insufficientWaypoints }
             if routeMode == .navigation, navigationGeometryNeedsRecalculation { throw RouteLocationError.navigationNeedsRecalculation }
@@ -499,6 +511,10 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func renameRoute(_ route: SavedRoute, to requestedName: String) async {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
+        await waitForInitialPersistenceLoad()
+        guard !Task.isCancelled, let route = savedRoutes.first(where: { $0.id == route.id }) else { return }
         guard !isActiveRoute(route) else { showRouteEditingLockedMessage(); return }
         let name = requestedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { presentedError = L10n.text("請輸入路線名稱。"); return }
@@ -514,6 +530,10 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func toggleFavoriteRoute(_ route: SavedRoute) async {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
+        await waitForInitialPersistenceLoad()
+        guard !Task.isCancelled, let route = savedRoutes.first(where: { $0.id == route.id }) else { return }
         var updated = route
         updated.isFavorite.toggle()
         updated.updatedAt = .now
@@ -655,17 +675,31 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func markRouteUsed(id: UUID) async {
-        guard let index = savedRoutes.firstIndex(where: { $0.id == id }) else { return }
-        var updated = savedRoutes[index]
-        updated.lastUsedAt = Date()
-        savedRoutes[index] = updated
-        try? await persistence.saveRoute(updated)
+        guard let updated = await persistRouteUsage(id: id) else { return }
         if let coordinate = updated.waypoints.first {
             await recordRecent(coordinate: coordinate, title: updated.name, kind: "route-start")
         }
     }
 
+    private func persistRouteUsage(id: UUID) async -> SavedRoute? {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
+        await waitForInitialPersistenceLoad()
+        guard !Task.isCancelled, let index = savedRoutes.firstIndex(where: { $0.id == id }) else { return nil }
+        var updated = savedRoutes[index]
+        updated.lastUsedAt = Date()
+        do {
+            try await persistence.saveRoute(updated)
+            savedRoutes[index] = updated
+            return updated
+        } catch { return nil }
+    }
+
     func deleteRoute(_ route: SavedRoute) async {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
+        await waitForInitialPersistenceLoad()
+        guard !Task.isCancelled else { return }
         guard !isActiveRoute(route) else { showRouteEditingLockedMessage(); return }
         do {
             try await persistence.deleteRoute(id: route.id)
@@ -676,35 +710,44 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func addFavorite(name: String, note: String? = nil, coordinate: RouteCoordinate? = nil) async {
-        // Ensure the initial persisted library load has completed before
-        // appending.  Without this barrier, a fast favorite action can race
-        // loadPersistedData() and have the just-added item overwritten by the
-        // still-loading empty array.
+        let target = coordinate ?? selectedCoordinate
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
         guard await canMutateFavorites() else { return }
-        guard let coordinate = coordinate ?? selectedCoordinate, coordinate.isValid else { presentedError = L10n.text("請先選擇有效座標。"); return }
-        let existingNames = favorites.map(\.name)
-        let finalName = UniqueNameGenerator.makeUnique(base: name, existing: existingNames, fallback: L10n.text("新地點"))
-        let value = FavoriteLocation(name: finalName, coordinate: coordinate, note: note)
-        favorites.append(value)
-        guard await saveFavorites() else { return }
-        ToastManager.shared.show(L10n.format("已收藏「%@」", value.name), kind: .success)
+        guard let target, target.isValid else { presentedError = L10n.text("請先選擇有效座標。"); return }
+        await appendFavorite(name: name, note: note, coordinate: target)
     }
 
     /// Adds a recent location without creating a second favorite for the same
     /// coordinate.  Explicitly named favorites may still share names; the
     /// coordinate identity is what makes this action idempotent.
     func addFavoriteIfNeeded(name: String, note: String? = nil, coordinate: RouteCoordinate) async {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
         guard await canMutateFavorites() else { return }
         guard coordinate.isValid else { return }
         if let existing = favorites.first(where: {
             abs($0.latitude - coordinate.latitude) < 0.000001 &&
             abs($0.longitude - coordinate.longitude) < 0.000001
         }) {
-            guard await markFavoriteUsed(existing) else { return }
+            var candidate = favorites
+            guard let index = candidate.firstIndex(where: { $0.id == existing.id }) else { return }
+            candidate[index].lastUsedAt = Date()
+            guard await persistFavoriteCandidate(candidate) else { return }
             ToastManager.shared.show(L10n.format("已在收藏中：%@", existing.name), kind: .info)
             return
         }
-        await addFavorite(name: name, note: note, coordinate: coordinate)
+        await appendFavorite(name: name, note: note, coordinate: coordinate)
+    }
+
+    /// Called only while holding the favorite mutation turn.
+    private func appendFavorite(name: String, note: String?, coordinate: RouteCoordinate) async {
+        let finalName = UniqueNameGenerator.makeUnique(base: name, existing: favorites.map(\.name), fallback: L10n.text("新地點"))
+        let value = FavoriteLocation(name: finalName, coordinate: coordinate, note: note)
+        var candidate = favorites
+        candidate.append(value)
+        guard await persistFavoriteCandidate(candidate) else { return }
+        ToastManager.shared.show(L10n.format("已收藏「%@」", value.name), kind: .success)
     }
 
     func isFavorite(coordinate: RouteCoordinate) -> Bool {
@@ -718,20 +761,31 @@ final class RouteLocationModel: ObservableObject {
         let originalOrder = favorites.map(\.id)
         let validOffsets = IndexSet(offsets.filter { favorites.indices.contains($0) })
         guard !validOffsets.isEmpty, (0...favorites.count).contains(destination) else { return }
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
         guard await canMutateFavorites() else { return }
         // The preflight suspends. Old offsets describe the requested move only
         // while this exact ID order still exists; preserve any newer edits.
         guard favorites.map(\.id) == originalOrder else { return }
-        favorites.move(fromOffsets: validOffsets, toOffset: destination)
-        manualFavoriteOrder = favorites.map(\.id)
+        var candidate = favorites
+        candidate.move(fromOffsets: validOffsets, toOffset: destination)
+        guard await persistFavoriteCandidate(candidate) else { return }
+        manualFavoriteOrder = candidate.map(\.id)
         persistManualFavoriteOrder()
-        await saveFavorites()
     }
 
-    func setManualFavoriteOrder(_ ids: [UUID]) {
-        let known = Set(favorites.map(\.id))
-        manualFavoriteOrder = ids.filter { known.contains($0) }
-        manualFavoriteOrder.append(contentsOf: favorites.map(\.id).filter { !manualFavoriteOrder.contains($0) })
+    func setManualFavoriteOrder(_ ids: [UUID]) async {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
+        guard await canMutateFavorites() else { return }
+        var seen = Set<UUID>()
+        let ordered = ids.compactMap { id -> FavoriteLocation? in
+            guard seen.insert(id).inserted else { return nil }
+            return favorites.first { $0.id == id }
+        }
+        let candidate = ordered + favorites.filter { !seen.contains($0.id) }
+        guard await persistFavoriteCandidate(candidate) else { return }
+        manualFavoriteOrder = candidate.map(\.id)
         persistManualFavoriteOrder()
     }
 
@@ -754,20 +808,26 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func updateFavorite(_ favorite: FavoriteLocation, name: String, note: String?) async {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
         guard await canMutateFavorites() else { return }
         guard let index = favorites.firstIndex(where: { $0.id == favorite.id }) else { return }
-        favorites[index].name = name
-        favorites[index].note = note
-        favorites[index].updatedAt = .now
-        await saveFavorites()
+        var candidate = favorites
+        candidate[index].name = name
+        candidate[index].note = note
+        candidate[index].updatedAt = .now
+        await persistFavoriteCandidate(candidate)
     }
 
     @discardableResult
     func markFavoriteUsed(_ favorite: FavoriteLocation) async -> Bool {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
         guard await canMutateFavorites() else { return false }
         guard let index = favorites.firstIndex(where: { $0.id == favorite.id }) else { return false }
-        favorites[index].lastUsedAt = Date()
-        return await saveFavorites()
+        var candidate = favorites
+        candidate[index].lastUsedAt = Date()
+        return await persistFavoriteCandidate(candidate)
     }
 
     func deleteFavorites(at offsets: IndexSet) async {
@@ -775,12 +835,14 @@ final class RouteLocationModel: ObservableObject {
             favorites.indices.contains(index) ? favorites[index].id : nil
         })
         guard !requestedIDs.isEmpty else { return }
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
         guard await canMutateFavorites() else { return }
-        favorites.removeAll { requestedIDs.contains($0.id) }
+        let candidate = favorites.filter { !requestedIDs.contains($0.id) }
+        guard await persistFavoriteCandidate(candidate) else { return }
         let ids = Set(favorites.map(\.id))
         manualFavoriteOrder = manualFavoriteOrder.filter { ids.contains($0) }
         persistManualFavoriteOrder()
-        await saveFavorites()
     }
 
     var isCellularBootstrapPreparationNeeded: Bool {
@@ -998,6 +1060,7 @@ final class RouteLocationModel: ObservableObject {
         if alreadyWritten {
             guard generation == singlePointRetargetGeneration else { return }
             startSinglePointHold(at: target)
+            successfulSinglePointRevision = UUID()
             statusMessage = L10n.text("已成功模擬所選位置。")
             notifyTeleportCompletionForTesting()
             await recordRecent(coordinate: target, kind: "simulate", retargetGeneration: generation)
@@ -1022,6 +1085,7 @@ final class RouteLocationModel: ObservableObject {
             )
             guard generation == singlePointRetargetGeneration else { return }
             startSinglePointHold(at: target)
+            successfulSinglePointRevision = UUID()
             statusMessage = L10n.text("已成功模擬所選位置。")
             notifyTeleportCompletionForTesting()
             await recordRecent(coordinate: target, kind: "simulate", retargetGeneration: generation)
@@ -1045,6 +1109,7 @@ final class RouteLocationModel: ObservableObject {
                     }
                     guard generation == singlePointRetargetGeneration else { return }
                     startSinglePointHold(at: target)
+                    successfulSinglePointRevision = UUID()
                     statusMessage = L10n.text("已成功模擬所選位置。")
                     notifyTeleportCompletionForTesting()
                     await recordRecent(coordinate: target, kind: "simulate", retargetGeneration: generation)
@@ -1167,6 +1232,7 @@ final class RouteLocationModel: ObservableObject {
             statusMessage = retained
                 ? L10n.text("已恢復真實位置。下一次模擬可快速開始。")
                 : L10n.text("已恢復裝置的真實位置。")
+            successfulRestoreRevision = UUID()
             DeveloperDiagnosticsStore.shared.record(
                 category: .lifecycle,
                 action: "RESTORE_REAL_LOCATION_SUCCESS",
@@ -1307,9 +1373,10 @@ final class RouteLocationModel: ObservableObject {
 
     private func canMutateFavorites() async -> Bool {
         await waitForInitialPersistenceLoad()
+        guard !Task.isCancelled else { return false }
         do {
             try await persistence.ensureFavoritesWritable()
-            return true
+            return !Task.isCancelled
         } catch {
             presentedError = L10n.format("無法儲存喜愛地點：%@", error.localizedDescription)
             return false
@@ -1317,14 +1384,61 @@ final class RouteLocationModel: ObservableObject {
     }
 
     @discardableResult
-    private func saveFavorites() async -> Bool {
+    private func persistFavoriteCandidate(_ candidate: [FavoriteLocation]) async -> Bool {
+        guard !Task.isCancelled else { return false }
         do {
-            try await persistence.saveFavorites(favorites)
+            try await persistence.saveFavorites(candidate)
+            // Once committed, publish even if cancellation arrived during IO;
+            // memory must reflect the completed durable operation.
+            favorites = candidate
             return true
         } catch {
             presentedError = L10n.format("無法儲存喜愛地點：%@", error.localizedDescription)
             return false
         }
+    }
+
+    private func acquirePersistenceMutation() async {
+        if persistenceMutationInProgress {
+            await withCheckedContinuation { continuation in
+                persistenceMutationWaiters.append(continuation)
+                #if DEBUG
+                testPersistenceMutationQueued?()
+                #endif
+            }
+        } else {
+            persistenceMutationInProgress = true
+        }
+    }
+
+    private func releasePersistenceMutation() {
+        if persistenceMutationWaiters.isEmpty {
+            persistenceMutationInProgress = false
+        } else {
+            persistenceMutationWaiters.removeFirst().resume()
+        }
+    }
+
+    /// Lifecycle callers may invoke this on foreground/unlock. The repository
+    /// retries only failed libraries; no healthy collection is reloaded.
+    func retryFailedPersistenceLoads() async {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
+        await waitForInitialPersistenceLoad()
+        guard !Task.isCancelled else { return }
+        let recovered = await persistence.retryFailedLibraries()
+        #if DEBUG
+        await testBeforeRecoveredLibrariesPublish?()
+        #endif
+        if let values = recovered.favorites {
+            favorites = values
+            let ids = Set(values.map(\.id))
+            manualFavoriteOrder = manualFavoriteOrder.filter { ids.contains($0) }
+            manualFavoriteOrder.append(contentsOf: values.map(\.id).filter { !manualFavoriteOrder.contains($0) })
+            persistManualFavoriteOrder()
+        }
+        if let values = recovered.routes { savedRoutes = values }
+        if let values = recovered.recents { recentLocations = values }
     }
 
     func recordRecent(
@@ -1333,28 +1447,44 @@ final class RouteLocationModel: ObservableObject {
         kind: String = "simulate",
         retargetGeneration: Int? = nil
     ) async {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
         await waitForInitialPersistenceLoad()
+        guard !Task.isCancelled else { return }
         if let retargetGeneration, retargetGeneration != singlePointRetargetGeneration { return }
         guard coordinate.isValid else { return }
-        recentLocations.removeAll { existing in
-            abs(existing.coordinate.latitude - coordinate.latitude) < 0.000001 &&
-            abs(existing.coordinate.longitude - coordinate.longitude) < 0.000001
+        var candidate = recentLocations.filter { existing in
+            !(abs(existing.coordinate.latitude - coordinate.latitude) < 0.000001 &&
+              abs(existing.coordinate.longitude - coordinate.longitude) < 0.000001)
         }
-        recentLocations.insert(RecentLocation(coordinate: coordinate, title: title, kind: kind), at: 0)
-        recentLocations = Array(recentLocations.prefix(30))
-        try? await persistence.saveRecentLocations(recentLocations)
+        candidate.insert(RecentLocation(coordinate: coordinate, title: title, kind: kind), at: 0)
+        await persistRecentCandidate(Array(candidate.prefix(30)))
     }
 
     func clearRecentLocations() async {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
         await waitForInitialPersistenceLoad()
-        recentLocations = []
-        try? await persistence.saveRecentLocations([])
+        guard !Task.isCancelled else { return }
+        await persistRecentCandidate([])
     }
 
     func deleteRecentLocation(_ item: RecentLocation) async {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
         await waitForInitialPersistenceLoad()
-        recentLocations.removeAll { $0.id == item.id }
-        try? await persistence.saveRecentLocations(recentLocations)
+        guard !Task.isCancelled else { return }
+        await persistRecentCandidate(recentLocations.filter { $0.id != item.id })
+    }
+
+    private func persistRecentCandidate(_ candidate: [RecentLocation]) async {
+        do {
+            try await persistence.saveRecentLocations(candidate)
+            recentLocations = candidate
+        } catch {
+            // Retain the current UI when storage is temporarily unavailable.
+            // Initial read failures remain protected until lifecycle recovery.
+        }
     }
 
     private func waitForInitialPersistenceLoad() async {

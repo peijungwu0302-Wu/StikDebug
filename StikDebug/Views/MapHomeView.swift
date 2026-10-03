@@ -4,6 +4,8 @@ import SwiftUI
 struct MapHomeView: View {
     @EnvironmentObject private var model: RouteLocationModel
     @EnvironmentObject private var playback: RoutePlaybackEngine
+    @EnvironmentObject private var tutorial: GuidedTutorialCoordinator
+    @EnvironmentObject private var tutorialUI: TutorialUIContext
     @State private var camera: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var showSearch = false
     @State private var showCoordinateEntry = false
@@ -13,6 +15,7 @@ struct MapHomeView: View {
     @State private var showFavoritePlacePicker = false
     @State private var showFavoriteRoutePicker = false
     @State private var showSaveSheet = false
+    @State private var showRouteEditor = false
     @State private var showClearDraftAlert = false
     @State private var showFavoriteName = false
     @State private var showFavoriteRouteName = false
@@ -79,6 +82,7 @@ struct MapHomeView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .tutorialTarget(.routeMode)
                     .frame(width: 150)
                     .disabled(model.isAnyRouteActive)
                 }
@@ -102,6 +106,7 @@ struct MapHomeView: View {
                         if model.quickRouteMode == .route { showRouteInputChooser = true } else { showCoordinateEntry = true }
                     } label: { Image(systemName: "location.viewfinder") }
                         .accessibilityLabel(L10n.text("輸入座標"))
+                        .tutorialTarget(.coordinateEntry)
                     if !displayCoordinates.isEmpty {
                         Button { fitRoute() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                             .accessibilityLabel(L10n.text("顯示完整路線"))
@@ -126,7 +131,7 @@ struct MapHomeView: View {
                 } else if model.quickRouteMode == .route {
                     model.addWaypointAndSwitchToRoute(coordinate)
                 } else {
-                    model.selectedCoordinate = coordinate
+                    model.focusOnMap(coordinate)
                 }
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
@@ -184,10 +189,18 @@ struct MapHomeView: View {
                 Task { await model.saveCurrentRoute(named: name, asCopy: asCopy) }
             }
         }
+        .sheet(isPresented: $showRouteEditor) { RouteEditorView() }
+        .onChange(of: showCoordinateEntry) { _, visible in
+            tutorialUI.coordinateEntryVisible = visible
+            tutorialUI.modalVisible = visible
+        }
+        .onChange(of: showSaveSheet) { _, visible in tutorialUI.modalVisible = visible }
+        .onChange(of: showFavoriteName) { _, visible in tutorialUI.modalVisible = visible }
         .alert(L10n.text("儲存喜好地點"), isPresented: $showFavoriteName) {
             TextField(L10n.text("名稱"), text: $favoriteName)
             Button(L10n.text("儲存")) { let coordinate = favoriteCoordinate; Task { await model.addFavorite(name: favoriteName, coordinate: coordinate); favoriteName = ""; favoriteCoordinate = nil } }
             Button(L10n.text("取消"), role: .cancel) {}
+            if tutorial.isActive { Button(L10n.text("tutorial.skip")) { tutorial.skip() } }
         }
         .alert(L10n.text("收藏目前路線"), isPresented: $showFavoriteRouteName) {
             TextField(L10n.text("名稱"), text: $favoriteRouteName)
@@ -479,8 +492,10 @@ struct MapHomeView: View {
                             .accessibilityLabel(L10n.text("復原"))
                         Button(L10n.text("儲存路線")) { showSaveSheet = true }
                             .buttonStyle(.bordered).disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
+                            .tutorialTarget(.saveRoute)
                         Spacer()
                         Menu {
+                            Button(L10n.text("編輯")) { showRouteEditor = true }
                             Button(L10n.text("清除路線"), role: .destructive) { showClearDraftAlert = true }
                             Button(L10n.text("我的路線")) { showFavoriteRoutePicker = true }
                         } label: {
@@ -488,10 +503,12 @@ struct MapHomeView: View {
                         }
                         .frame(minWidth: 44, minHeight: 44)
                         .accessibilityLabel(L10n.text("更多路線操作"))
+                        .tutorialTarget(.routeEditor)
                         Button(L10n.text("開始路線")) { Task { await model.startPlayback() } }
                             .buttonStyle(.borderedProminent)
                             .disabled(model.geometry.totalDistance <= 0 || model.navigationGeometryNeedsRecalculation)
                             .accessibilityLabel(L10n.text("開始路線"))
+                            .tutorialTarget(.startRoute)
                     }
                 }
             }
@@ -502,6 +519,7 @@ struct MapHomeView: View {
                 }
                 .font(.footnote)
                 .accessibilityLabel(L10n.text("恢復真實定位"))
+                .tutorialTarget(.restore)
             }
         }
         .padding(12)

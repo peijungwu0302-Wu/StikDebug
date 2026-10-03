@@ -58,6 +58,12 @@ struct UserGuideView: View {
     var body: some View {
         List {
             Section {
+                NavigationLink { TutorialCenterView() } label: {
+                    Label(L10n.text("tutorial.center.title"), systemImage: "hand.point.up.left")
+                }
+                .accessibilityIdentifier("guide.tutorialCenter")
+            }
+            Section {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(L10n.text("熟悉 RouteLocation")).font(.title2.bold())
                     Text(L10n.text("依照你想做的事選擇主題，隨時回來查看。"))

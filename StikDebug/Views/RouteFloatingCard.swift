@@ -81,6 +81,7 @@ struct RouteFloatingCard: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .accessibilityLabel(L10n.text("開始路線"))
+                .tutorialTarget(.startRoute)
 
             Button(L10n.text("編輯")) { onEdit() }
                 .buttonStyle(.bordered)
@@ -183,11 +184,13 @@ struct RouteFloatingCard: View {
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .accessibilityLabel(L10n.text("暫停移動"))
+                    .tutorialTarget(.pauseRoute)
             } else if isPaused {
                 Button(L10n.text("繼續")) { Task { await playback.resume() } }
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .accessibilityLabel(L10n.text("繼續"))
+                    .tutorialTarget(.resumeRoute)
             } else if isReconnecting {
                 Text(L10n.text("重新連線中…"))
                     .font(.footnote)
@@ -220,6 +223,9 @@ struct RouteFloatingCard: View {
                     .frame(minWidth: 44, minHeight: 44)
             }
             .accessibilityLabel(L10n.text("更多路線操作"))
+            .tutorialTarget(.stopAndHold)
+            .tutorialTarget(.restore)
+            .tutorialTarget(.recovery)
         }
     }
 

@@ -4,9 +4,10 @@ import UIKit
 
 struct AdaptiveRouteMapView: View {
     @EnvironmentObject private var model: RouteLocationModel
+    @EnvironmentObject private var tutorial: GuidedTutorialCoordinator
 
     var body: some View {
-        if model.mapInteractionStyle == .classic {
+        if model.mapInteractionStyle == .classic && !tutorial.isActive {
             RouteMapView()
         } else {
             MapHomeView()
