@@ -5,6 +5,9 @@ on:
     branches: ['feat/**']
     paths:
       - 'StikDebug/Views/UserGuideView.swift'
+      - 'StikDebug/Views/*Tutorial*.swift'
+      - 'StikDebug/Support/GuideScreenshotFixture.swift'
+      - 'StikDebug/Support/*Tutorial*.swift'
       - 'StikDebug/Views/SettingsView.swift'
       - 'StikDebug/*/Localizable.strings'
       - 'StikDebugUITests/RouteLocationGuideUITests.swift'
@@ -40,6 +43,7 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/guide-capture/source-commit.txt"
           xcodebuild -version > "$RUNNER_TEMP/guide-capture/xcode-version.txt"
           xcrun simctl list devices available -j > "$RUNNER_TEMP/guide-capture/simulator-devices.json"
+          printf '%s\n' 'Screenshots containing Simulator UI demonstration use DEBUG simulator-only fixed public demo data. Player/single-point state is injected; no device simulation command is performed. These images do not validate physical-iPhone location behavior.' > "$RUNNER_TEMP/guide-capture/VALIDATION-STATUS.txt"
 
       - name: Navigate the shipped app and capture both languages
         run: |

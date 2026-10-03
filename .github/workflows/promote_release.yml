@@ -107,7 +107,7 @@ jobs:
           EXPECTED_BUILD=$(jq -r .build <<<"$PROJECT_SETTINGS")
           BUNDLE_ID=$(jq -r .bundle <<<"$PROJECT_SETTINGS")
           MIN_OS=$(jq -r .deployment <<<"$PROJECT_SETTINGS")
-          SOURCE_DESCRIPTION="RouteLocation v${VERSION} adds an on-demand bilingual User Guide in Settings, protects unreadable saved data from accidental overwrite, and improves pause reliability, route status visibility, and pairing-import guidance. / RouteLocation v${VERSION} 新增設定內的雙語使用指南，保護無法讀取的已儲存資料免遭覆寫，並改善暫停穩定性、路線狀態顯示與配對匯入引導。"
+          SOURCE_DESCRIPTION="RouteLocation v${VERSION} adds opt-in interactive tutorials using real controls and actual operation results, retries only temporarily unreadable libraries, and publishes favorite changes only after successful persistence. Ending guidance never restores or changes simulation. / RouteLocation v${VERSION} 新增依真實操作結果前進的互動教學，只重試暫時無法讀取的資料庫，收藏變更成功儲存後才更新畫面。結束教學不會恢復或改變模擬。"
           RELEASE_NOTES_FILE=".github/RELEASE_NOTES_v${VERSION}.md"
           if [[ "$EXPECTED_PROJECT_VERSION" != "$VERSION" || "$BUNDLE_ID" != "com.routelocation.app" || "$MIN_OS" != "17.4" ]]; then
             echo "Project metadata mismatch: $PROJECT_SETTINGS vs release $VERSION" >&2

@@ -52,12 +52,18 @@ Developer Disk Image（DDI）是 Apple 開發者服務元件。RouteLocation 會
 
 忘記操作時，可隨時開啟「設定 → 使用指南」，選擇第一次使用、單點定位、輸入座標、路線、收藏、連線恢復或健康同步。指南不會啟動模擬或變更你的設定。
 
+也可在使用指南開啟「互動教學中心」，選擇快速開始、常用功能或連線疑難排解。教學會標出真正的操作入口，依實際 App 狀態推進；模擬、開始路線與恢復真實位置仍由你操作。每一步都能結束教學，已完成的模擬或資料不會因此還原。
+
 <p>
   <img src="docs/images/guide/zh-Hant-topics.png" width="280" alt="使用指南：依想做的事情選擇教學主題">
   <img src="docs/images/guide/zh-Hant-setup.png" width="280" alt="第一次使用：配對檔案、LocalDevVPN 與準備檢查步驟">
 </p>
 
 以上為 GitHub Actions 實際啟動 App 後擷取的 iPhone 模擬器畫面；不是示意圖，也不代表已完成實機連線驗證。[截圖來源與重現方式](docs/images/guide/README.md)。
+
+### 驗證狀態（Validation Status）
+
+Actions 的 UI 測試可驗證畫面導覽、教學入口與結束教學。單點與 Route Player 展示使用 DEBUG 模擬器限定的公開台北示範座標和注入狀態；不會傳送裝置定位指令，也不代表已驗證實機 GPS。LocalDevVPN、實際模擬／恢復、行動網路輔助與背景播放仍需要 physical iPhone 驗證。
 
 ## Wi-Fi 與行動數據
 

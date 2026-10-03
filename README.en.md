@@ -52,12 +52,18 @@ Normal location use does not require DDI to be mounted first. If the device chan
 
 For a refresher, open **Settings → User Guide** at any time. Choose setup, single-point location, coordinate input, routes, favorites, connection recovery, or Health Sync. Reading the guide does not start simulation or change your settings.
 
+Open the **Interactive Tutorial Center** inside the guide for quick-start tasks, everyday features, and connection troubleshooting. Coaching highlights real controls and advances from actual app state. You still perform simulation, route start, and restore actions yourself. End any tutorial at any step; actions and saved data already completed are not rolled back.
+
 <p>
   <img src="docs/images/guide/en-topics.png" width="280" alt="User Guide: choose a topic for the task you want to perform">
   <img src="docs/images/guide/en-setup.png" width="280" alt="Getting Started: pairing file, LocalDevVPN, and setup-check steps">
 </p>
 
 These are actual iPhone simulator screenshots captured after launching the app in GitHub Actions, not mockups or evidence of physical-device connectivity. [Screenshot provenance and reproduction](docs/images/guide/README.md).
+
+### Validation Status
+
+Actions UI tests can verify navigation, tutorial entry, and ending a tutorial. Single-point and Route Player demonstrations use public Taipei coordinates and injected state available only in DEBUG simulator builds. They send no device location commands and do not validate real GPS behavior. LocalDevVPN, actual simulation/restore, cellular-assisted recovery, and background playback still require physical-iPhone validation.
 
 ## Wi-Fi and cellular data
 
