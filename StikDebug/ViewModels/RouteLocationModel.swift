@@ -145,7 +145,7 @@ final class RouteLocationModel: ObservableObject {
         self.simulationService = simulationService
         self.connectionMonitor = connectionMonitor
         let savedSpeed = UserDefaults.standard.double(forKey: Self.speedKey)
-        speedKmh = savedSpeed > 0 ? savedSpeed : 18.6
+        speedKmh = PlaybackSpeedPolicy.clamp(savedSpeed > 0 ? savedSpeed : 18.6)
 
         if let savedStyleRaw = UserDefaults.standard.string(forKey: Self.mapStyleKey),
            let savedStyle = MapInteractionStyle(rawValue: savedStyleRaw) {
@@ -641,7 +641,6 @@ final class RouteLocationModel: ObservableObject {
         guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         previewingRoute = nil
         loadRoute(route)
-        await markRouteUsed(id: route.id)
         await startPlayback()
     }
 
@@ -651,7 +650,6 @@ final class RouteLocationModel: ObservableObject {
         stopRoutePlayback(clearMarker: false)
         previewingRoute = nil
         loadRoute(route)
-        await markRouteUsed(id: route.id)
         await startPlayback()
         statusMessage = L10n.format("已切換至路線「%@」。", route.name)
     }
@@ -671,6 +669,7 @@ final class RouteLocationModel: ObservableObject {
         guard !isActiveRoute(route) else { showRouteEditingLockedMessage(); return }
         do {
             try await persistence.deleteRoute(id: route.id)
+            if previewingRoute?.id == route.id { cancelRoutePreview() }
             if loadedRouteID == route.id { loadedRouteID = nil }
             await reloadRoutes()
         } catch { presentedError = L10n.format("無法刪除路線：%@", error.localizedDescription) }
@@ -681,13 +680,13 @@ final class RouteLocationModel: ObservableObject {
         // appending.  Without this barrier, a fast favorite action can race
         // loadPersistedData() and have the just-added item overwritten by the
         // still-loading empty array.
-        await waitForInitialPersistenceLoad()
+        guard await canMutateFavorites() else { return }
         guard let coordinate = coordinate ?? selectedCoordinate, coordinate.isValid else { presentedError = L10n.text("請先選擇有效座標。"); return }
         let existingNames = favorites.map(\.name)
         let finalName = UniqueNameGenerator.makeUnique(base: name, existing: existingNames, fallback: L10n.text("新地點"))
         let value = FavoriteLocation(name: finalName, coordinate: coordinate, note: note)
         favorites.append(value)
-        await saveFavorites()
+        guard await saveFavorites() else { return }
         ToastManager.shared.show(L10n.format("已收藏「%@」", value.name), kind: .success)
     }
 
@@ -695,13 +694,13 @@ final class RouteLocationModel: ObservableObject {
     /// coordinate.  Explicitly named favorites may still share names; the
     /// coordinate identity is what makes this action idempotent.
     func addFavoriteIfNeeded(name: String, note: String? = nil, coordinate: RouteCoordinate) async {
-        await waitForInitialPersistenceLoad()
+        guard await canMutateFavorites() else { return }
         guard coordinate.isValid else { return }
         if let existing = favorites.first(where: {
             abs($0.latitude - coordinate.latitude) < 0.000001 &&
             abs($0.longitude - coordinate.longitude) < 0.000001
         }) {
-            await markFavoriteUsed(existing)
+            guard await markFavoriteUsed(existing) else { return }
             ToastManager.shared.show(L10n.format("已在收藏中：%@", existing.name), kind: .info)
             return
         }
@@ -716,6 +715,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func moveFavorites(from offsets: IndexSet, to destination: Int) async {
+        guard await canMutateFavorites() else { return }
         favorites.move(fromOffsets: offsets, toOffset: destination)
         manualFavoriteOrder = favorites.map(\.id)
         persistManualFavoriteOrder()
@@ -748,6 +748,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func updateFavorite(_ favorite: FavoriteLocation, name: String, note: String?) async {
+        guard await canMutateFavorites() else { return }
         guard let index = favorites.firstIndex(where: { $0.id == favorite.id }) else { return }
         favorites[index].name = name
         favorites[index].note = note
@@ -755,13 +756,16 @@ final class RouteLocationModel: ObservableObject {
         await saveFavorites()
     }
 
-    func markFavoriteUsed(_ favorite: FavoriteLocation) async {
-        guard let index = favorites.firstIndex(where: { $0.id == favorite.id }) else { return }
+    @discardableResult
+    func markFavoriteUsed(_ favorite: FavoriteLocation) async -> Bool {
+        guard await canMutateFavorites() else { return false }
+        guard let index = favorites.firstIndex(where: { $0.id == favorite.id }) else { return false }
         favorites[index].lastUsedAt = Date()
-        await saveFavorites()
+        return await saveFavorites()
     }
 
     func deleteFavorites(at offsets: IndexSet) async {
+        guard await canMutateFavorites() else { return }
         favorites.remove(atOffsets: offsets)
         let ids = Set(favorites.map(\.id))
         manualFavoriteOrder = manualFavoriteOrder.filter { ids.contains($0) }
@@ -1260,17 +1264,16 @@ final class RouteLocationModel: ObservableObject {
     }
 
     private func loadPersistedData() async {
+        var errors: [String] = []
         do {
-            async let loadedFavorites = persistence.loadFavorites()
-            async let loadedRoutes = persistence.loadRoutes()
-            async let loadedRecents = persistence.loadRecentLocations()
-            favorites = try await loadedFavorites
-            savedRoutes = try await loadedRoutes
-            recentLocations = try await loadedRecents
+            favorites = try await persistence.loadFavorites()
             let loadedIDs = Set(favorites.map(\.id))
             manualFavoriteOrder = manualFavoriteOrder.filter { loadedIDs.contains($0) }
             manualFavoriteOrder.append(contentsOf: favorites.map(\.id).filter { !manualFavoriteOrder.contains($0) })
             persistManualFavoriteOrder()
+        } catch { errors.append(error.localizedDescription) }
+        do {
+            savedRoutes = try await persistence.loadRoutes()
             let legacyRoutes = savedRoutes.filter { $0.name == "New Route" }
             for route in legacyRoutes {
                 var updated = route
@@ -1278,7 +1281,13 @@ final class RouteLocationModel: ObservableObject {
                 try await persistence.saveRoute(updated)
             }
             if !legacyRoutes.isEmpty { savedRoutes = try await persistence.loadRoutes() }
-        } catch { presentedError = L10n.format("無法載入已儲存資料：%@", error.localizedDescription) }
+        } catch { errors.append(error.localizedDescription) }
+        do {
+            recentLocations = try await persistence.loadRecentLocations()
+        } catch { errors.append(error.localizedDescription) }
+        if !errors.isEmpty {
+            presentedError = L10n.format("無法載入已儲存資料：%@", errors.joined(separator: "\n"))
+        }
     }
 
     private func reloadRoutes() async {
@@ -1286,10 +1295,26 @@ final class RouteLocationModel: ObservableObject {
         catch { presentedError = error.localizedDescription }
     }
 
-    private func saveFavorites() async {
+    private func canMutateFavorites() async -> Bool {
+        await waitForInitialPersistenceLoad()
+        do {
+            try await persistence.ensureFavoritesWritable()
+            return true
+        } catch {
+            presentedError = L10n.format("無法儲存喜愛地點：%@", error.localizedDescription)
+            return false
+        }
+    }
+
+    @discardableResult
+    private func saveFavorites() async -> Bool {
         do {
             try await persistence.saveFavorites(favorites)
-        } catch { presentedError = L10n.format("無法儲存喜愛地點：%@", error.localizedDescription) }
+            return true
+        } catch {
+            presentedError = L10n.format("無法儲存喜愛地點：%@", error.localizedDescription)
+            return false
+        }
     }
 
     func recordRecent(

@@ -13,6 +13,9 @@ enum PersistenceError: LocalizedError {
 }
 
 actor RoutePersistenceStore {
+    private enum Library: Hashable { case favorites, recents, routes }
+    private var loadedLibraries: Set<Library> = []
+    private var readFailures: [Library: Error] = [:]
     private let fileManager: FileManager
     private let rootURL: URL
     private let routesURL: URL
@@ -36,13 +39,17 @@ actor RoutePersistenceStore {
     }
 
     func loadFavorites() throws -> [FavoriteLocation] {
+        try load(.favorites) { try readFavorites() }
+    }
+
+    private func readFavorites() throws -> [FavoriteLocation] {
         try ensureDirectories()
         guard fileManager.fileExists(atPath: favoritesURL.path) else { return migrateLegacyFavorites() }
         let data = try Data(contentsOf: favoritesURL)
         var favorites = try decoder.decode([FavoriteLocation].self, from: data)
         guard favorites.allSatisfy({ $0.coordinate.isValid }) else { throw PersistenceError.invalidFavorite }
         if requiresTimestampMigration(inArrayData: data) {
-            try saveFavorites(favorites)
+            try encoder.encode(favorites).write(to: favoritesURL, options: [.atomic, .completeFileProtection])
             // Return the same encoded precision that subsequent launches will
             // decode, keeping legacy migration timestamps stable immediately.
             favorites = try decoder.decode([FavoriteLocation].self, from: Data(contentsOf: favoritesURL))
@@ -51,23 +58,37 @@ actor RoutePersistenceStore {
     }
 
     func saveFavorites(_ favorites: [FavoriteLocation]) throws {
+        try ensureWritable(.favorites)
         try ensureDirectories()
         guard favorites.allSatisfy({ $0.coordinate.isValid }) else { throw PersistenceError.invalidFavorite }
         try encoder.encode(favorites).write(to: favoritesURL, options: [.atomic, .completeFileProtection])
     }
 
+    func ensureFavoritesWritable() throws {
+        try ensureWritable(.favorites)
+    }
+
     func loadRecentLocations() throws -> [RecentLocation] {
+        try load(.recents) { try readRecentLocations() }
+    }
+
+    private func readRecentLocations() throws -> [RecentLocation] {
         try ensureDirectories()
         guard fileManager.fileExists(atPath: recentsURL.path) else { return [] }
         return try decoder.decode([RecentLocation].self, from: Data(contentsOf: recentsURL))
     }
 
     func saveRecentLocations(_ recents: [RecentLocation]) throws {
+        try ensureWritable(.recents)
         try ensureDirectories()
         try encoder.encode(Array(recents.prefix(30))).write(to: recentsURL, options: [.atomic, .completeFileProtection])
     }
 
     func loadRoutes() throws -> [SavedRoute] {
+        try load(.routes) { try readRoutes() }
+    }
+
+    private func readRoutes() throws -> [SavedRoute] {
         try ensureDirectories()
         let files = try fileManager.contentsOfDirectory(at: routesURL, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension.lowercased() == "json" }
@@ -92,14 +113,43 @@ actor RoutePersistenceStore {
     }
 
     func saveRoute(_ route: SavedRoute) throws {
+        try ensureWritable(.routes)
         try ensureDirectories()
         let destination = routesURL.appendingPathComponent(route.id.uuidString).appendingPathExtension("json")
         try encoder.encode(route).write(to: destination, options: [.atomic, .completeFileProtection])
     }
 
     func deleteRoute(id: UUID) throws {
+        try ensureWritable(.routes)
         let destination = routesURL.appendingPathComponent(id.uuidString).appendingPathExtension("json")
         if fileManager.fileExists(atPath: destination.path) { try fileManager.removeItem(at: destination) }
+    }
+
+    /// A failed read never authorizes replacing the library with a partial or
+    /// empty in-memory snapshot. Only an explicit successful reload unlocks it.
+    private func load<Value>(_ library: Library, read: () throws -> Value) rethrows -> Value {
+        do {
+            let value = try read()
+            loadedLibraries.insert(library)
+            readFailures[library] = nil
+            return value
+        } catch {
+            readFailures[library] = error
+            throw error
+        }
+    }
+
+    private func ensureWritable(_ library: Library) throws {
+        if let error = readFailures[library] { throw error }
+        guard !loadedLibraries.contains(library) else { return }
+        // Direct repository callers must also read existing data before their
+        // first mutation, including deletion. Keep every original file intact
+        // if that read fails; recovery is an explicit operation.
+        switch library {
+        case .favorites: _ = try loadFavorites()
+        case .recents: _ = try loadRecentLocations()
+        case .routes: _ = try loadRoutes()
+        }
     }
 
     private func ensureDirectories() throws {

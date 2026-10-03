@@ -209,6 +209,7 @@ final class RoutePlaybackEngine: ObservableObject {
     /// Does NOT trigger DVT/tunnel reconnect or restore real location.
     func pause() {
         guard canPause else { return }
+        recoveryGeneration &+= 1
         task?.cancel()
         task = nil
         transportHealthTask?.cancel()
@@ -264,6 +265,7 @@ final class RoutePlaybackEngine: ObservableObject {
                 reportConnection(.connected)
                 state = .running
             } catch {
+                guard recoveryGeneration == generation, !Task.isCancelled else { return }
                 consecutiveCommandFailures += 1
                 TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
                 guard PlaybackReconnectPolicy.shouldRetry(error) else {
@@ -433,6 +435,7 @@ final class RoutePlaybackEngine: ObservableObject {
             state = isPaused ? .paused : .running
             if !isPaused && task == nil { task = Task { [weak self] in await self?.runLoop() } }
         } catch {
+            guard recoveryGeneration == generation, !Task.isCancelled else { return }
             consecutiveCommandFailures += 1
             TunnelManager.shared.reportLocationFailure(error, transport: connectionMonitor.currentTransport)
             guard PlaybackReconnectPolicy.shouldRetry(error) else {
@@ -469,6 +472,7 @@ final class RoutePlaybackEngine: ObservableObject {
 
     #if DEBUG
     var testRouteGeometryForTesting: RouteGeometry? { geometry }
+    var testPlaybackTaskForTesting: Task<Void, Never>? { task }
 
     func testSetStateForTesting(_ newState: PlaybackRunState, currentCoordinate: RouteCoordinate? = nil) {
         if let currentCoordinate {
