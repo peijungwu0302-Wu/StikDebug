@@ -15,6 +15,24 @@
       "tintColor": "#007AFF",
       "versions": [
         {
+          "version": "1.2.20",
+          "date": "2026-10-03",
+          "size": 6907613,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.20/RouteLocation-v1.2.20-unsigned.ipa",
+          "localizedDescription": "RouteLocation v1.2.20 improves coordinate-entry reliability: the native Paste control recovers after clipboard or app lifecycle changes, and the coordinate input modal remains stable when the keyboard opens. / RouteLocation v1.2.20 改善座標輸入穩定性：原生「貼上」控制項在剪貼簿或 App 狀態切換後可恢復，且鍵盤彈出時輸入視窗保持穩定。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        },
+        {
           "version": "1.2.19",
           "date": "2026-10-01",
           "size": 6907443,
