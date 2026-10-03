@@ -493,34 +493,32 @@ final class DeveloperDiagnosticsStore: ObservableObject {
     }
 
     private func pruneOldRuns() {
-        fileQueue.async { [weak self] in
-            guard let self else { return }
-            let now = Date()
-            var currentRuns = self.runs
-
-            // 1. Filter out runs older than maxAgeDays
-            currentRuns.removeAll { run in
-                if now.timeIntervalSince(run.updatedAt) > self.maxAgeDays {
-                    let dir = self.runsDirectory.appendingPathComponent(run.id)
-                    try? FileManager.default.removeItem(at: dir)
-                    return true
-                }
-                return false
-            }
-
-            // 2. Limit to maxStoredRuns
-            if currentRuns.count > self.maxStoredRuns {
-                let toRemove = currentRuns.suffix(from: self.maxStoredRuns)
-                for run in toRemove {
-                    let dir = self.runsDirectory.appendingPathComponent(run.id)
-                    try? FileManager.default.removeItem(at: dir)
-                }
-                currentRuns = Array(currentRuns.prefix(self.maxStoredRuns))
-            }
-
-            Task { @MainActor in
-                self.runs = currentRuns
+        let retained = Self.retainedRuns(
+            from: runs, activeRunID: activeRun?.id, now: Date(),
+            maxAge: maxAgeDays, maxCount: maxStoredRuns
+        )
+        let retainedIDs = Set(retained.map(\.id))
+        let removedDirectories = runs.filter { !retainedIDs.contains($0.id) }
+            .map { runsDirectory.appendingPathComponent($0.id) }
+        // Mutate actor state before queuing I/O so an old snapshot cannot overwrite
+        // a newer run or newly recorded event when the file queue finishes.
+        runs = retained
+        fileQueue.async {
+            for directory in removedDirectories {
+                try? FileManager.default.removeItem(at: directory)
             }
         }
+    }
+
+    nonisolated static func retainedRuns(
+        from runs: [DiagnosticTestRun], activeRunID: String?, now: Date,
+        maxAge: TimeInterval, maxCount: Int
+    ) -> [DiagnosticTestRun] {
+        let hasActiveRun = runs.contains { $0.id == activeRunID }
+        let inactiveCapacity = max(0, maxCount - (hasActiveRun ? 1 : 0))
+        let inactiveIDs = Set(runs.lazy.filter {
+            $0.id != activeRunID && now.timeIntervalSince($0.updatedAt) <= maxAge
+        }.prefix(inactiveCapacity).map(\.id))
+        return runs.filter { $0.id == activeRunID || inactiveIDs.contains($0.id) }
     }
 }

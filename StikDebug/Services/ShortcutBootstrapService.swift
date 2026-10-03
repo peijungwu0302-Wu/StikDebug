@@ -177,8 +177,7 @@ final class ShortcutBootstrapService: ObservableObject {
         }
         #endif
 
-        guard let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "shortcuts://run-shortcut?name=\(encodedName)&input=text&text=\(txId)") else {
+        guard let url = Self.shortcutURL(name: name, txId: txId) else {
             cancelActiveTransaction()
             return false
         }
@@ -196,6 +195,21 @@ final class ShortcutBootstrapService: ObservableObject {
             cancelActiveTransaction()
             return false
         }
+    }
+
+    nonisolated static func shortcutURL(name: String, txId: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "shortcuts"
+        components.host = "run-shortcut"
+        components.queryItems = [
+            URLQueryItem(name: "name", value: name),
+            URLQueryItem(name: "input", value: "text"),
+            URLQueryItem(name: "text", value: txId)
+        ]
+        // URLComponents permits literal plus; encode it for form-style decoders too.
+        components.percentEncodedQuery = components.percentEncodedQuery?
+            .replacingOccurrences(of: "+", with: "%2B")
+        return components.url
     }
 
     func handleCallback(url: URL) -> Bool {

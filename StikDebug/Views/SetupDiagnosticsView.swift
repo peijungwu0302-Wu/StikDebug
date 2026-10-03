@@ -528,7 +528,12 @@ struct SetupDiagnosticsView: View {
         if let url = URL(string: "sidestore://"), UIApplication.shared.canOpenURL(url) {
             UIApplication.shared.open(url)
         } else if let url = SideStoreSourceConfig.sideStoreDeepLinkURL {
-            UIApplication.shared.open(url)
+            UIApplication.shared.open(url) { success in
+                guard !success else { return }
+                Task { @MainActor in
+                    ToastManager.shared.show(L10n.text("未偵測到 SideStore App，請手動開啟 SideStore 進行重新整理。"), kind: .info)
+                }
+            }
         } else {
             ToastManager.shared.show(L10n.text("未偵測到 SideStore App，請手動開啟 SideStore 進行重新整理。"), kind: .info)
         }

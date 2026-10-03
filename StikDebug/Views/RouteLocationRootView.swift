@@ -9,6 +9,7 @@ struct RouteLocationRootView: View {
     @EnvironmentObject private var model: RouteLocationModel
     @EnvironmentObject private var playback: RoutePlaybackEngine
     @State private var selectedTab: RouteLocationTab = .map
+    @State private var showPairingImporter = false
     @AppStorage(AppLanguage.defaultsKey) private var appLanguage = AppLanguage.traditionalChinese.rawValue
     @AppStorage("RouteLocation.showMiniPlayer") private var showMiniPlayer = true
     @ObservedObject private var toast = ToastManager.shared
@@ -85,6 +86,24 @@ struct RouteLocationRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .switchToRoutesTab)) { _ in
             selectedTab = .my
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showPairingFilePicker)) { _ in
+            selectedTab = .settings
+            showPairingImporter = true
+        }
+        .fileImporter(isPresented: $showPairingImporter, allowedContentTypes: PairingFileStore.supportedContentTypes) { result in
+            do {
+                try PairingFileStore.importFromPicker(try result.get())
+                ToastManager.shared.show(L10n.text("匯入成功。"), kind: .success)
+                NotificationCenter.default.post(name: .pairingFileImported, object: nil)
+                TunnelManager.shared.start()
+            } catch {
+                let cocoaError = error as NSError
+                if cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == NSUserCancelledError {
+                    return
+                }
+                model.presentedError = L10n.format("匯入失敗：%@", error.localizedDescription)
+            }
         }
         .sheet(isPresented: $model.showBootstrapPreflightSheet) {
             BootstrapPreflightSheet(

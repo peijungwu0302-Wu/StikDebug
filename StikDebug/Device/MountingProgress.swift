@@ -50,10 +50,15 @@ final class MountingProgress: ObservableObject {
     }
 
     func progressCallback(progress: size_t, total: size_t, context: UnsafeMutableRawPointer?) {
-        let percentage = Double(progress) / Double(total) * 100.0
+        guard let percentage = Self.percentage(progress: progress, total: total) else { return }
         DispatchQueue.main.async {
             self.mountProgress = percentage
         }
+    }
+
+    static func percentage(progress: size_t, total: size_t) -> Double? {
+        guard total > 0 else { return nil }
+        return min(100, Double(progress) / Double(total) * 100.0)
     }
 
     var isMounting: Bool { isPreparing || isDownloading || mountingThread != nil }

@@ -26,6 +26,7 @@
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>shortcuts</string>
+		<string>sidestore</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

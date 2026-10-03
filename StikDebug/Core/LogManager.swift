@@ -54,7 +54,9 @@ final class LogManager: ObservableObject {
         DispatchQueue.main.async {
             self.logs.append(LogEntry(timestamp: Date(), type: type, message: clean))
             if type == .error { self.errorCount += 1 }
-            if self.logs.count > 1000 { self.logs.removeFirst(100) }
+            if self.logs.count > 1000 {
+                Self.removeOldestLogs(100, from: &self.logs, errorCount: &self.errorCount)
+            }
         }
     }
 
@@ -76,12 +78,15 @@ final class LogManager: ObservableObject {
             self.errorCount += entries.filter { $0.type == .error }.count
             if self.logs.count > maxTotal {
                 let excess = self.logs.count - maxTotal
-                let removed = self.logs.prefix(excess)
-                self.logs.removeFirst(excess)
-                let removedErrors = removed.filter { $0.type == .error }.count
-                self.errorCount = max(0, self.errorCount - removedErrors)
+                Self.removeOldestLogs(excess, from: &self.logs, errorCount: &self.errorCount)
             }
         }
+    }
+
+    static func removeOldestLogs(_ count: Int, from logs: inout [LogEntry], errorCount: inout Int) {
+        let removedErrors = logs.prefix(count).filter { $0.type == .error }.count
+        logs.removeFirst(count)
+        errorCount = max(0, errorCount - removedErrors)
     }
 
     func clearLogs() {
