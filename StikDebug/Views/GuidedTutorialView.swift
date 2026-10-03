@@ -157,7 +157,7 @@ struct TutorialCenterView: View {
 
     private func flow(_ flow: TutorialFlow) -> some View {
         Button { context.requestedFlow = flow } label: {
-            Label(L10n.text("tutorial.flow.\(flow.rawValue)"), systemImage: "hand.point.up.left")
+            Label(L10n.text(flow.titleKey), systemImage: "hand.point.up.left")
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 6)
         }
