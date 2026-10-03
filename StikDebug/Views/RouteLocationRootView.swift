@@ -21,6 +21,12 @@ struct RouteLocationRootView: View {
     @ObservedObject private var toast = ToastManager.shared
 
     var body: some View {
+        presentationContent
+            .environmentObject(tutorial)
+            .environmentObject(tutorialUI)
+    }
+
+    private var tabContent: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
                 AdaptiveRouteMapView()
@@ -47,6 +53,10 @@ struct RouteLocationRootView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: selectedTab)
         .animation(.easeInOut(duration: 0.25), value: model.simulationMode.isSimulating)
+    }
+
+    private var guidedContent: some View {
+        tabContent
         .tutorialSurface()
         #if DEBUG && targetEnvironment(simulator)
         .modifier(GuideScreenshotPresentationModifier())
@@ -69,6 +79,10 @@ struct RouteLocationRootView: View {
         .onChange(of: tutorial.completedFlow) { _, flow in
             if flow != nil { toast.show(L10n.text("tutorial.completed"), kind: .success) }
         }
+    }
+
+    private var observedContent: some View {
+        guidedContent
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 tutorial.resume(snapshot: tutorialSnapshot)
@@ -89,6 +103,10 @@ struct RouteLocationRootView: View {
             toast.show(message, kind: .success)
             model.statusMessage = nil
         }
+    }
+
+    private var alertContent: some View {
+        observedContent
         .alert("RouteLocation", isPresented: Binding(
             get: { model.presentedError != nil },
             set: { if !$0 { model.presentedError = nil } }
@@ -125,6 +143,10 @@ struct RouteLocationRootView: View {
                 Text(L10n.text("是否切換模擬路線？"))
             }
         }
+    }
+
+    private var presentationContent: some View {
+        alertContent
         .onReceive(NotificationCenter.default.publisher(for: .switchToRoutesTab)) { _ in
             selectedTab = .my
         }
@@ -164,8 +186,6 @@ struct RouteLocationRootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: toast.current)
-        .environmentObject(tutorial)
-        .environmentObject(tutorialUI)
     }
 
     private var tutorialSnapshot: GuidedTutorialSnapshot {
