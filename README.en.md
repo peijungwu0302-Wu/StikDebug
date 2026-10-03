@@ -48,6 +48,17 @@ The Developer Disk Image (DDI) is an Apple developer-service component. RouteLoc
 
 Normal location use does not require DDI to be mounted first. If the device channel is not ready, follow the setup or connection guidance shown in the app. Pairing, LocalDevVPN, and device-service failures are separate from DDI status.
 
+## On-demand User Guide
+
+For a refresher, open **Settings → User Guide** at any time. Choose setup, single-point location, coordinate input, routes, favorites, connection recovery, or Health Sync. Reading the guide does not start simulation or change your settings.
+
+<p>
+  <img src="docs/images/guide/en-topics.png" width="280" alt="User Guide: choose a topic for the task you want to perform">
+  <img src="docs/images/guide/en-setup.png" width="280" alt="Getting Started: pairing file, LocalDevVPN, and setup-check steps">
+</p>
+
+These are actual iPhone simulator screenshots captured after launching the app in GitHub Actions, not mockups or evidence of physical-device connectivity. [Screenshot provenance and reproduction](docs/images/guide/README.md).
+
 ## Wi-Fi and cellular data
 
 Either Wi-Fi or cellular data can carry the device-service connection. LocalDevVPN supplies only the local path from RouteLocation to the same iPhone; it does not proxy ordinary Internet traffic for other apps. If a cold cellular start needs the assisted flow, configure RouteLocation's Data Off / Data On Shortcuts first and follow the in-app instructions. That flow may temporarily turn cellular data off; DDI is not a prerequisite for it.

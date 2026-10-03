@@ -48,6 +48,17 @@ Developer Disk Image（DDI）是 Apple 開發者服務元件。RouteLocation 會
 
 正常定位流程不要求先掛載 DDI。若裝置通道尚未就緒，請依 App 顯示的設定或連線提示處理。配對、LocalDevVPN 與裝置服務錯誤和 DDI 狀態是分開的。
 
+## 隨時查閱使用指南
+
+忘記操作時，可隨時開啟「設定 → 使用指南」，選擇第一次使用、單點定位、輸入座標、路線、收藏、連線恢復或健康同步。指南不會啟動模擬或變更你的設定。
+
+<p>
+  <img src="docs/images/guide/zh-Hant-topics.png" width="280" alt="使用指南：依想做的事情選擇教學主題">
+  <img src="docs/images/guide/zh-Hant-setup.png" width="280" alt="第一次使用：配對檔案、LocalDevVPN 與準備檢查步驟">
+</p>
+
+以上為 GitHub Actions 實際啟動 App 後擷取的 iPhone 模擬器畫面；不是示意圖，也不代表已完成實機連線驗證。[截圖來源與重現方式](docs/images/guide/README.md)。
+
 ## Wi-Fi 與行動數據
 
 Wi-Fi 與行動數據都可用於裝置服務連線；LocalDevVPN 負責 RouteLocation 到同一台 iPhone 的本機通道，不會替其他 App 代理一般網際網路流量。若行動數據冷啟動需要輔助流程，請先在 RouteLocation 設定好 Data Off／Data On 捷徑，並依 App 畫面操作。輔助流程可能暫時關閉行動數據；不要將此步驟誤認為 DDI 必要條件。
