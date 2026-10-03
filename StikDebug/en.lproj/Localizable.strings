@@ -941,7 +941,7 @@
 "在地圖點選位置，或使用搜尋、收藏與精確座標選取目標。" = "Tap a location on the map, or select a target using search, favorites, or exact coordinates.";
 "確認位置後按「在此模擬」。裝置通道需要準備時，請依畫面提示完成。" = "Confirm the location and tap Simulate Here. Follow the on-screen instructions if the device channel needs preparation.";
 "要移到另一點，直接選擇新位置並再次模擬；不必先恢復真實位置。" = "To move elsewhere, select another point and simulate again. You do not need to restore real location first.";
-"按「恢復真實位置」會停止模擬並清除開發者位置覆寫。" = "Restore Real Location stops simulation and clears the developer location override.";
+"按「恢復真實位置」以停止模擬並清除開發者位置覆寫，並確認成功訊息；若顯示錯誤，請依提示重試。" = "Tap Restore Real Location to stop simulation and clear the developer location override, then confirm the success message. If an error appears, follow the instructions and retry.";
 "切換單點與路線時，App 會依你的設定顯示確認。結束路線與恢復真實位置不同，請依目的選擇。" = "Switching between a point and a route follows your confirmation preference. Ending a route and restoring real location are different actions; choose the one you need.";
 "輸入與貼上座標" = "Enter and Paste Coordinates";
 "先預覽，再決定是否模擬" = "Preview before you simulate";
@@ -954,7 +954,7 @@
 "航點、速度、圈數與播放控制" = "Waypoints, speed, laps, and playback controls";
 "依序加入航點，選擇直線或導航路線。直線在本機產生；新導航路線由 Apple Maps 計算。" = "Add waypoints in order, then choose straight or navigation geometry. Straight lines are built locally; Apple Maps calculates new navigation routes.";
 "設定 km/h 速度。開放路線只播放一次；需要有限多圈或無限循環時，請開啟「封閉路線」。" = "Set your speed in km/h. Open routes play once. Enable Closed Route for multiple laps or an infinite loop.";
-"預覽路線並儲存，再開始播放。播放中可調整速度、暫停與繼續；暫停不會解除路線編輯鎖定。" = "Preview and save the route, then start playback. You can adjust speed, pause, and resume during playback. Pausing keeps route editing locked.";
+"預覽路線，可先儲存，再開始播放。播放中可調整速度、暫停與繼續；暫停不會解除路線編輯鎖定。" = "Preview the route and optionally save it before starting playback. You can adjust speed, pause, and resume during playback. Pausing keeps route editing locked.";
 "要修改航點或路線設定，先結束目前路線。正常播放完成後會停留在最後模擬位置。" = "End the current route before changing waypoints or route settings. When playback finishes normally, the last simulated location stays active.";
 "速度由你設定，與 Apple Maps 預估時間無關。完整導航幾何會隨路線儲存；已儲存路線可離線播放。要回到真實 GPS，請按「恢復真實位置」。" = "You control the speed, independently of Apple Maps travel estimates. Complete navigation geometry is saved with the route for offline playback. Tap Restore Real Location to return to real GPS.";
 "收藏與我的路線" = "Favorites and Saved Routes";

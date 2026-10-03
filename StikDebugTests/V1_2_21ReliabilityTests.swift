@@ -149,6 +149,36 @@ struct V1_2_21LibraryModelTests {
         #expect(try Data(contentsOf: file) == original)
     }
 
+    @Test func favoriteDeletionIgnoresStaleOutOfBoundsOffsets() async throws {
+        let library = ReliabilityLibrary()
+        defer { library.cleanUp() }
+        let store = library.store
+        let first = FavoriteLocation(name: "First", coordinate: RouteCoordinate(latitude: 25, longitude: 121))
+        let second = FavoriteLocation(name: "Second", coordinate: RouteCoordinate(latitude: 26, longitude: 122))
+        try await store.saveFavorites([first, second])
+        let model = RouteLocationModel(persistence: store, simulationService: ReliabilityNoopSink())
+        await model.recordRecent(coordinate: first.coordinate)
+        await model.deleteFavorites(at: IndexSet([0, 20]))
+        #expect(model.favorites.map(\.id) == [second.id])
+        let saved = try await store.loadFavorites()
+        #expect(saved.map(\.id) == [second.id])
+    }
+
+    @Test func favoriteMoveIgnoresInvalidOffsetsAndRejectsInvalidDestination() async throws {
+        let library = ReliabilityLibrary()
+        defer { library.cleanUp() }
+        let store = library.store
+        let first = FavoriteLocation(name: "First", coordinate: RouteCoordinate(latitude: 25, longitude: 121))
+        let second = FavoriteLocation(name: "Second", coordinate: RouteCoordinate(latitude: 26, longitude: 122))
+        try await store.saveFavorites([first, second])
+        let model = RouteLocationModel(persistence: store, simulationService: ReliabilityNoopSink())
+        await model.recordRecent(coordinate: first.coordinate)
+        await model.moveFavorites(from: IndexSet([0, 20]), to: 2)
+        #expect(model.favorites.map(\.id) == [second.id, first.id])
+        await model.moveFavorites(from: IndexSet(integer: 0), to: 20)
+        #expect(model.favorites.map(\.id) == [second.id, first.id])
+    }
+
     @Test(arguments: ["add", "addIfNeeded", "move", "update", "used", "delete"])
     func blockedFavoriteLibraryRejectsMutationsBeforeMemoryChanges(operation: String) async throws {
         let library = ReliabilityLibrary()

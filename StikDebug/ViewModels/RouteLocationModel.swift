@@ -715,8 +715,14 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func moveFavorites(from offsets: IndexSet, to destination: Int) async {
+        let originalOrder = favorites.map(\.id)
+        let validOffsets = IndexSet(offsets.filter { favorites.indices.contains($0) })
+        guard !validOffsets.isEmpty, (0...favorites.count).contains(destination) else { return }
         guard await canMutateFavorites() else { return }
-        favorites.move(fromOffsets: offsets, toOffset: destination)
+        // The preflight suspends. Old offsets describe the requested move only
+        // while this exact ID order still exists; preserve any newer edits.
+        guard favorites.map(\.id) == originalOrder else { return }
+        favorites.move(fromOffsets: validOffsets, toOffset: destination)
         manualFavoriteOrder = favorites.map(\.id)
         persistManualFavoriteOrder()
         await saveFavorites()
@@ -765,8 +771,12 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func deleteFavorites(at offsets: IndexSet) async {
+        let requestedIDs = Set(offsets.compactMap { index in
+            favorites.indices.contains(index) ? favorites[index].id : nil
+        })
+        guard !requestedIDs.isEmpty else { return }
         guard await canMutateFavorites() else { return }
-        favorites.remove(atOffsets: offsets)
+        favorites.removeAll { requestedIDs.contains($0.id) }
         let ids = Set(favorites.map(\.id))
         manualFavoriteOrder = manualFavoriteOrder.filter { ids.contains($0) }
         persistManualFavoriteOrder()
