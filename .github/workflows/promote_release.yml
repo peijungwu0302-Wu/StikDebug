@@ -107,7 +107,7 @@ jobs:
           EXPECTED_BUILD=$(jq -r .build <<<"$PROJECT_SETTINGS")
           BUNDLE_ID=$(jq -r .bundle <<<"$PROJECT_SETTINGS")
           MIN_OS=$(jq -r .deployment <<<"$PROJECT_SETTINGS")
-          SOURCE_DESCRIPTION="RouteLocation v${VERSION} improves coordinate-entry reliability: the native Paste control recovers after clipboard or app lifecycle changes, and the coordinate input modal remains stable when the keyboard opens. / RouteLocation v${VERSION} 改善座標輸入穩定性：原生「貼上」控制項在剪貼簿或 App 狀態切換後可恢復，且鍵盤彈出時輸入視窗保持穩定。"
+          SOURCE_DESCRIPTION="RouteLocation v${VERSION} adds an on-demand bilingual User Guide in Settings, protects unreadable saved data from accidental overwrite, and improves pause reliability, route status visibility, and pairing-import guidance. / RouteLocation v${VERSION} 新增設定內的雙語使用指南，保護無法讀取的已儲存資料免遭覆寫，並改善暫停穩定性、路線狀態顯示與配對匯入引導。"
           RELEASE_NOTES_FILE=".github/RELEASE_NOTES_v${VERSION}.md"
           if [[ "$EXPECTED_PROJECT_VERSION" != "$VERSION" || "$BUNDLE_ID" != "com.routelocation.app" || "$MIN_OS" != "17.4" ]]; then
             echo "Project metadata mismatch: $PROJECT_SETTINGS vs release $VERSION" >&2
