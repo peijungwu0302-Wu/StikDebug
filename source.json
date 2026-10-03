@@ -15,6 +15,24 @@
       "tintColor": "#007AFF",
       "versions": [
         {
+          "version": "1.2.21",
+          "date": "2026-10-03",
+          "size": 6938300,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.21/RouteLocation-v1.2.21-unsigned.ipa",
+          "localizedDescription": "RouteLocation v1.2.21 adds an on-demand bilingual User Guide in Settings, protects unreadable saved data from accidental overwrite, and improves pause reliability, route status visibility, and pairing-import guidance. / RouteLocation v1.2.21 新增設定內的雙語使用指南，保護無法讀取的已儲存資料免遭覆寫，並改善暫停穩定性、路線狀態顯示與配對匯入引導。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        },
+        {
           "version": "1.2.20",
           "date": "2026-10-03",
           "size": 6907613,
