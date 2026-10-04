@@ -15,6 +15,24 @@
       "tintColor": "#007AFF",
       "versions": [
         {
+          "version": "1.2.22",
+          "date": "2026-10-04",
+          "size": 7016219,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.22/RouteLocation-v1.2.22-unsigned.ipa",
+          "localizedDescription": "RouteLocation v1.2.22 adds opt-in interactive tutorials using real controls and actual operation results, retries only temporarily unreadable libraries, and publishes favorite changes only after successful persistence. Ending guidance never restores or changes simulation. / RouteLocation v1.2.22 新增依真實操作結果前進的互動教學，只重試暫時無法讀取的資料庫，收藏變更成功儲存後才更新畫面。結束教學不會恢復或改變模擬。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        },
+        {
           "version": "1.2.21",
           "date": "2026-10-03",
           "size": 6938300,
