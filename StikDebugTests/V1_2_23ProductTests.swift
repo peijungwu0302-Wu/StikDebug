@@ -171,16 +171,16 @@ struct V1_2_23MapAndRoutePolicyTests {
         let model = RouteLocationModel(persistence: store)
         let draft = [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.01, longitude: 121.01)]
         #expect(model.replaceWaypoints(draft))
-        let import = [RouteCoordinate(latitude: 35.0, longitude: 139.0), RouteCoordinate(latitude: 35.01, longitude: 139.01)]
+        let importedWaypoints = [RouteCoordinate(latitude: 35.0, longitude: 139.0), RouteCoordinate(latitude: 35.01, longitude: 139.01)]
 
-        let saved = await model.importSavedRoute(import)
+        let saved = await model.importSavedRoute(importedWaypoints)
 
         let persisted = try await store.loadRoutes()
         #expect(saved != nil)
         #expect(model.waypoints == draft)
         #expect(model.previewingRoute?.id == saved?.id)
         #expect(persisted.map(\.id) == [saved?.id].compactMap { $0 })
-        #expect(persisted.first?.waypoints == import)
+        #expect(persisted.first?.waypoints == importedWaypoints)
         #expect(persisted.first?.routeMode == .straight)
     }
 
