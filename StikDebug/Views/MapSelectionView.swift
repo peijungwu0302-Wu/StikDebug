@@ -59,10 +59,7 @@ struct RouteMapView: View {
                         ) {
                             ForEach(Array(displayWaypoints.enumerated()), id: \.offset) { index, waypoint in
                                 Annotation(L10n.format("航點 %d", index + 1), coordinate: waypoint.clCoordinate) {
-                                    ZStack {
-                                        Circle().fill(.orange).frame(width: 28, height: 28)
-                                        Text("\(index + 1)").font(.caption.bold()).foregroundStyle(.white)
-                                    }
+                                    RouteWaypointAnnotation(number: index + 1)
                                 }
                             }
                             if displayCoordinates.count > 1 {
@@ -546,10 +543,7 @@ struct QuickRouteMapView: View {
                     } else {
                         ForEach(Array(model.waypoints.enumerated()), id: \.offset) { index, waypoint in
                             Annotation(L10n.format("航點 %d", index + 1), coordinate: waypoint.clCoordinate) {
-                                ZStack {
-                                    Circle().fill(.orange).frame(width: 28, height: 28)
-                                    Text("\(index + 1)").font(.caption.bold()).foregroundStyle(.white)
-                                }
+                                RouteWaypointAnnotation(number: index + 1)
                             }
                         }
                         if model.geometry.coordinates.count > 1 {

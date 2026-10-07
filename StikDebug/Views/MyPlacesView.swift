@@ -15,17 +15,21 @@ struct MyPlacesView: View {
     var body: some View {
         List {
             if filteredFavorites.isEmpty {
-                ContentUnavailableView(
-                    searchText.isEmpty ? L10n.text("尚無喜愛地點") : L10n.text("找不到喜愛地點"),
-                    systemImage: "star",
-                    description: Text(L10n.text(searchText.isEmpty ? "請先在地圖選擇位置，再儲存為喜愛地點。" : "請嘗試其他名稱或備註。")),
-                    actions: {
-                        if model.favorites.isEmpty {
-                            Button(L10n.text("前往地圖")) { selectedTab = .map }
-                                .buttonStyle(.borderedProminent)
-                        }
+                ContentUnavailableView {
+                    Label(
+                        searchText.isEmpty ? L10n.text("尚無喜愛地點") : L10n.text("找不到喜愛地點"),
+                        systemImage: "star"
+                    )
+                } description: {
+                    Text(L10n.text(searchText.isEmpty
+                        ? "請先在地圖選擇位置，再儲存為喜愛地點。"
+                        : "請嘗試其他名稱或備註。"))
+                } actions: {
+                    if model.favorites.isEmpty {
+                        Button(L10n.text("前往地圖")) { selectedTab = .map }
+                            .buttonStyle(.borderedProminent)
                     }
-                )
+                }
             } else {
                 ForEach(filteredFavorites) { favorite in
                     Button {
