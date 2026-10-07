@@ -54,6 +54,7 @@ struct PlaceFloatingCard: View {
     @EnvironmentObject private var model: RouteLocationModel
     let coordinate: RouteCoordinate
     let onSaveFavorite: () -> Void
+    var onClearSelection: () -> Void = {}
     @State private var placeInfo: PlaceInfo?
     @State private var isResolving = false
     @State private var expansion: MapBottomCardExpansion = .collapsed
@@ -82,6 +83,19 @@ struct PlaceFloatingCard: View {
                 Text(placeInfo?.bestDisplayName ?? (isResolving ? L10n.text("正在取得地點資訊…") : L10n.text("已選位置")))
                     .font(.headline).lineLimit(1)
                 Spacer(minLength: 4)
+                Button(action: onClearSelection) {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.text("清除目前選取位置"))
+            }
+            HStack(spacing: 5) {
+                Circle().fill(model.connectionMonitor.effectiveTunnelHealthy ? .green : .orange).frame(width: 6, height: 6)
+                Text(model.connectionMonitor.mapConnectionSummary)
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
             if expanded, let placeInfo {
                 let hierarchy = [placeInfo.country, placeInfo.administrativeArea, placeInfo.locality, placeInfo.subLocality]

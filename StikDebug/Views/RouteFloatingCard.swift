@@ -76,6 +76,8 @@ struct RouteFloatingCard: View {
             .font(.caption)
             .foregroundStyle(.secondary)
 
+        RouteEndpointTimeZoneSummary(route: route)
+
         HStack(spacing: 8) {
             Button(L10n.text("開始路線")) { onStartRoute() }
                 .buttonStyle(.borderedProminent)
@@ -145,7 +147,8 @@ struct RouteFloatingCard: View {
         let progressTotal = PlaybackMath.completionDistance(total: model.geometry.totalDistance, mode: model.playbackMode)
         let progressValue = progressTotal.isFinite ? playback.traveledDistance : playback.distanceWithinLap
         VStack(alignment: .leading, spacing: 4) {
-            VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
                 Text("\(playback.traveledDistance.formattedCardDistance) / \(model.geometry.totalDistance.formattedCardDistance)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -155,12 +158,10 @@ struct RouteFloatingCard: View {
                 )
                 .tint(.blue)
                 .frame(minWidth: 120)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                activeSpeedControl(isReconnecting: !playback.state.allowsSpeedEditing)
             }
-            // Keep distance and progress clear of the speed control, while the
-            // coordinate row can use the full card width. The left-side lines
-            // keep their 4pt rhythm; the outer 56pt minimum preserves the
-            // previous speed-control height and the action row's position.
-            .padding(.trailing, 174)
 
             if let current = model.activeSimulatedCoordinate {
                 CoordinateValueText(coordinate: current)
@@ -174,9 +175,6 @@ struct RouteFloatingCard: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 56, alignment: .topLeading)
-        .overlay(alignment: .topTrailing) {
-            activeSpeedControl(isReconnecting: !playback.state.allowsSpeedEditing)
-        }
 
         HStack {
             if isRunning {
@@ -201,6 +199,17 @@ struct RouteFloatingCard: View {
 
             Spacer(minLength: 8)
 
+            if playback.state.showsRouteControls {
+                Button(action: onEndRoute) {
+                    Image(systemName: "stop.fill")
+                        .font(.caption.bold())
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.text("停止並停留目前位置"))
+                .tutorialTarget(.stopAndHold)
+            }
+
             Button(action: copyCurrentRoute) {
                 Image(systemName: "doc.on.doc")
                     .frame(minWidth: 44, minHeight: 44)
@@ -223,7 +232,6 @@ struct RouteFloatingCard: View {
                     .frame(minWidth: 44, minHeight: 44)
             }
             .accessibilityLabel(L10n.text("更多路線操作"))
-            .tutorialTarget(.stopAndHold)
             .tutorialTarget(.restore)
             .tutorialTarget(.recovery)
         }
@@ -305,6 +313,50 @@ struct RouteFloatingCard: View {
                     .accessibilityLabel(L10n.text("提高速度 0.1 公里每小時"))
         }
         .fixedSize(horizontal: true, vertical: false)
+    }
+}
+
+struct RouteEndpointTimeZoneSummary: View {
+    let route: SavedRoute
+    @State private var startInfo: PlaceInfo?
+    @State private var endInfo: PlaceInfo?
+
+    var body: some View {
+        Group {
+            if let summary {
+                Text(summary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .task(id: route.id) {
+            guard let first = route.waypoints.first, let last = route.waypoints.last else { return }
+            if first == last {
+                let info = await PlaceInfoResolver.shared.resolve(first, scope: .general)
+                guard !Task.isCancelled else { return }
+                startInfo = info
+                endInfo = info
+            } else {
+                async let start = PlaceInfoResolver.shared.resolve(first, scope: .general)
+                async let end = PlaceInfoResolver.shared.resolve(last, scope: .general)
+                let values = await (start, end)
+                guard !Task.isCancelled else { return }
+                startInfo = values.0
+                endInfo = values.1
+            }
+        }
+    }
+
+    private var summary: String? {
+        guard let startInfo, let endInfo,
+              let startID = startInfo.timeZoneIdentifier,
+              let endID = endInfo.timeZoneIdentifier,
+              let startZone = TimeZone(identifier: startID),
+              let endZone = TimeZone(identifier: endID) else { return nil }
+        let start = "\(startInfo.locality ?? startInfo.displayName ?? startID) · \(PlaceTimeFormatter.gmtOffsetText(for: startZone))"
+        let end = "\(endInfo.locality ?? endInfo.displayName ?? endID) · \(PlaceTimeFormatter.gmtOffsetText(for: endZone))"
+        return startID == endID ? end : L10n.format("%@ → %@", start, end)
     }
 }
 

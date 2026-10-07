@@ -10,4 +10,5 @@ extension Notification.Name {
     static let showPairingFilePicker = Notification.Name("ShowPairingFilePicker")
     static let intentJSScriptReady = Notification.Name("intentJSScriptReady")
     static let switchToRoutesTab = Notification.Name("switchToRoutesTab")
+    static let openRouteEditor = Notification.Name("openRouteEditor")
 }

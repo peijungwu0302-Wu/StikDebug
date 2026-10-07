@@ -191,6 +191,7 @@ struct RouteLocationRootView: View {
     private var tutorialSnapshot: GuidedTutorialSnapshot {
         var state = GuidedTutorialSnapshot()
         state.selectedCoordinate = model.selectedCoordinate
+        state.selectedPlaceRevision = model.selectedPlaceRevision
         state.activeCoordinate = model.activeSimulatedCoordinate
         state.simulationIdle = !model.simulationMode.isSimulating
         switch playback.state {

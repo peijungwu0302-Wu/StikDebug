@@ -5,6 +5,7 @@ struct MyLibraryView: View {
     @EnvironmentObject private var tutorialUI: TutorialUIContext
     @Binding var selectedTab: RouteLocationTab
     @State private var selectedSection: MyLibrarySection = .places
+    @State private var openRouteEditorRequested = false
     @AppStorage(LibraryDisplayDensity.preferenceKey) private var densityRawValue = LibraryDisplayDensity.compact.rawValue
     @State private var showClearRecentConfirmation = false
     
@@ -24,7 +25,7 @@ struct MyLibraryView: View {
                 if selectedSection == .places {
                     MyPlacesView(selectedTab: $selectedTab)
                 } else if selectedSection == .routes {
-                    MyRoutesView(selectedTab: $selectedTab)
+                    MyRoutesView(selectedTab: $selectedTab, openEditorOnAppear: $openRouteEditorRequested)
                 } else {
                     RecentLocationsView(selectedTab: $selectedTab)
                 }
@@ -63,6 +64,10 @@ struct MyLibraryView: View {
             .onReceive(NotificationCenter.default.publisher(for: .switchToRoutesTab)) { _ in
                 selectedSection = .routes
             }
+            .onReceive(NotificationCenter.default.publisher(for: .openRouteEditor)) { _ in
+                selectedSection = .routes
+                openRouteEditorRequested = true
+            }
             .confirmationDialog(L10n.text("要清除所有最近位置嗎？"), isPresented: $showClearRecentConfirmation, titleVisibility: .visible) {
                 Button(L10n.text("清除所有最近位置"), role: .destructive) {
                     Task { await model.clearRecentLocations() }
@@ -97,7 +102,9 @@ private struct RecentLocationsView: View {
             if model.recentLocations.isEmpty {
                 ContentUnavailableView(L10n.text("尚無最近位置"), systemImage: "clock", description: Text(L10n.text("模擬位置或開始路線後，最近使用的位置會顯示在這裡。")))
             } else {
-                ForEach(model.recentLocations) { item in
+                ForEach(recentGroups, id: \.day) { group in
+                    Section(RecentLocationDatePolicy.title(for: group.day)) {
+                        ForEach(group.items) { item in
                     let density = LibraryDisplayDensity(rawValue: densityRawValue) ?? .compact
                     RecentPlaceInfo(
                         coordinate: item.coordinate,
@@ -131,8 +138,18 @@ private struct RecentLocationsView: View {
                         }
                         Button(role: .destructive) { Task { await model.deleteRecentLocation(item) } } label: { Label(L10n.text("刪除"), systemImage: "trash") }
                     }
+                        }
+                    }
                 }
             }
+        }
+    }
+
+    private var recentGroups: [(day: Date, items: [RecentLocation])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: model.recentLocations) { calendar.startOfDay(for: $0.createdAt) }
+        return grouped.keys.sorted(by: >).map { day in
+            (day: day, items: (grouped[day] ?? []).sorted { $0.createdAt > $1.createdAt })
         }
     }
 }

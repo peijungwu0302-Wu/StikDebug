@@ -23,6 +23,101 @@ struct RouteCoordinate: Codable, Hashable, Identifiable {
     }
 }
 
+enum MapCameraIntent: Equatable {
+    case mapTapSelection
+    case intentionalNavigation
+}
+
+enum MapCameraActionPolicy {
+    static func shouldRecenter(for intent: MapCameraIntent) -> Bool {
+        intent == .intentionalNavigation
+    }
+}
+
+enum MapTapRouteAction: Equatable {
+    case selectPlace
+    case addWaypoint
+    case ignoreWhileRouteActive
+}
+
+enum MapTapRoutePolicy {
+    static func action(mode: QuickRouteInteractionMode, routeIsActive: Bool) -> MapTapRouteAction {
+        guard !routeIsActive else { return .ignoreWhileRouteActive }
+        return mode == .route ? .addWaypoint : .selectPlace
+    }
+}
+
+enum RouteMapOverlayPolicy {
+    static func shouldShowRouteGeometry(
+        mode: QuickRouteInteractionMode,
+        hasPreview: Bool,
+        routeIsActive: Bool
+    ) -> Bool {
+        mode == .route || hasPreview || routeIsActive
+    }
+}
+
+enum RoutePlanningControlsPolicy {
+    static func shouldShow(mode: QuickRouteInteractionMode, hasPreview: Bool, routeIsActive: Bool) -> Bool {
+        mode == .route && !hasPreview && !routeIsActive
+    }
+}
+
+enum MultiCoordinatePasteDecision: CaseIterable {
+    case replace
+    case append
+    case cancel
+}
+
+enum MultiCoordinatePastePolicy {
+    static func requiresChoice(existingDraftCount: Int) -> Bool {
+        existingDraftCount > 0
+    }
+}
+
+enum RouteLibrarySortPolicy {
+    static func recentlyUsed(_ routes: [SavedRoute]) -> [SavedRoute] {
+        routes
+            .filter { $0.lastUsedAt != nil }
+            .sorted {
+                let left = $0.lastUsedAt ?? .distantPast
+                let right = $1.lastUsedAt ?? .distantPast
+                return left == right
+                    ? $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                    : left > right
+        }
+    }
+}
+
+enum ImportedSavedRouteFactory {
+    static func make(
+        coordinates: [RouteCoordinate],
+        requestedName: String?,
+        existingNames: [String],
+        speedKmh: Double,
+        now: Date = .now
+    ) -> SavedRoute? {
+        guard coordinates.count >= 2, coordinates.allSatisfy(\.isValid) else { return nil }
+        let name = requestedName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = (name?.isEmpty == false ? name : nil) ?? L10n.text("匯入路線")
+        let uniqueName = UniqueNameGenerator.makeUnique(base: base, existing: existingNames, fallback: L10n.text("匯入路線"))
+        let geometry = RouteBuilder.straightGeometry(waypoints: coordinates, closedLoop: true)
+        guard geometry.coordinates.count > 1, geometry.totalDistance > 0 else { return nil }
+        return SavedRoute(
+            name: uniqueName,
+            waypoints: coordinates,
+            resolvedGeometry: geometry,
+            routeMode: .straight,
+            isClosedLoop: true,
+            preferredSpeedKmh: PlaybackSpeedPolicy.clamp(speedKmh),
+            playbackMode: .infiniteLoop,
+            lastUsedAt: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+    }
+}
+
 /// The map's single-point card prefers a distinct user selection over the
 /// coordinate that is currently being simulated, so a new target can be
 /// acted on without first restoring real location.
@@ -526,6 +621,20 @@ struct RecentLocation: Codable, Identifiable, Equatable {
         self.title = title
         self.createdAt = createdAt
         self.kind = kind
+    }
+}
+
+enum RecentLocationDatePolicy {
+    static func title(for date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return L10n.text("今天") }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return L10n.text("昨天")
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: UserDefaults.standard.string(forKey: AppLanguage.defaultsKey) ?? AppLanguage.traditionalChinese.rawValue)
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
     }
 }
 

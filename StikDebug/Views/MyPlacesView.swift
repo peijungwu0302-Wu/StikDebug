@@ -6,18 +6,28 @@ struct MyPlacesView: View {
     @Binding var selectedTab: RouteLocationTab
     @State private var editingFavorite: FavoriteLocation?
     @State private var showAdd = false
+    @State private var addingFavoriteCoordinate: RouteCoordinate?
+    @State private var pendingDeleteIDs: Set<UUID> = []
+    @State private var showDeleteConfirmation = false
+    @State private var searchText = ""
     @AppStorage(LibraryDisplayDensity.preferenceKey) private var densityRawValue = LibraryDisplayDensity.compact.rawValue
     
     var body: some View {
         List {
-            if model.favorites.isEmpty {
+            if filteredFavorites.isEmpty {
                 ContentUnavailableView(
-                    L10n.text("尚無喜愛地點"),
+                    searchText.isEmpty ? L10n.text("尚無喜愛地點") : L10n.text("找不到喜愛地點"),
                     systemImage: "star",
-                    description: Text(L10n.text("請先在地圖選擇位置，再儲存為喜愛地點。"))
+                    description: Text(L10n.text(searchText.isEmpty ? "請先在地圖選擇位置，再儲存為喜愛地點。" : "請嘗試其他名稱或備註。")),
+                    actions: {
+                        if model.favorites.isEmpty {
+                            Button(L10n.text("前往地圖")) { selectedTab = .map }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    }
                 )
             } else {
-                ForEach(model.sortedFavorites) { favorite in
+                ForEach(filteredFavorites) { favorite in
                     Button {
                         model.focusOnMap(favorite.coordinate)
                         tutorialUI.selectedFavoriteID = favorite.id
@@ -36,9 +46,7 @@ struct MyPlacesView: View {
                     .buttonStyle(.plain)
                     .swipeActions(edge: .trailing) {
                         Button(L10n.text("刪除"), role: .destructive) {
-                            if let index = model.favorites.firstIndex(where: { $0.id == favorite.id }) {
-                                Task { await model.deleteFavorites(at: IndexSet(integer: index)) }
-                            }
+                            requestDelete(ids: [favorite.id])
                         }
                         Button(L10n.text("編輯")) {
                             editingFavorite = favorite
@@ -57,22 +65,20 @@ struct MyPlacesView: View {
                             Label(L10n.text("編輯"), systemImage: "pencil")
                         }
                         Button(role: .destructive) {
-                            if let index = model.favorites.firstIndex(where: { $0.id == favorite.id }) {
-                                Task { await model.deleteFavorites(at: IndexSet(integer: index)) }
-                            }
+                            requestDelete(ids: [favorite.id])
                         } label: {
                             Label(L10n.text("刪除"), systemImage: "trash")
                         }
                     }
+                    .moveDisabled(model.librarySortOption != .manual || !searchText.isEmpty)
                 }
                 .onDelete { offsets in
-                    let displayed = model.sortedFavorites
-                    let selectedIDs = offsets.compactMap { displayed.indices.contains($0) ? displayed[$0].id : nil }
-                    let underlying = IndexSet(model.favorites.enumerated().compactMap { selectedIDs.contains($0.element.id) ? $0.offset : nil })
-                    Task { await model.deleteFavorites(at: underlying) }
+                    let displayed = filteredFavorites
+                    let selectedIDs = Set(offsets.compactMap { displayed.indices.contains($0) ? displayed[$0].id : nil })
+                    requestDelete(ids: selectedIDs)
                 }
                 .onMove { offsets, destination in
-                    guard model.librarySortOption == .manual else { return }
+                    guard model.librarySortOption == .manual, searchText.isEmpty else { return }
                     var ids = model.sortedFavorites.map(\.id)
                     ids.move(fromOffsets: offsets, toOffset: destination)
                     Task { await model.setManualFavoriteOrder(ids) }
@@ -80,12 +86,13 @@ struct MyPlacesView: View {
             }
         }
         .listStyle(.plain)
+        .searchable(text: $searchText, prompt: L10n.text("搜尋地點名稱或備註"))
         .tutorialTarget(.favoriteLibrary)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                EditButton()
-                Button { showAdd = true } label: { Image(systemName: "plus") }
-                    .disabled(model.selectedCoordinate == nil)
+                EditButton().disabled(model.librarySortOption != .manual || !searchText.isEmpty)
+                Button { addingFavoriteCoordinate = model.selectedCoordinate; showAdd = true } label: { Image(systemName: "plus") }
+                    .accessibilityHint(L10n.text("請先在地圖選取位置。"))
                     .accessibilityLabel(L10n.text("新增喜愛地點"))
             }
         }
@@ -95,10 +102,34 @@ struct MyPlacesView: View {
             }
         }
         .sheet(isPresented: $showAdd) {
-            FavoriteEditor(favorite: nil) { name, note in
-                Task { await model.addFavorite(name: name, note: note) }
+            FavoriteEditor(favorite: nil, coordinate: addingFavoriteCoordinate) { name, note in
+                Task { await model.addFavorite(name: name, note: note, coordinate: addingFavoriteCoordinate) }
             }
         }
+        .confirmationDialog(L10n.text("刪除喜愛地點？"), isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button(L10n.text("刪除"), role: .destructive) {
+                let ids = pendingDeleteIDs
+                pendingDeleteIDs = []
+                Task { await model.deleteFavorites(ids: ids) }
+            }
+            Button(L10n.text("取消"), role: .cancel) { pendingDeleteIDs = [] }
+        } message: {
+            Text(L10n.text("此操作不會影響最近位置。"))
+        }
+    }
+
+    private var filteredFavorites: [FavoriteLocation] {
+        let sorted = model.sortedFavorites
+        guard !searchText.isEmpty else { return sorted }
+        return sorted.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText) || ($0.note?.localizedCaseInsensitiveContains(searchText) ?? false)
+        }
+    }
+
+    private func requestDelete(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        pendingDeleteIDs = ids
+        showDeleteConfirmation = true
     }
 }
 
@@ -195,10 +226,12 @@ private struct FavoriteEditor: View {
     @State private var name: String
     @State private var note: String
     let favorite: FavoriteLocation?
+    let coordinate: RouteCoordinate?
     let onSave: (String, String?) -> Void
 
-    init(favorite: FavoriteLocation?, onSave: @escaping (String, String?) -> Void) {
+    init(favorite: FavoriteLocation?, coordinate: RouteCoordinate? = nil, onSave: @escaping (String, String?) -> Void) {
         self.favorite = favorite
+        self.coordinate = favorite?.coordinate ?? coordinate
         self.onSave = onSave
         _name = State(initialValue: favorite?.name ?? L10n.text("新地點"))
         _note = State(initialValue: favorite?.note ?? "")
@@ -209,6 +242,14 @@ private struct FavoriteEditor: View {
             Form {
                 TextField(L10n.text("名稱"), text: $name)
                 TextField(L10n.text("備註（選填）"), text: $note, axis: .vertical)
+                Section(L10n.text("儲存座標")) {
+                    if let coordinate {
+                        CoordinateValueText(coordinate: coordinate).foregroundStyle(.secondary)
+                    } else {
+                        Text(L10n.text("請先在地圖選取位置。"))
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
             }
             .navigationTitle(L10n.text(favorite == nil ? "新增喜愛地點" : "編輯喜愛地點"))
             .toolbar {
@@ -221,7 +262,7 @@ private struct FavoriteEditor: View {
                         onSave(name, note.isEmpty ? nil : note)
                         dismiss()
                     }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || (favorite == nil && coordinate == nil))
                     .accessibilityLabel(L10n.text("儲存"))
                 }
             }

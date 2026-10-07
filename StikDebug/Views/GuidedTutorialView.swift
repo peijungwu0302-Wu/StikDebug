@@ -59,7 +59,17 @@ private struct TutorialCoach: View {
     @AccessibilityFocusState private var focusTitle: Bool
 
     var body: some View {
-        ZStack {
+        let desired = CGSize(
+            width: min(430, max(0, availableSize.width - 24)),
+            height: min(300, max(210, availableSize.height * 0.36))
+        )
+        let placement = TutorialCoachLayout.place(
+            container: CGRect(origin: .zero, size: availableSize),
+            target: rect,
+            desiredSize: desired,
+            touchPadding: 14
+        )
+        ZStack(alignment: .topLeading) {
             if let rect, rect.width > 0, rect.height > 0 {
                 Path { path in
                     path.addRect(CGRect(origin: .zero, size: availableSize))
@@ -74,38 +84,43 @@ private struct TutorialCoach: View {
                     .position(x: rect.midX, y: rect.midY)
                     .allowsHitTesting(false).accessibilityHidden(true)
             }
-            VStack {
-                if (rect?.midY ?? availableSize.height) < availableSize.height / 2 { Spacer() }
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(L10n.text("tutorial.coach.title")).font(.headline)
-                            .accessibilityFocused($focusTitle)
-                        Spacer()
-                        Button(L10n.text("tutorial.skip")) { tutorial.skip() }
-                            .frame(minWidth: 44, minHeight: 44)
-                            .accessibilityIdentifier("tutorial.skip")
-                    }
-                    ScrollView {
-                        Text(L10n.text(tutorial.step?.instructionKey ?? ""))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if rect == nil {
-                            Text(L10n.text("tutorial.target.unavailable"))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(maxHeight: 120)
-                    Text(L10n.format("tutorial.progress", tutorial.stepIndex + 1, tutorial.steps.count))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal, 12).padding(.vertical, 12)
-                if (rect?.midY ?? availableSize.height) >= availableSize.height / 2 { Spacer() }
-            }
+            coachCard
+                .frame(width: placement.frame.width, height: placement.frame.height)
+                .position(x: placement.frame.midX, y: placement.frame.midY)
         }
         .onAppear { announce() }
         .onChange(of: tutorial.stepIndex) { _, _ in announce() }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: tutorial.stepIndex)
+    }
+
+    private var coachCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center) {
+                Text(L10n.text("tutorial.coach.title")).font(.headline)
+                    .accessibilityFocused($focusTitle)
+                Spacer(minLength: 8)
+                Button(L10n.text("tutorial.skip")) { tutorial.skip() }
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityIdentifier("tutorial.skip")
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L10n.text(tutorial.step?.instructionKey ?? ""))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if rect == nil {
+                        Text(L10n.text("tutorial.target.unavailable"))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity)
+            Text(L10n.format("tutorial.progress", tutorial.stepIndex + 1, tutorial.steps.count))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private func announce() {

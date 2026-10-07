@@ -44,15 +44,30 @@ jobs:
       - name: Resolve Swift packages
         run: xcodebuild -resolvePackageDependencies -project StikDebug.xcodeproj -scheme StikDebug
 
-      - name: Run unit tests
+      - name: Compile test bundle (fast gate)
         run: |
           set -euo pipefail
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
-          set +e
-          xcodebuild test \
+          echo "ROUTELOCATION_TEST_DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          xcodebuild build-for-testing \
             -project StikDebug.xcodeproj \
             -scheme StikDebug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -derivedDataPath "$RUNNER_TEMP/RouteLocationDerivedData" \
+            -only-testing:StikDebugTests \
+            -only-testing:StikDebugUITests \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          set +e
+          xcodebuild test-without-building \
+            -project StikDebug.xcodeproj \
+            -scheme StikDebug \
+            -destination "platform=iOS Simulator,id=$ROUTELOCATION_TEST_DEVICE_ID" \
+            -derivedDataPath "$RUNNER_TEMP/RouteLocationDerivedData" \
             -only-testing:StikDebugTests \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/xcodebuild-test.log"
@@ -65,6 +80,47 @@ jobs:
             done || true
           fi
           exit "$status"
+
+      - name: Run UI, tutorial, and screenshot tests
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/RouteLocationGuideEvidence"
+          set +e
+          xcodebuild test-without-building \
+            -project StikDebug.xcodeproj \
+            -scheme StikDebug \
+            -destination "platform=iOS Simulator,id=$ROUTELOCATION_TEST_DEVICE_ID" \
+            -derivedDataPath "$RUNNER_TEMP/RouteLocationDerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/RouteLocationGuideEvidence/GuideUITests.xcresult" \
+            -only-testing:StikDebugUITests \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/RouteLocationGuideEvidence/xcodebuild-ui-test.log"
+          status=${PIPESTATUS[0]}
+          if [[ "$status" -ne 0 ]]; then
+            grep -Ei "error:|test case .*failed|issue recorded|failed with exit code|failed tests|test .*failed|✘|expectation|assertion" \
+              "$RUNNER_TEMP/RouteLocationGuideEvidence/xcodebuild-ui-test.log" | tail -120 || true
+          fi
+          exit "$status"
+
+      - name: Export UI screenshot evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          RESULT="$RUNNER_TEMP/RouteLocationGuideEvidence/GuideUITests.xcresult"
+          if [[ -d "$RESULT" ]]; then
+            xcrun xcresulttool export attachments \
+              --path "$RESULT" \
+              --output-path "$RUNNER_TEMP/RouteLocationGuideEvidence/screenshots"
+          fi
+
+      - name: Upload UI/tutorial screenshot evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: RouteLocation-guide-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/RouteLocationGuideEvidence
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload unit-test diagnostics
         if: failure()

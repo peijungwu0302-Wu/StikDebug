@@ -18,6 +18,7 @@ final class RouteLocationModel: ObservableObject {
     @Published private(set) var successfulRestoreRevision = UUID()
     @Published private(set) var successfulSinglePointRevision = UUID()
     @Published var selectedCoordinate: RouteCoordinate?
+    @Published private(set) var selectedPlaceRevision = UUID()
     @Published private(set) var waypoints: [RouteCoordinate] = []
     @Published var routeName = L10n.text("新路線") {
         didSet {
@@ -288,12 +289,22 @@ final class RouteLocationModel: ObservableObject {
     func select(_ coordinate: CLLocationCoordinate2D) {
         let value = RouteCoordinate(coordinate)
         guard value.isValid else { return }
+        previewingRoute = nil
         selectedCoordinate = value
+        selectedPlaceRevision = UUID()
+    }
+
+    /// Clears only the pending map selection. It deliberately does not stop a
+    /// single-point simulation or restore the device's real location.
+    func clearSelectedPlace() {
+        selectedCoordinate = nil
     }
 
     func focusOnMap(_ coordinate: RouteCoordinate) {
         guard coordinate.isValid else { return }
+        previewingRoute = nil
         selectedCoordinate = coordinate
+        selectedPlaceRevision = UUID()
         mapFocusRevision = UUID()
     }
 
@@ -311,7 +322,14 @@ final class RouteLocationModel: ObservableObject {
     func addWaypoint(_ coordinate: RouteCoordinate, notifyIfLocked: Bool = true) -> Bool {
         guard canMutateRouteDraft(notifyIfLocked: notifyIfLocked) else { return false }
         guard coordinate.isValid else { presentedError = RouteLocationError.insufficientWaypoints.localizedDescription; return false }
-        if waypoints.last != coordinate { waypoints.append(coordinate); routeInputsChanged() }
+        // A saved-route preview is a separate, read-only snapshot. Explicitly
+        // editing the draft dismisses it first, then mutates only the existing
+        // draft rather than loading or replacing it with the previewed route.
+        previewingRoute = nil
+        if waypoints.last != coordinate {
+            waypoints.append(coordinate)
+            routeInputsChanged()
+        }
         return true
     }
 
@@ -330,7 +348,6 @@ final class RouteLocationModel: ObservableObject {
         routeInputsChanged()
         quickRouteMode = .route
         previewingRoute = nil
-        mapFocusRevision = UUID()
         statusMessage = L10n.text("已匯入路線預覽。")
         return true
     }
@@ -344,7 +361,6 @@ final class RouteLocationModel: ObservableObject {
         routeInputsChanged()
         quickRouteMode = .route
         previewingRoute = nil
-        mapFocusRevision = UUID()
         statusMessage = L10n.text("已附加航點並預覽路線。")
         return true
     }
@@ -436,6 +452,41 @@ final class RouteLocationModel: ObservableObject {
     func saveCurrentRoute(named requestedName: String? = nil, asCopy: Bool = false) async -> Bool {
         guard canMutateRouteDraft(notifyIfLocked: true) else { return false }
         return await persistCurrentRoute(named: requestedName, asCopy: asCopy)
+    }
+
+    /// Imports a parsed coordinate list as a real SavedRoute without touching
+    /// the current editable map draft. Persistence succeeds before the route
+    /// is published or shown as a map preview.
+    @discardableResult
+    func importSavedRoute(_ coordinates: [RouteCoordinate], named requestedName: String? = nil) async -> SavedRoute? {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return nil }
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
+        await waitForInitialPersistenceLoad()
+        guard !Task.isCancelled, !isAnyRouteActive else {
+            if isAnyRouteActive { showRouteEditingLockedMessage() }
+            return nil
+        }
+        guard let route = ImportedSavedRouteFactory.make(
+            coordinates: coordinates,
+            requestedName: requestedName,
+            existingNames: savedRoutes.map(\.name),
+            speedKmh: speedKmh
+        ) else {
+            presentedError = RouteLocationError.insufficientWaypoints.localizedDescription
+            return nil
+        }
+        do {
+            try await persistence.saveRoute(route)
+            savedRoutes.append(route)
+            previewingRoute = route
+            mapFocusRevision = UUID()
+            statusMessage = L10n.text("路線已匯入並儲存，可在我的路線中再次使用。")
+            return route
+        } catch {
+            presentedError = L10n.format("無法匯入路線：%@", error.localizedDescription)
+            return nil
+        }
     }
 
     private func persistCurrentRoute(named requestedName: String?, asCopy: Bool) async -> Bool {
@@ -599,6 +650,10 @@ final class RouteLocationModel: ObservableObject {
             return false
         }
         loadRoute(route)
+        // Editing turns the preview into the editable draft. Keeping the old
+        // preview snapshot alive would let the stale route remain visible and
+        // startable after the user has begun editing it.
+        previewingRoute = nil
         return true
     }
 
@@ -834,6 +889,10 @@ final class RouteLocationModel: ObservableObject {
         let requestedIDs = Set(offsets.compactMap { index in
             favorites.indices.contains(index) ? favorites[index].id : nil
         })
+        await deleteFavorites(ids: requestedIDs)
+    }
+
+    func deleteFavorites(ids requestedIDs: Set<UUID>) async {
         guard !requestedIDs.isEmpty else { return }
         await acquirePersistenceMutation()
         defer { releasePersistenceMutation() }

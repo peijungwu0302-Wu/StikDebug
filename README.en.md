@@ -19,10 +19,12 @@ GitHub Releases are the canonical changelog for each version.
 ## Features
 
 - Select a single location from the map, search, favorites, or exact coordinates.
+- Use the native Paste control to enter one coordinate or turn multiple coordinates into a route; pasting never starts simulation or playback automatically.
 - Create, preview, save, and play multi-waypoint routes with straight or Apple Maps navigation geometry.
 - Adjust playback speed, pause and resume, choose finite or infinite laps, and preserve route progress through location-connection recovery.
 - Switch directly between a single point and route playback without first restoring the real location.
 - Manage favorite places, recent locations, and saved routes.
+- Optionally display an S2 grid on the map. It is off by default and is a visual layer only; it does not participate in location or route playback.
 - Choose Traditional Chinese or English, System / Light / Dark appearance, and a text-size preference that applies only to read-only coordinate values.
 
 ## Requirements

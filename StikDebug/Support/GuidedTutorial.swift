@@ -1,6 +1,46 @@
 import Combine
 import Foundation
 
+struct TutorialCoachPlacement: Equatable {
+    let frame: CGRect
+    let protectedTargetFrame: CGRect
+    let maximumHeight: CGFloat
+    let isBelowTarget: Bool
+}
+
+/// Pure coach-card placement. It reserves the target's touch area before
+/// choosing a side, then constrains card height to the available safe region.
+enum TutorialCoachLayout {
+    static func place(
+        container: CGRect,
+        target: CGRect?,
+        desiredSize: CGSize,
+        touchPadding: CGFloat = 14,
+        outerMargin: CGFloat = 12,
+        gap: CGFloat = 12
+    ) -> TutorialCoachPlacement {
+        let safe = container.insetBy(dx: outerMargin, dy: outerMargin)
+        let cardWidth = min(max(0, desiredSize.width), max(0, safe.width))
+        let protected = target.map { $0.insetBy(dx: -touchPadding, dy: -touchPadding).intersection(safe) } ?? .null
+        let belowY = protected.isNull ? safe.maxY : protected.maxY + gap
+        let aboveBottom = protected.isNull ? safe.maxY : protected.minY - gap
+        let belowSpace = max(0, safe.maxY - belowY)
+        let aboveSpace = max(0, aboveBottom - safe.minY)
+        let wantsBelow = belowSpace >= desiredSize.height || (belowSpace > 0 && belowSpace >= aboveSpace)
+        let selectedSpace = wantsBelow ? belowSpace : aboveSpace
+        let height = min(max(0, desiredSize.height), selectedSpace)
+        let x = safe.midX - cardWidth / 2
+        let y = wantsBelow ? belowY : aboveBottom - height
+        let frame = CGRect(x: x, y: y, width: cardWidth, height: height)
+        return TutorialCoachPlacement(
+            frame: frame,
+            protectedTargetFrame: protected,
+            maximumHeight: height,
+            isBelowTarget: wantsBelow
+        )
+    }
+}
+
 enum TutorialFlow: String, CaseIterable, Identifiable {
     case firstPoint, firstRoute, restore, coordinates, favorite, savedRoute, interruption, cellular
     var id: String { rawValue }
@@ -22,6 +62,7 @@ enum TutorialPlaybackState: Equatable {
 /// production operations, never by a UI button tap.
 struct GuidedTutorialSnapshot: Equatable {
     var selectedCoordinate: RouteCoordinate?
+    var selectedPlaceRevision: UUID?
     var activeCoordinate: RouteCoordinate?
     var simulationIdle = true
     var playback: TutorialPlaybackState = .idle
@@ -49,6 +90,17 @@ enum TutorialStepID: String {
     case startRoute, pauseRoute, resumeRoute, stopAndHold, restore, saveFavorite
     case openMy, reopenFavorite, saveRoute, reopenRoute, inspectInterruption
     case recoverConnection, inspectCellular, awaitCellularSuccess
+}
+
+enum TutorialSelectionPolicy {
+    static func changed(
+        coordinate: RouteCoordinate?,
+        previousCoordinate: RouteCoordinate?,
+        revision: UUID?,
+        previousRevision: UUID?
+    ) -> Bool {
+        coordinate != previousCoordinate || revision != previousRevision
+    }
 }
 
 struct TutorialStep: Equatable {
@@ -170,8 +222,15 @@ final class GuidedTutorialCoordinator: ObservableObject {
             return state.coordinateEntryVisible && !baseline.coordinateEntryVisible
         case .selectCoordinate:
             guard !state.coordinateEntryVisible, let coordinate = state.selectedCoordinate, coordinate.isValid else { return false }
-            // Entry must resolve into an actual map selection, not merely close.
-            guard coordinate != baseline.selectedCoordinate || state.mapFocusRevision != baseline.mapFocusRevision else { return false }
+            // Entry must resolve into an actual production selection, not a
+            // camera movement. A same-coordinate selection is still a real
+            // action because its selection revision changes.
+            guard TutorialSelectionPolicy.changed(
+                coordinate: coordinate,
+                previousCoordinate: baseline.selectedCoordinate,
+                revision: state.selectedPlaceRevision,
+                previousRevision: baseline.selectedPlaceRevision
+            ) else { return false }
             selectedTarget = coordinate
             return true
         case .simulate:
@@ -200,7 +259,12 @@ final class GuidedTutorialCoordinator: ObservableObject {
         case .reopenFavorite:
             guard let id = createdFavoriteID else { return false }
             return state.tab == "map" && state.selectedFavoriteID == id &&
-                state.favoriteIDs.contains(id) && state.mapFocusRevision != baseline.mapFocusRevision
+                state.favoriteIDs.contains(id) && TutorialSelectionPolicy.changed(
+                    coordinate: state.selectedCoordinate,
+                    previousCoordinate: baseline.selectedCoordinate,
+                    revision: state.selectedPlaceRevision,
+                    previousRevision: baseline.selectedPlaceRevision
+                )
         case .saveRoute:
             let additions = state.routeIDs.subtracting(baseline.routeIDs)
             guard additions.count == 1, let id = additions.first else { return false }
