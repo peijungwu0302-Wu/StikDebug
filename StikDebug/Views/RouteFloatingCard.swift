@@ -330,7 +330,9 @@ struct RouteEndpointTimeZoneSummary: View {
                     .lineLimit(1)
             }
         }
-        .task(id: route.id) {
+        .task(id: route.waypoints) {
+            startInfo = nil
+            endInfo = nil
             guard let first = route.waypoints.first, let last = route.waypoints.last else { return }
             if first == last {
                 let info = await PlaceInfoResolver.shared.resolve(first, scope: .general)
