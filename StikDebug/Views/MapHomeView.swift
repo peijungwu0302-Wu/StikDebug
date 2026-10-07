@@ -41,21 +41,13 @@ struct MapHomeView: View {
                 GeometryReader { mapGeometry in
                 Map(position: $camera) {
                     UserAnnotation()
-                    ForEach(s2Grid.result.cells) { cell in
-                        MapPolygon(coordinates: cell.vertices.map {
-                            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
-                        })
-                        .stroke(.purple.opacity(0.65), lineWidth: 1)
-                        .foregroundStyle(.purple.opacity(0.035))
-                    }
+                    S2GridMapContent(cells: s2Grid.result.cells)
                     if model.quickRouteMode == .singlePoint && model.previewingRoute == nil {
                         if let selected = candidateCoordinate {
                             Marker(L10n.text("已選位置"), coordinate: selected.clCoordinate).tint(.blue)
                         }
                     } else {
-                        ForEach(Array(displayWaypoints.enumerated()), id: \.offset) { index, waypoint in
-                            RouteWaypointMapAnnotation(number: index + 1, coordinate: waypoint.clCoordinate)
-                        }
+                        RouteWaypointMapContent(waypoints: displayWaypoints)
                         if displayCoordinates.count > 1 {
                             MapPolyline(coordinates: displayCoordinates.map(\.clCoordinate))
                                 .stroke(.blue, lineWidth: 5)
@@ -796,13 +788,28 @@ struct RouteWaypointAnnotation: View {
     }
 }
 
-struct RouteWaypointMapAnnotation: MapContent {
-    let number: Int
-    let coordinate: CLLocationCoordinate2D
+struct RouteWaypointMapContent: MapContent {
+    let waypoints: [RouteCoordinate]
 
     var body: some MapContent {
-        Annotation(L10n.format("航點 %d", number), coordinate: coordinate) {
-            RouteWaypointAnnotation(number: number)
+        ForEach(Array(waypoints.enumerated()), id: \.offset) { index, waypoint in
+            Annotation(L10n.format("航點 %d", index + 1), coordinate: waypoint.clCoordinate) {
+                RouteWaypointAnnotation(number: index + 1)
+            }
+        }
+    }
+}
+
+struct S2GridMapContent: MapContent {
+    let cells: [S2GridCell]
+
+    var body: some MapContent {
+        ForEach(cells) { cell in
+            MapPolygon(coordinates: cell.vertices.map {
+                CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+            })
+            .stroke(.purple.opacity(0.65), lineWidth: 1)
+            .foregroundStyle(.purple.opacity(0.035))
         }
     }
 }

@@ -42,13 +42,7 @@ struct RouteMapView: View {
                 GeometryReader { mapGeometry in
                     Map(position: $camera) {
                         UserAnnotation()
-                        ForEach(s2Grid.result.cells) { cell in
-                            MapPolygon(coordinates: cell.vertices.map {
-                                CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
-                            })
-                            .stroke(.purple.opacity(0.65), lineWidth: 1)
-                            .foregroundStyle(.purple.opacity(0.035))
-                        }
+                        S2GridMapContent(cells: s2Grid.result.cells)
                         if let selected = model.selectedCoordinate {
                             Marker(L10n.text("已選位置"), coordinate: selected.clCoordinate).tint(.blue)
                         }
@@ -57,9 +51,7 @@ struct RouteMapView: View {
                             hasPreview: model.previewingRoute != nil,
                             routeIsActive: model.isAnyRouteActive
                         ) {
-                            ForEach(Array(displayWaypoints.enumerated()), id: \.offset) { index, waypoint in
-                                RouteWaypointMapAnnotation(number: index + 1, coordinate: waypoint.clCoordinate)
-                            }
+                            RouteWaypointMapContent(waypoints: displayWaypoints)
                             if displayCoordinates.count > 1 {
                                 MapPolyline(coordinates: displayCoordinates.map(\.clCoordinate))
                                     .stroke(.blue, lineWidth: 5)
@@ -539,9 +531,7 @@ struct QuickRouteMapView: View {
                             Marker(L10n.text("已選位置"), coordinate: selected.clCoordinate).tint(.blue)
                         }
                     } else {
-                        ForEach(Array(model.waypoints.enumerated()), id: \.offset) { index, waypoint in
-                            RouteWaypointMapAnnotation(number: index + 1, coordinate: waypoint.clCoordinate)
-                        }
+                        RouteWaypointMapContent(waypoints: model.waypoints)
                         if model.geometry.coordinates.count > 1 {
                             MapPolyline(coordinates: model.geometry.coordinates.map(\.clCoordinate))
                                 .stroke(.blue, lineWidth: 5)
