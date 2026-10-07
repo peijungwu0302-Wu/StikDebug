@@ -19,49 +19,150 @@ struct RouteMapView: View {
     @EnvironmentObject private var model: RouteLocationModel
     @EnvironmentObject private var playback: RoutePlaybackEngine
     @State private var camera: MapCameraPosition = .userLocation(fallback: .automatic)
+    @StateObject private var s2Grid = S2GridController()
+    @State private var projectedViewportWidth: Double?
+    @State private var projectedViewportLatitude: Double?
+    @AppStorage("RouteLocation.s2GridEnabled") private var s2GridEnabled = false
+    @AppStorage("RouteLocation.s2GridLevelMode") private var s2GridLevelRawValue = "auto"
     @State private var showSearch = false
     @State private var showFavoriteName = false
+    @State private var showFavoriteRouteName = false
     @State private var showCoordinateEntry = false
     @State private var showMyRoutes = false
+    @State private var pendingPasteCoordinates: [RouteCoordinate] = []
+    @State private var showPasteDraftChoice = false
     @State private var favoriteName = ""
+    @State private var favoriteRouteName = ""
     @State private var favoriteCoordinate: RouteCoordinate?
     @State private var isCardExpanded = true
 
     var body: some View {
         NavigationStack {
             MapReader { proxy in
-                Map(position: $camera) {
-                    UserAnnotation()
-                    if let selected = model.selectedCoordinate {
-                        Marker(L10n.text("已選位置"), coordinate: selected.clCoordinate).tint(.blue)
-                    }
-                    ForEach(Array(model.waypoints.enumerated()), id: \.offset) { index, waypoint in
-                        Annotation(L10n.format("航點 %d", index + 1), coordinate: waypoint.clCoordinate) {
-                            ZStack {
-                                Circle().fill(.orange).frame(width: 28, height: 28)
-                                Text("\(index + 1)").font(.caption.bold()).foregroundStyle(.white)
+                GeometryReader { mapGeometry in
+                    Map(position: $camera) {
+                        UserAnnotation()
+                        ForEach(s2Grid.result.cells) { cell in
+                            MapPolygon(coordinates: cell.vertices.map {
+                                CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+                            })
+                            .stroke(.purple.opacity(0.65), lineWidth: 1)
+                            .foregroundStyle(.purple.opacity(0.035))
+                        }
+                        if let selected = model.selectedCoordinate {
+                            Marker(L10n.text("已選位置"), coordinate: selected.clCoordinate).tint(.blue)
+                        }
+                        if RouteMapOverlayPolicy.shouldShowRouteGeometry(
+                            mode: model.quickRouteMode,
+                            hasPreview: model.previewingRoute != nil,
+                            routeIsActive: model.isAnyRouteActive
+                        ) {
+                            ForEach(Array(displayWaypoints.enumerated()), id: \.offset) { index, waypoint in
+                                Annotation(L10n.format("航點 %d", index + 1), coordinate: waypoint.clCoordinate) {
+                                    ZStack {
+                                        Circle().fill(.orange).frame(width: 28, height: 28)
+                                        Text("\(index + 1)").font(.caption.bold()).foregroundStyle(.white)
+                                    }
+                                }
+                            }
+                            if displayCoordinates.count > 1 {
+                                MapPolyline(coordinates: displayCoordinates.map(\.clCoordinate))
+                                    .stroke(.blue, lineWidth: 5)
+                            }
+                        }
+                        if let current = playback.currentCoordinate ?? model.activeSimulatedCoordinate {
+                            Annotation(L10n.text("目前模擬位置"), coordinate: current.clCoordinate) {
+                                Image(systemName: "location.circle.fill")
+                                    .font(.title).foregroundStyle(.green).background(.white, in: Circle())
                             }
                         }
                     }
-                    if model.geometry.coordinates.count > 1 {
-                        MapPolyline(coordinates: model.geometry.coordinates.map(\.clCoordinate))
-                            .stroke(.blue, lineWidth: 5)
+                    .mapControls { MapCompass(); MapScaleView(); MapUserLocationButton() }
+                    .onTapGesture { point in
+                        guard let coordinate = proxy.convert(point, from: .local) else { return }
+                        switch MapTapRoutePolicy.action(mode: model.quickRouteMode, routeIsActive: model.isAnyRouteActive) {
+                        case .addWaypoint:
+                            model.addWaypoint(RouteCoordinate(coordinate))
+                        case .selectPlace:
+                            model.select(coordinate)
+                        case .ignoreWhileRouteActive:
+                            return
+                        }
                     }
-                    if let current = playback.currentCoordinate {
-                        Annotation(L10n.text("目前模擬位置"), coordinate: current.clCoordinate) {
-                            Image(systemName: "location.circle.fill")
-                                .font(.title).foregroundStyle(.green).background(.white, in: Circle())
+                    .onMapCameraChange(frequency: .onEnd) { context in
+                        projectedViewportWidth = context.rect.size.width
+                        let center = MKCoordinateForMapPoint(MKMapPoint(
+                            x: context.rect.origin.x + context.rect.size.width / 2,
+                            y: context.rect.origin.y + context.rect.size.height / 2
+                        ))
+                        projectedViewportLatitude = center.latitude
+                        updateS2Grid(proxy: proxy, size: mapGeometry.size, projectedWidth: context.rect.size.width, centerLatitude: center.latitude)
+                    }
+                    .onAppear {
+                        if let projectedViewportWidth, let projectedViewportLatitude {
+                            updateS2Grid(proxy: proxy, size: mapGeometry.size, projectedWidth: projectedViewportWidth, centerLatitude: projectedViewportLatitude)
+                        }
+                    }
+                    .onChange(of: s2GridEnabled) { _, enabled in
+                        if enabled, let projectedViewportWidth, let projectedViewportLatitude {
+                            updateS2Grid(proxy: proxy, size: mapGeometry.size, projectedWidth: projectedViewportWidth, centerLatitude: projectedViewportLatitude)
+                        }
+                        else { s2Grid.clear() }
+                    }
+                    .onChange(of: s2GridLevelRawValue) { _, _ in
+                        if s2GridEnabled, let projectedViewportWidth, let projectedViewportLatitude {
+                            updateS2Grid(proxy: proxy, size: mapGeometry.size, projectedWidth: projectedViewportWidth, centerLatitude: projectedViewportLatitude)
                         }
                     }
                 }
-                .mapControls { MapCompass(); MapScaleView(); MapUserLocationButton() }
-                .onTapGesture { point in
-                    if let coordinate = proxy.convert(point, from: .local) { model.select(coordinate) }
-                }
             }
             .overlay(alignment: .bottom) { controlCard }
+            .overlay(alignment: .topLeading) {
+                if s2GridEnabled, let level = s2Grid.result.actualLevel {
+                    Text("Lv.\(level)")
+                        .font(.caption2.bold())
+                        .monospacedDigit()
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(.regularMaterial, in: Capsule())
+                        .padding(.leading, 12)
+                        .padding(.top, 56)
+                        .allowsHitTesting(false)
+                        .accessibilityLabel(L10n.format("S2 網格層級 %@", String(level)))
+                } else if s2GridEnabled, s2Grid.result.didExceedCellLimit {
+                    Text(L10n.text("縮小地圖以顯示 S2 網格"))
+                        .font(.caption2)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(.regularMaterial, in: Capsule())
+                        .padding(.leading, 12)
+                        .padding(.top, 56)
+                        .allowsHitTesting(false)
+                }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 6) {
+                        Picker(L10n.text("模式"), selection: $model.quickRouteMode) {
+                            ForEach(QuickRouteInteractionMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 150)
+                        .disabled(model.isAnyRouteActive)
+                        if !model.waypoints.isEmpty {
+                            Text(L10n.format("路線 %d", model.waypoints.count))
+                                .font(.caption2.bold())
+                                .monospacedDigit()
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
+                                .background(.quaternary, in: Capsule())
+                                .accessibilityLabel(L10n.format("路線草稿，%d 個航點", model.waypoints.count))
+                        }
+                    }
+                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { showMyRoutes = true } label: { Image(systemName: "list.bullet.rectangle") }
                         .accessibilityLabel(L10n.text("我的路線"))
@@ -69,9 +170,30 @@ struct RouteMapView: View {
                         .accessibilityLabel(L10n.text("搜尋地點"))
                     Button { showCoordinateEntry = true } label: { Image(systemName: "location.viewfinder") }
                         .accessibilityLabel(L10n.text("輸入座標"))
-                    Button { fitRoute() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                        .accessibilityLabel(L10n.text("顯示完整路線"))
-                        .disabled(model.geometry.coordinates.isEmpty)
+                    PasteButton(payloadType: String.self) { values in
+                        guard let text = values.first else { return }
+                        acceptPastedCoordinates(text)
+                    } label: {
+                        Label(L10n.text("貼上座標"), systemImage: "doc.on.clipboard")
+                    }
+                    .accessibilityLabel(L10n.text("貼上座標"))
+                    .disabled(model.isAnyRouteActive)
+                    Menu {
+                        Button(L10n.text("顯示完整路線"), action: fitRoute)
+                            .disabled(model.geometry.coordinates.isEmpty)
+                        Divider()
+                        Toggle(L10n.text("顯示 S2 網格"), isOn: $s2GridEnabled)
+                        Picker(L10n.text("S2 層級"), selection: $s2GridLevelRawValue) {
+                            Text(L10n.text("自動")).tag("auto")
+                            ForEach(S2GridLevelMode.supportedLevels, id: \.self) { level in
+                                Text("Lv.\(level)").tag(String(level))
+                            }
+                        }
+                        .disabled(!s2GridEnabled)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel(L10n.text("更多地圖選項"))
                 }
             }
         }
@@ -81,6 +203,13 @@ struct RouteMapView: View {
                 fitRoute()
             }
         }
+        .confirmationDialog(L10n.text("目前已有路線草稿"), isPresented: $showPasteDraftChoice, titleVisibility: .visible) {
+            Button(L10n.text("取代草稿並預覽")) { applyPastedRoute(replacing: true) }
+            Button(L10n.text("附加到目前路線")) { applyPastedRoute(replacing: false) }
+            Button(L10n.text("取消"), role: .cancel) { pendingPasteCoordinates = [] }
+        } message: {
+            Text(L10n.text("貼上的多個座標會建立路線。您可以取代或附加到目前草稿；取消不會變更路線。"))
+        }
         .sheet(isPresented: $showSearch) {
             LocationSearchPicker { coordinate in
                 model.select(coordinate.clCoordinate)
@@ -89,7 +218,7 @@ struct RouteMapView: View {
         }
         .background {
             CoordinateAlertPresenter(isPresented: $showCoordinateEntry) { coordinate, simulateImmediately in
-                model.selectedCoordinate = coordinate
+                model.select(coordinate.clCoordinate)
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
                 if simulateImmediately {
                     model.requestSinglePointSimulation(at: coordinate)
@@ -111,13 +240,27 @@ struct RouteMapView: View {
                 favoriteCoordinate = nil
             }
         }
-        .onChange(of: model.selectedCoordinate) { _, coordinate in
-            guard let coordinate else { return }
-            camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
-        }
         .onChange(of: model.mapFocusRevision) { _, _ in
-            guard let coordinate = model.selectedCoordinate else { return }
-            camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
+            if model.previewingRoute != nil {
+                fitRoute()
+            } else if let coordinate = model.selectedCoordinate {
+                camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
+            }
+        }
+        .alert(L10n.text("收藏目前路線"), isPresented: $showFavoriteRouteName) {
+            TextField(L10n.text("名稱"), text: $favoriteRouteName)
+            Button(L10n.text("儲存")) {
+                let name = favoriteRouteName
+                favoriteRouteName = ""
+                Task {
+                    if await model.favoriteCurrentRoute(named: name) {
+                        ToastManager.shared.show(L10n.text("已加入喜愛路線。"), kind: .success)
+                    }
+                }
+            }
+            Button(L10n.text("取消"), role: .cancel) { favoriteRouteName = "" }
+        } message: {
+            Text(L10n.text("此路線會先儲存，再加入喜愛路線。"))
         }
         .onChange(of: model.speedKmh) { _, newSpeed in
             guard playback.state == .running || playback.state == .paused else { return }
@@ -125,7 +268,97 @@ struct RouteMapView: View {
         }
     }
 
+    private func updateS2Grid(proxy: MapProxy, size: CGSize, projectedWidth: Double, centerLatitude: Double) {
+        guard s2GridEnabled else { return }
+        guard size.width > 0, size.height > 0,
+              let metersPerPoint = S2GridViewportScalePolicy.metersPerPoint(
+                  projectedViewportWidth: projectedWidth,
+                  viewportWidthPoints: Double(size.width),
+                metersPerMapPoint: MKMetersPerMapPointAtLatitude(centerLatitude)
+              ) else {
+            s2Grid.clear()
+            return
+        }
+        let mode = S2GridLevelMode(rawValue: s2GridLevelRawValue)
+        let renderLevel: Int
+        switch mode {
+        case .automatic:
+            renderLevel = S2GridLevelPolicy.choose(metersPerPoint: metersPerPoint, previousLevel: s2Grid.result.actualLevel)
+        case .fixed(let value):
+            renderLevel = min(20, max(14, value))
+        }
+        let stridePoints = S2GridSamplingPolicy.stridePoints(level: renderLevel, metersPerPoint: metersPerPoint)
+        guard S2GridSamplingPolicy.estimatedSampleCount(size: size, stridePoints: stridePoints)
+            <= S2GridSamplingPolicy.maximumViewportSamples else {
+            s2Grid.showCellLimitMessage()
+            return
+        }
+        let samples = S2GridSamplingPolicy.samplePoints(size: size, stridePoints: CGFloat(stridePoints))
+            .compactMap { point -> S2GridCoordinate? in
+                guard let coordinate = proxy.convert(point, from: .local) else { return nil }
+                return S2GridCoordinate(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            }
+        guard samples.count <= S2GridSamplingPolicy.maximumViewportSamples else {
+            s2Grid.showCellLimitMessage()
+            return
+        }
+        s2Grid.update(samples: samples, metersPerPoint: metersPerPoint, mode: mode)
+    }
+
+    private func acceptPastedCoordinates(_ text: String) {
+        do {
+            let coordinates = try CoordinateImportParser.parseInline(text)
+            guard !coordinates.isEmpty else { return }
+            if coordinates.count == 1, let coordinate = coordinates.first {
+                model.quickRouteMode = .singlePoint
+                model.focusOnMap(coordinate)
+                camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
+                return
+            }
+            pendingPasteCoordinates = coordinates
+            if MultiCoordinatePastePolicy.requiresChoice(existingDraftCount: model.waypoints.count) {
+                showPasteDraftChoice = true
+            } else {
+                applyPastedRoute(replacing: true)
+            }
+        } catch {
+            model.presentedError = error.localizedDescription
+        }
+    }
+
+    private func applyPastedRoute(replacing: Bool) {
+        let coordinates = pendingPasteCoordinates
+        pendingPasteCoordinates = []
+        guard !coordinates.isEmpty else { return }
+        let applied = replacing ? model.replaceWaypoints(coordinates) : model.appendWaypoints(coordinates)
+        guard applied else { return }
+        fitRoute()
+        model.statusMessage = L10n.format("已匯入 %d 個航點。", coordinates.count)
+    }
+
+    @ViewBuilder
     private var controlCard: some View {
+        if model.isAnyRouteActive && playback.state.showsRouteControls {
+            RouteFloatingCard(
+                mode: .active,
+                onStartRoute: {},
+                onEdit: {},
+                onCancelPreview: {},
+                onEndRoute: { model.stopAndHoldCurrentLocation() },
+                onRestoreRealLocation: { Task { await model.returnToRealLocation() } },
+                onFavoriteUnsavedRoute: {
+                    favoriteRouteName = model.suggestedFavoriteRouteName()
+                    showFavoriteRouteName = true
+                }
+            )
+            .padding(.horizontal)
+            .padding(.bottom, 4)
+        } else {
+            classicControlCard
+        }
+    }
+
+    private var classicControlCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Circle().fill(model.connectionMonitor.effectiveTunnelHealthy ? .green : .orange).frame(width: 9, height: 9)
@@ -179,9 +412,15 @@ struct RouteMapView: View {
                             Text(L10n.format("路線資訊：%lld 航點 · %@ · %@ km/h", Int64(previewing.waypoints.count), previewing.totalDistance.formattedDistance, previewing.preferredSpeedKmh.formatted(.number.precision(.fractionLength(1)))))
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
+                        RouteEndpointTimeZoneSummary(route: previewing)
                         HStack {
                             Button(L10n.text("開始路線")) { model.requestStartRoute(previewing) }.buttonStyle(.borderedProminent)
-                            Button(L10n.text("編輯")) { NotificationCenter.default.post(name: .switchToRoutesTab, object: nil) }.buttonStyle(.bordered)
+                            Button(L10n.text("編輯")) {
+                                if model.requestEditRoute(previewing) {
+                                    NotificationCenter.default.post(name: .switchToRoutesTab, object: nil)
+                                    NotificationCenter.default.post(name: .openRouteEditor, object: nil)
+                                }
+                            }.buttonStyle(.bordered)
                             Button(L10n.text("取消預覽"), role: .cancel) { model.cancelRoutePreview() }.buttonStyle(.bordered)
                         }
                     }
@@ -191,7 +430,11 @@ struct RouteMapView: View {
                     Text(L10n.text("點選地圖、搜尋地點、輸入座標，或選擇喜愛地點。")).font(.footnote).foregroundStyle(.secondary)
                     Button(L10n.text("輸入精確座標")) { showCoordinateEntry = true }.buttonStyle(.bordered)
                 }
-                if model.geometry.totalDistance > 0 {
+                if model.geometry.totalDistance > 0 && RoutePlanningControlsPolicy.shouldShow(
+                    mode: model.quickRouteMode,
+                    hasPreview: model.previewingRoute != nil,
+                    routeIsActive: model.isAnyRouteActive
+                ) {
                     HStack {
                         Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
                         Text(playback.state == .running || playback.state == .reconnecting ? playback.routeName : model.routeName)
@@ -223,8 +466,19 @@ struct RouteMapView: View {
 
     @ViewBuilder
     private func classicSelectedPlaceContent(for selected: RouteCoordinate) -> some View {
-        CoordinateValueText(coordinate: selected)
-            .textSelection(.enabled)
+        HStack(spacing: 8) {
+            CoordinateValueText(coordinate: selected)
+                .textSelection(.enabled)
+            Spacer(minLength: 4)
+            Button { model.clearSelectedPlace() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L10n.text("清除目前選取位置"))
+        }
         HStack {
             Button(L10n.text("在此模擬")) {
                 model.requestSinglePointSimulation(at: selected)
@@ -246,13 +500,21 @@ struct RouteMapView: View {
     }
 
     private func fitRoute() {
-        let coordinates = model.geometry.coordinates
+        let coordinates = displayCoordinates
         guard let first = coordinates.first else { return }
         var rect = MKMapRect(origin: MKMapPoint(first.clCoordinate), size: MKMapSize(width: 0, height: 0))
         for coordinate in coordinates.dropFirst() {
             rect = rect.union(MKMapRect(origin: MKMapPoint(coordinate.clCoordinate), size: .init(width: 0, height: 0)))
         }
         camera = .rect(rect.insetBy(dx: -max(rect.width * 0.15, 500), dy: -max(rect.height * 0.15, 500)))
+    }
+
+    private var displayWaypoints: [RouteCoordinate] {
+        model.previewingRoute?.waypoints ?? model.waypoints
+    }
+
+    private var displayCoordinates: [RouteCoordinate] {
+        model.previewingRoute?.resolvedGeometry.coordinates ?? model.geometry.coordinates
     }
 }
 
@@ -359,7 +621,7 @@ struct QuickRouteMapView: View {
                 } else if model.quickRouteMode == .route {
                     model.addWaypointAndSwitchToRoute(coordinate)
                 } else {
-                    model.selectedCoordinate = coordinate
+                    model.select(coordinate.clCoordinate)
                 }
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
@@ -399,10 +661,6 @@ struct QuickRouteMapView: View {
             Button(L10n.text("取消"), role: .cancel) {}
         } message: {
             Text(L10n.text("請輸入 1 到 9999 圈。"))
-        }
-        .onChange(of: model.selectedCoordinate) { _, coordinate in
-            guard let coordinate else { return }
-            camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
         }
         .onChange(of: model.mapFocusRevision) { _, _ in
             guard let coordinate = model.selectedCoordinate else { return }
@@ -488,7 +746,10 @@ struct QuickRouteMapView: View {
                 .controlSize(.small)
 
                 Button(L10n.text("編輯")) {
-                    NotificationCenter.default.post(name: .switchToRoutesTab, object: nil)
+                    if model.requestEditRoute(route) {
+                        NotificationCenter.default.post(name: .switchToRoutesTab, object: nil)
+                        NotificationCenter.default.post(name: .openRouteEditor, object: nil)
+                    }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
