@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 import Testing
 @testable import RouteLocation
 
@@ -137,7 +138,7 @@ struct V1_2_23MapAndRoutePolicyTests {
         #expect(model.requestEditRoute(route))
         #expect(model.previewingRoute == nil)
         #expect(model.waypoints == route.waypoints)
-        #expect(model.loadedRouteID == route.id)
+        #expect(model.currentSavedRoute?.id == route.id)
     }
 
     @MainActor
