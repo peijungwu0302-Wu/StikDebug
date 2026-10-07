@@ -58,9 +58,7 @@ struct RouteMapView: View {
                             routeIsActive: model.isAnyRouteActive
                         ) {
                             ForEach(Array(displayWaypoints.enumerated()), id: \.offset) { index, waypoint in
-                                Annotation(L10n.format("航點 %d", index + 1), coordinate: waypoint.clCoordinate) {
-                                    RouteWaypointAnnotation(number: index + 1)
-                                }
+                                RouteWaypointMapAnnotation(number: index + 1, coordinate: waypoint.clCoordinate)
                             }
                             if displayCoordinates.count > 1 {
                                 MapPolyline(coordinates: displayCoordinates.map(\.clCoordinate))
@@ -542,9 +540,7 @@ struct QuickRouteMapView: View {
                         }
                     } else {
                         ForEach(Array(model.waypoints.enumerated()), id: \.offset) { index, waypoint in
-                            Annotation(L10n.format("航點 %d", index + 1), coordinate: waypoint.clCoordinate) {
-                                RouteWaypointAnnotation(number: index + 1)
-                            }
+                            RouteWaypointMapAnnotation(number: index + 1, coordinate: waypoint.clCoordinate)
                         }
                         if model.geometry.coordinates.count > 1 {
                             MapPolyline(coordinates: model.geometry.coordinates.map(\.clCoordinate))

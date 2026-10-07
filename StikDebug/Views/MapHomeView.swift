@@ -54,9 +54,7 @@ struct MapHomeView: View {
                         }
                     } else {
                         ForEach(Array(displayWaypoints.enumerated()), id: \.offset) { index, waypoint in
-                            Annotation(L10n.format("航點 %d", index + 1), coordinate: waypoint.clCoordinate) {
-                                RouteWaypointAnnotation(number: index + 1)
-                            }
+                            RouteWaypointMapAnnotation(number: index + 1, coordinate: waypoint.clCoordinate)
                         }
                         if displayCoordinates.count > 1 {
                             MapPolyline(coordinates: displayCoordinates.map(\.clCoordinate))
@@ -794,6 +792,17 @@ struct RouteWaypointAnnotation: View {
             Text(String(number))
                 .font(.caption.bold())
                 .foregroundStyle(.white)
+        }
+    }
+}
+
+struct RouteWaypointMapAnnotation: MapContent {
+    let number: Int
+    let coordinate: CLLocationCoordinate2D
+
+    var body: some MapContent {
+        Annotation(L10n.format("航點 %d", number), coordinate: coordinate) {
+            RouteWaypointAnnotation(number: number)
         }
     }
 }
