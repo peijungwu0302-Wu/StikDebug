@@ -70,7 +70,15 @@ struct GuidedTutorialTests {
             let id = UUID()
             emit { $0.favoriteIDs = [id] }
             emit { $0.tab = "my" }
-            emit { $0.tab = "map"; $0.selectedFavoriteID = id; $0.mapFocusRevision = UUID() }
+            emit {
+                $0.tab = "map"
+                $0.selectedFavoriteID = id
+                // Reopening a favorite focuses/selects it through the real
+                // production model path, which emits a fresh selection
+                // revision even when it is the same coordinate as before.
+                $0.selectedPlaceRevision = UUID()
+                $0.mapFocusRevision = UUID()
+            }
         case .savedRoute:
             let id = UUID()
             emit { $0.quickRouteIsRoute = true; $0.waypointCount = 2 }

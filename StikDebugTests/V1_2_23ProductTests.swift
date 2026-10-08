@@ -120,19 +120,13 @@ struct V1_2_23MapAndRoutePolicyTests {
     }
 
     @MainActor
-    @Test func editingPreviewRouteDismissesReadOnlySnapshotBeforeDraftBecomesEditable() {
-        let model = RouteLocationModel()
+    @Test func editingPreviewRouteDismissesReadOnlySnapshotBeforeDraftBecomesEditable() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("RouteLocation-v1.2.23-preview-edit-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = RouteLocationModel(persistence: RoutePersistenceStore(rootURL: root))
         let first = RouteCoordinate(latitude: 25, longitude: 121)
         let second = RouteCoordinate(latitude: 25.01, longitude: 121.01)
-        let route = SavedRoute(
-            name: "Preview route",
-            waypoints: [first, second],
-            resolvedGeometry: RouteGeometry(coordinates: [first, second]),
-            routeMode: .straight,
-            isClosedLoop: false,
-            preferredSpeedKmh: 18.6,
-            playbackMode: .once
-        )
+        let route = try #require(await model.importSavedRoute([first, second], named: "Preview route"))
         model.previewRoute(route)
 
         #expect(model.requestEditRoute(route))

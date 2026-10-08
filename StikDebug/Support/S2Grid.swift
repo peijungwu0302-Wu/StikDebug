@@ -44,7 +44,12 @@ enum S2CellGeometry {
         guard (0...30).contains(level), latitude.isFinite, longitude.isFinite,
               (-90...90).contains(latitude), (-180...180).contains(longitude) else { return nil }
         let lat = latitude * .pi / 180
-        let lng = longitude * .pi / 180
+        // +180° and -180° are the same meridian. Canonicalize the exact
+        // boundary before trig conversion so floating-point sin(±π) cannot
+        // place the same geographic point into opposite cells around a face
+        // center.
+        let normalizedLongitude = longitude == 180 ? -180 : longitude
+        let lng = normalizedLongitude * .pi / 180
         let x = cos(lat) * cos(lng)
         let y = cos(lat) * sin(lng)
         let z = sin(lat)
