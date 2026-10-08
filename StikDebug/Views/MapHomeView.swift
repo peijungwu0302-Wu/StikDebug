@@ -70,10 +70,10 @@ struct MapHomeView: View {
                 }
                 .onMapCameraChange(frequency: .onEnd) { context in
                     projectedViewportWidth = context.rect.size.width
-                    let center = MKCoordinateForMapPoint(MKMapPoint(
+                    let center = MKMapPoint(
                         x: context.rect.origin.x + context.rect.size.width / 2,
                         y: context.rect.origin.y + context.rect.size.height / 2
-                    ))
+                    ).coordinate
                     projectedViewportLatitude = center.latitude
                     updateS2Grid(proxy: proxy, size: mapGeometry.size, projectedWidth: context.rect.size.width, centerLatitude: center.latitude)
                 }
@@ -857,10 +857,8 @@ struct CoordinatePasteToolbarButton: View {
     let onPaste: ([String]) -> Void
 
     var body: some View {
-        PasteButton(payloadType: String.self, onPaste: onPaste) {
-            Label(L10n.text("貼上座標"), systemImage: "doc.on.clipboard")
-        }
-        .accessibilityLabel(L10n.text("貼上座標"))
-        .disabled(isDisabled)
+        PasteButton(payloadType: String.self, onPaste: onPaste)
+            .accessibilityLabel(L10n.text("貼上座標"))
+            .disabled(isDisabled)
     }
 }
