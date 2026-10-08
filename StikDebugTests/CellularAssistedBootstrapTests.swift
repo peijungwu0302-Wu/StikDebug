@@ -2,6 +2,40 @@ import Testing
 import Foundation
 @testable import RouteLocation
 
+@MainActor
+private final class SafeRoundTripCompletionWaiter {
+    typealias Value = (success: Bool, message: String)
+
+    private var continuation: CheckedContinuation<Value?, Never>?
+    private var timeoutTask: Task<Void, Never>?
+    private var didResolve = false
+    private var resolvedValue: Value?
+
+    func wait(timeout: Duration = .seconds(3)) async -> Value? {
+        await withCheckedContinuation { continuation in
+            if didResolve {
+                continuation.resume(returning: resolvedValue)
+                return
+            }
+            self.continuation = continuation
+            timeoutTask = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: timeout) } catch { return }
+                self?.resolve(nil)
+            }
+        }
+    }
+
+    func resolve(_ value: Value?) {
+        guard !didResolve else { return }
+        didResolve = true
+        resolvedValue = value
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        continuation?.resume(returning: value)
+        continuation = nil
+    }
+}
+
 @Suite(.serialized)
 @MainActor
 struct CellularAssistedBootstrapTests {
@@ -623,21 +657,17 @@ struct CellularAssistedBootstrapTests {
             return true
         }
 
-        var completed = false
-        var testSuccess: Bool?
-        var testMessage: String?
+        let completion = SafeRoundTripCompletionWaiter()
         service.runSafeRoundTripTest { success, message in
-            completed = true
-            testSuccess = success
-            testMessage = message
+            completion.resolve((success, message))
         }
 
-        try? await Task.sleep(for: .milliseconds(50))
+        let result = await completion.wait()
 
-        #expect(completed == true)
-        #expect(testSuccess == false)
+        #expect(result != nil, "Safe round-trip test callback must complete within the bounded timeout")
+        #expect(result?.success == false)
         #expect(invokedPhases == [.dataOff, .dataOn])
-        #expect(testMessage?.contains("DataOff 未確認") == true)
+        #expect(result?.message.contains("DataOff 未確認") == true)
     }
 
     @Test func test_safeRoundTrip_dataOnCallback_onNotObserved_fails() async {
@@ -654,21 +684,17 @@ struct CellularAssistedBootstrapTests {
             return true
         }
 
-        var completed = false
-        var testSuccess: Bool?
-        var testMessage: String?
+        let completion = SafeRoundTripCompletionWaiter()
         service.runSafeRoundTripTest { success, message in
-            completed = true
-            testSuccess = success
-            testMessage = message
+            completion.resolve((success, message))
         }
 
-        try? await Task.sleep(for: .milliseconds(50))
+        let result = await completion.wait()
 
-        #expect(completed == true)
-        #expect(testSuccess == false)
+        #expect(result != nil, "Safe round-trip test callback must complete within the bounded timeout")
+        #expect(result?.success == false)
         #expect(invokedPhases == [.dataOff, .dataOn])
-        #expect(testMessage?.contains("DataOn 恢復未確認") == true)
+        #expect(result?.message.contains("DataOn 恢復未確認") == true)
     }
 
     @Test func test_safeRoundTrip_bothObserved_succeeds() async {
@@ -685,21 +711,17 @@ struct CellularAssistedBootstrapTests {
             return true
         }
 
-        var completed = false
-        var testSuccess: Bool?
-        var testMessage: String?
+        let completion = SafeRoundTripCompletionWaiter()
         service.runSafeRoundTripTest { success, message in
-            completed = true
-            testSuccess = success
-            testMessage = message
+            completion.resolve((success, message))
         }
 
-        try? await Task.sleep(for: .milliseconds(50))
+        let result = await completion.wait()
 
-        #expect(completed == true)
-        #expect(testSuccess == true)
+        #expect(result != nil, "Safe round-trip test callback must complete within the bounded timeout")
+        #expect(result?.success == true)
         #expect(invokedPhases == [.dataOff, .dataOn])
-        #expect(testMessage?.contains("安全測試成功") == true)
+        #expect(result?.message.contains("安全測試成功") == true)
     }
 
     // MARK: - 9. v1.2.10 Assisted Bootstrap Sequencing & Stabilization Tests
