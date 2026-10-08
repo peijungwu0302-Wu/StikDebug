@@ -78,19 +78,17 @@ struct MapHomeView: View {
                     updateS2Grid(proxy: proxy, size: mapGeometry.size, projectedWidth: context.rect.size.width, centerLatitude: center.latitude)
                 }
                 .onAppear {
-                    if let projectedViewportWidth, let projectedViewportLatitude {
-                        updateS2Grid(proxy: proxy, size: mapGeometry.size, projectedWidth: projectedViewportWidth, centerLatitude: projectedViewportLatitude)
-                    }
+                    updateS2GridFromCachedViewport(proxy: proxy, size: mapGeometry.size)
                 }
                 .onChange(of: s2GridEnabled) { _, enabled in
-                    if enabled, let projectedViewportWidth, let projectedViewportLatitude {
-                        updateS2Grid(proxy: proxy, size: mapGeometry.size, projectedWidth: projectedViewportWidth, centerLatitude: projectedViewportLatitude)
+                    if enabled {
+                        updateS2GridFromCachedViewport(proxy: proxy, size: mapGeometry.size)
                     }
                     else { s2Grid.clear() }
                 }
                 .onChange(of: s2GridLevelRawValue) { _, _ in
-                    if s2GridEnabled, let projectedViewportWidth, let projectedViewportLatitude {
-                        updateS2Grid(proxy: proxy, size: mapGeometry.size, projectedWidth: projectedViewportWidth, centerLatitude: projectedViewportLatitude)
+                    if s2GridEnabled {
+                        updateS2GridFromCachedViewport(proxy: proxy, size: mapGeometry.size)
                     }
                 }
                 }
@@ -158,14 +156,10 @@ struct MapHomeView: View {
                     } label: { Image(systemName: "location.viewfinder") }
                         .accessibilityLabel(L10n.text("輸入座標"))
                         .tutorialTarget(.coordinateEntry)
-                    PasteButton(payloadType: String.self) { pastedValues in
-                        guard let text = pastedValues.first else { return }
-                        acceptPastedCoordinates(text)
-                    } label: {
-                        Label(L10n.text("貼上座標"), systemImage: "doc.on.clipboard")
-                    }
-                    .accessibilityLabel(L10n.text("貼上座標"))
-                    .disabled(model.isAnyRouteActive)
+                    CoordinatePasteToolbarButton(
+                        isDisabled: model.isAnyRouteActive,
+                        onPaste: handlePastedValues
+                    )
                     Menu {
                         if !displayCoordinates.isEmpty {
                             Button(L10n.text("顯示完整路線")) { fitRoute() }
@@ -710,6 +704,21 @@ struct MapHomeView: View {
         )
     }
 
+    private func updateS2GridFromCachedViewport(proxy: MapProxy, size: CGSize) {
+        guard let projectedViewportWidth, let projectedViewportLatitude else { return }
+        updateS2Grid(
+            proxy: proxy,
+            size: size,
+            projectedWidth: projectedViewportWidth,
+            centerLatitude: projectedViewportLatitude
+        )
+    }
+
+    private func handlePastedValues(_ values: [String]) {
+        guard let text = values.first else { return }
+        acceptPastedCoordinates(text)
+    }
+
     private func commitPlanningSpeedEdit() {
         if let value = PlaybackSpeedEntryPolicy.committedValue(routeSpeedText, preserving: model.speedKmh) {
             model.speedKmh = value
@@ -840,5 +849,18 @@ struct QuickRouteModePicker: View {
             }
         }
         .pickerStyle(.segmented)
+    }
+}
+
+struct CoordinatePasteToolbarButton: View {
+    let isDisabled: Bool
+    let onPaste: ([String]) -> Void
+
+    var body: some View {
+        PasteButton(payloadType: String.self, onPaste: onPaste) {
+            Label(L10n.text("貼上座標"), systemImage: "doc.on.clipboard")
+        }
+        .accessibilityLabel(L10n.text("貼上座標"))
+        .disabled(isDisabled)
     }
 }

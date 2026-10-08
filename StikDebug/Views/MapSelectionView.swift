@@ -148,14 +148,10 @@ struct RouteMapView: View {
                         .accessibilityLabel(L10n.text("搜尋地點"))
                     Button { showCoordinateEntry = true } label: { Image(systemName: "location.viewfinder") }
                         .accessibilityLabel(L10n.text("輸入座標"))
-                    PasteButton(payloadType: String.self) { values in
-                        guard let text = values.first else { return }
-                        acceptPastedCoordinates(text)
-                    } label: {
-                        Label(L10n.text("貼上座標"), systemImage: "doc.on.clipboard")
-                    }
-                    .accessibilityLabel(L10n.text("貼上座標"))
-                    .disabled(model.isAnyRouteActive)
+                    CoordinatePasteToolbarButton(
+                        isDisabled: model.isAnyRouteActive,
+                        onPaste: handlePastedValues
+                    )
                     Menu {
                         Button(L10n.text("顯示完整路線"), action: fitRoute)
                             .disabled(model.geometry.coordinates.isEmpty)
@@ -302,6 +298,11 @@ struct RouteMapView: View {
         } catch {
             model.presentedError = error.localizedDescription
         }
+    }
+
+    private func handlePastedValues(_ values: [String]) {
+        guard let text = values.first else { return }
+        acceptPastedCoordinates(text)
     }
 
     private func applyPastedRoute(replacing: Bool) {
