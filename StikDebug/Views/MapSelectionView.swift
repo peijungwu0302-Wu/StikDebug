@@ -41,28 +41,19 @@ struct RouteMapView: View {
             MapReader { proxy in
                 GeometryReader { mapGeometry in
                     Map(position: $camera) {
-                        UserAnnotation()
-                        S2GridMapContent(cells: s2Grid.result.cells)
-                        if let selected = model.selectedCoordinate {
-                            Marker(L10n.text("已選位置"), coordinate: selected.clCoordinate).tint(.blue)
-                        }
-                        if RouteMapOverlayPolicy.shouldShowRouteGeometry(
-                            mode: model.quickRouteMode,
-                            hasPreview: model.previewingRoute != nil,
-                            routeIsActive: model.isAnyRouteActive
-                        ) {
-                            RouteWaypointMapContent(waypoints: displayWaypoints)
-                            if displayCoordinates.count > 1 {
-                                MapPolyline(coordinates: displayCoordinates.map(\.clCoordinate))
-                                    .stroke(.blue, lineWidth: 5)
-                            }
-                        }
-                        if let current = playback.currentCoordinate ?? model.activeSimulatedCoordinate {
-                            Annotation(L10n.text("目前模擬位置"), coordinate: current.clCoordinate) {
-                                Image(systemName: "location.circle.fill")
-                                    .font(.title).foregroundStyle(.green).background(.white, in: Circle())
-                            }
-                        }
+                        RouteMapOverlayContent(
+                            s2Cells: s2Grid.result.cells,
+                            selection: model.selectedCoordinate,
+                            showsSelection: true,
+                            waypoints: displayWaypoints,
+                            routeCoordinates: displayCoordinates,
+                            showsRoute: RouteMapOverlayPolicy.shouldShowRouteGeometry(
+                                mode: model.quickRouteMode,
+                                hasPreview: model.previewingRoute != nil,
+                                routeIsActive: model.isAnyRouteActive
+                            ),
+                            activeCoordinate: playback.currentCoordinate ?? model.activeSimulatedCoordinate
+                        )
                     }
                     .mapControls { MapCompass(); MapScaleView(); MapUserLocationButton() }
                     .onTapGesture { point in
@@ -525,24 +516,15 @@ struct QuickRouteMapView: View {
         NavigationStack {
             MapReader { proxy in
                 Map(position: $camera) {
-                    UserAnnotation()
-                    if model.quickRouteMode == .singlePoint {
-                        if let selected = model.selectedCoordinate {
-                            Marker(L10n.text("已選位置"), coordinate: selected.clCoordinate).tint(.blue)
-                        }
-                    } else {
-                        RouteWaypointMapContent(waypoints: model.waypoints)
-                        if model.geometry.coordinates.count > 1 {
-                            MapPolyline(coordinates: model.geometry.coordinates.map(\.clCoordinate))
-                                .stroke(.blue, lineWidth: 5)
-                        }
-                    }
-                    if let current = playback.currentCoordinate {
-                        Annotation(L10n.text("目前模擬位置"), coordinate: current.clCoordinate) {
-                            Image(systemName: "location.circle.fill")
-                                .font(.title).foregroundStyle(.green).background(.white, in: Circle())
-                        }
-                    }
+                    RouteMapOverlayContent(
+                        s2Cells: [],
+                        selection: model.selectedCoordinate,
+                        showsSelection: model.quickRouteMode == .singlePoint,
+                        waypoints: model.waypoints,
+                        routeCoordinates: model.geometry.coordinates,
+                        showsRoute: model.quickRouteMode == .route,
+                        activeCoordinate: playback.currentCoordinate
+                    )
                 }
                 .mapControls { MapCompass(); MapScaleView(); MapUserLocationButton() }
                 .onTapGesture { point in

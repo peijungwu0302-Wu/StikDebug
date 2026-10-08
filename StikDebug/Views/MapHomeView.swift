@@ -40,25 +40,15 @@ struct MapHomeView: View {
             MapReader { proxy in
                 GeometryReader { mapGeometry in
                 Map(position: $camera) {
-                    UserAnnotation()
-                    S2GridMapContent(cells: s2Grid.result.cells)
-                    if model.quickRouteMode == .singlePoint && model.previewingRoute == nil {
-                        if let selected = candidateCoordinate {
-                            Marker(L10n.text("已選位置"), coordinate: selected.clCoordinate).tint(.blue)
-                        }
-                    } else {
-                        RouteWaypointMapContent(waypoints: displayWaypoints)
-                        if displayCoordinates.count > 1 {
-                            MapPolyline(coordinates: displayCoordinates.map(\.clCoordinate))
-                                .stroke(.blue, lineWidth: 5)
-                        }
-                    }
-                    if let current = activeSimulatedCoordinate {
-                        Annotation(L10n.text("目前模擬位置"), coordinate: current.clCoordinate) {
-                            Image(systemName: "location.circle.fill")
-                                .font(.title).foregroundStyle(.green).background(.white, in: Circle())
-                        }
-                    }
+                    RouteMapOverlayContent(
+                        s2Cells: s2Grid.result.cells,
+                        selection: candidateCoordinate,
+                        showsSelection: model.quickRouteMode == .singlePoint && model.previewingRoute == nil,
+                        waypoints: displayWaypoints,
+                        routeCoordinates: displayCoordinates,
+                        showsRoute: model.quickRouteMode != .singlePoint || model.previewingRoute != nil,
+                        activeCoordinate: activeSimulatedCoordinate
+                    )
                 }
                 .mapControls { MapCompass(); MapScaleView(); MapUserLocationButton() }
                 .onTapGesture { point in
@@ -133,12 +123,7 @@ struct MapHomeView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 6) {
-                        Picker(L10n.text("模式"), selection: $model.quickRouteMode) {
-                            ForEach(QuickRouteInteractionMode.allCases) { mode in
-                                Text(mode.title).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
+                        QuickRouteModePicker(selection: $model.quickRouteMode)
                         .tutorialTarget(.routeMode)
                         .frame(width: 140)
                         .disabled(model.isAnyRouteActive)
@@ -811,5 +796,49 @@ struct S2GridMapContent: MapContent {
             .stroke(.purple.opacity(0.65), lineWidth: 1)
             .foregroundStyle(.purple.opacity(0.035))
         }
+    }
+}
+
+struct RouteMapOverlayContent: MapContent {
+    let s2Cells: [S2GridCell]
+    let selection: RouteCoordinate?
+    let showsSelection: Bool
+    let waypoints: [RouteCoordinate]
+    let routeCoordinates: [RouteCoordinate]
+    let showsRoute: Bool
+    let activeCoordinate: RouteCoordinate?
+
+    var body: some MapContent {
+        UserAnnotation()
+        S2GridMapContent(cells: s2Cells)
+        if showsSelection, let selection {
+            Marker(L10n.text("已選位置"), coordinate: selection.clCoordinate).tint(.blue)
+        }
+        if showsRoute {
+            RouteWaypointMapContent(waypoints: waypoints)
+            if routeCoordinates.count > 1 {
+                MapPolyline(coordinates: routeCoordinates.map(\.clCoordinate))
+                    .stroke(.blue, lineWidth: 5)
+            }
+        }
+        if let activeCoordinate {
+            Annotation(L10n.text("目前模擬位置"), coordinate: activeCoordinate.clCoordinate) {
+                Image(systemName: "location.circle.fill")
+                    .font(.title).foregroundStyle(.green).background(.white, in: Circle())
+            }
+        }
+    }
+}
+
+struct QuickRouteModePicker: View {
+    @Binding var selection: QuickRouteInteractionMode
+
+    var body: some View {
+        Picker(L10n.text("模式"), selection: $selection) {
+            ForEach(QuickRouteInteractionMode.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
     }
 }
