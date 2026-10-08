@@ -15,6 +15,24 @@
       "tintColor": "#007AFF",
       "versions": [
         {
+          "version": "1.2.23",
+          "date": "2026-10-08",
+          "size": 7105998,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.23/RouteLocation-v1.2.23-unsigned.ipa",
+          "localizedDescription": "RouteLocation v1.2.23 adds an optional S2 map visualization, faster saved-route import and playback, clearer route and place workflows, and safer interactive guidance. The S2 grid is display-only and does not affect location simulation. / RouteLocation v1.2.23 新增選用的 S2 地圖視覺圖層，並改善路線匯入與播放、地點操作及互動教學。S2 網格僅供地圖顯示，不影響定位模擬。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        },
+        {
           "version": "1.2.22",
           "date": "2026-10-04",
           "size": 7016219,
