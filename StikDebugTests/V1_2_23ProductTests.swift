@@ -12,6 +12,11 @@ struct V1_2_24WorkflowTests {
         #expect(CoordinateAlertInputValidation.coordinates(in: "25.033964,121.564468\n25.04,121.57") == [a, b])
     }
 
+    @Test func multipleJSONClipboardItemsPreserveAllWaypoints() throws {
+        let coordinates = try CoordinatePastePayload.parse(["[[25,121],[26,122]]", "[[27,123],[28,124]]"])
+        #expect(coordinates == [RouteCoordinate(latitude: 25, longitude: 121), RouteCoordinate(latitude: 26, longitude: 122), RouteCoordinate(latitude: 27, longitude: 123), RouteCoordinate(latitude: 28, longitude: 124)])
+    }
+
     @MainActor @Test func singlePastePreviewsWithoutChangingDraftOrSimulating() {
         let model = RouteLocationModel()
         #expect(model.replaceWaypoints([a, b]))

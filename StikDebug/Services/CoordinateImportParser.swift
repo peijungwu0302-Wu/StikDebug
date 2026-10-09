@@ -20,7 +20,14 @@ enum CoordinateImportError: LocalizedError, Equatable {
 
 enum CoordinatePastePayload {
     static func parse(_ strings: [String]) throws -> [RouteCoordinate] {
-        try CoordinateImportParser.parseInline(strings.joined(separator: "\n"))
+        var result: [RouteCoordinate] = []
+        for text in strings where !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            for coordinate in try CoordinateImportParser.parseInline(text) where result.last != coordinate {
+                result.append(coordinate)
+            }
+        }
+        guard !result.isEmpty else { throw CoordinateImportError.emptyInput }
+        return result
     }
 }
 

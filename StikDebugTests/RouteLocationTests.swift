@@ -753,7 +753,24 @@ struct SimulationStateMachineTests {
         model.replaceWaypoints(draft)
         await model.startRoute(target)
         #expect(model.simulationMode == .idle)
+        let originalName = model.routeName
+        let originalSpeed = model.speedKmh
+        model.testBeforeDraftSaveForPlayback = { [weak model] in
+            guard let model else { return }
+            #expect(model.isSavingDraftForPlayback)
+            #expect(!model.addWaypoint(RouteCoordinate(latitude: 27, longitude: 123)))
+            model.routeName = "Late edit"
+            model.speedKmh = 42
+            model.isClosedLoop = false
+            #expect(model.routeName == originalName)
+            #expect(model.speedKmh == originalSpeed)
+            #expect(model.isClosedLoop)
+            await model.startPlayback()
+            #expect(model.simulationMode == .idle)
+        }
         await model.resolveSavedRouteDraftConflict(saveDraft: true)
+        model.testBeforeDraftSaveForPlayback = nil
+        #expect(!model.isSavingDraftForPlayback)
         let saved = try await store.loadRoutes()
         #expect(saved.count == 1)
         #expect(saved.first?.waypoints == draft)

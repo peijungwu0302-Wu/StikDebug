@@ -23,27 +23,27 @@ final class RouteLocationModel: ObservableObject {
     @Published var routeName = L10n.text("新路線") {
         didSet {
             guard !restoreRouteConfigurationAfterRejectedEdit else { return }
-            guard !isAnyRouteActive else { restoreRouteConfiguration(oldValue, setter: { self.routeName = $0 }); return }
+            guard !isAnyRouteActive && !isSavingDraftForPlayback else { restoreRouteConfiguration(oldValue, setter: { self.routeName = $0 }); return }
         }
     }
     @Published var routeMode: RouteMode = .straight {
         didSet {
             guard !restoreRouteConfigurationAfterRejectedEdit else { return }
-            guard !isAnyRouteActive else { restoreRouteConfiguration(oldValue, setter: { self.routeMode = $0 }); return }
+            guard !isAnyRouteActive && !isSavingDraftForPlayback else { restoreRouteConfiguration(oldValue, setter: { self.routeMode = $0 }); return }
             routeInputsChanged()
         }
     }
     @Published var navigationTransport: NavigationTransportMode = .automobile {
         didSet {
             guard !restoreRouteConfigurationAfterRejectedEdit else { return }
-            guard !isAnyRouteActive else { restoreRouteConfiguration(oldValue, setter: { self.navigationTransport = $0 }); return }
+            guard !isAnyRouteActive && !isSavingDraftForPlayback else { restoreRouteConfiguration(oldValue, setter: { self.navigationTransport = $0 }); return }
             routeInputsChanged()
         }
     }
     @Published var isClosedLoop = true {
         didSet {
             guard !restoreRouteConfigurationAfterRejectedEdit else { return }
-            guard !isAnyRouteActive else { restoreRouteConfiguration(oldValue, setter: { self.isClosedLoop = $0 }); return }
+            guard !isAnyRouteActive && !isSavingDraftForPlayback else { restoreRouteConfiguration(oldValue, setter: { self.isClosedLoop = $0 }); return }
             if !isClosedLoop, playbackMode != .once { playbackMode = .once }
             routeInputsChanged()
         }
@@ -51,13 +51,15 @@ final class RouteLocationModel: ObservableObject {
     @Published var playbackMode: RoutePlaybackMode = .infiniteLoop {
         didSet {
             guard !restoreRouteConfigurationAfterRejectedEdit else { return }
-            guard !isAnyRouteActive else { restoreRouteConfiguration(oldValue, setter: { self.playbackMode = $0 }); return }
+            guard !isAnyRouteActive && !isSavingDraftForPlayback else { restoreRouteConfiguration(oldValue, setter: { self.playbackMode = $0 }); return }
             let normalized = playbackMode.normalized(isClosedLoop: isClosedLoop)
             if normalized != playbackMode { playbackMode = normalized }
         }
     }
     @Published var speedKmh: Double {
         didSet {
+            guard !restoreRouteConfigurationAfterRejectedEdit else { return }
+            guard !isSavingDraftForPlayback else { restoreRouteConfiguration(oldValue, setter: { self.speedKmh = $0 }); return }
             let normalized = PlaybackSpeedPolicy.clamp(speedKmh)
             if normalized != speedKmh {
                 speedKmh = normalized
@@ -86,6 +88,10 @@ final class RouteLocationModel: ObservableObject {
     @Published var previewingRoute: SavedRoute?
     @Published var showActiveRouteSwitchAlert = false
     @Published var showSavedRouteDraftConflict = false
+    @Published private(set) var isSavingDraftForPlayback = false
+    #if DEBUG
+    var testBeforeDraftSaveForPlayback: (@MainActor () async -> Void)?
+    #endif
     @Published private(set) var pendingDraftPlaybackRoute: SavedRoute?
     @Published var showCoordinatePasteChoice = false
     private var pendingCoordinatePaste: [RouteCoordinate] = []
@@ -521,7 +527,7 @@ final class RouteLocationModel: ObservableObject {
             )
             try await persistence.saveRoute(route)
             loadedRouteID = route.id
-            if !isAnyRouteActive { routeName = finalName }
+            if !isAnyRouteActive && !isSavingDraftForPlayback { routeName = finalName }
             await reloadRoutes()
             statusMessage = L10n.text("路線已儲存，可離線播放。")
             return true
@@ -647,12 +653,12 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func canEditRoute(_ route: SavedRoute? = nil) -> Bool {
-        !isAnyRouteActive
+        !isAnyRouteActive && !isSavingDraftForPlayback
     }
 
     func requestEditRoute(_ route: SavedRoute) -> Bool {
         guard canEditRoute(route) else {
-            presentedError = L10n.text("目前正在執行路線，請先結束目前路線後再編輯。")
+            presentedError = L10n.text(isSavingDraftForPlayback ? "儲存草稿中，請稍候再編輯。" : "目前正在執行路線，請先結束目前路線後再編輯。")
             return false
         }
         loadRoute(route)
@@ -754,7 +760,13 @@ final class RouteLocationModel: ObservableObject {
               canMutateRouteDraft(notifyIfLocked: true) else { return }
         if saveDraft {
             // Persist before replacing the draft; a failure leaves it intact.
-            guard await saveCurrentRoute(asCopy: true) else { return }
+            isSavingDraftForPlayback = true
+            #if DEBUG
+            await testBeforeDraftSaveForPlayback?()
+            #endif
+            let saved = await persistCurrentRoute(named: nil, asCopy: true)
+            isSavingDraftForPlayback = false
+            guard saved else { return }
         }
         guard canMutateRouteDraft(notifyIfLocked: true),
               pendingDraftPlaybackRoute?.id == route.id else { return }
@@ -1295,7 +1307,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func startPlayback() async {
-        guard !isAnyRouteActive else { showRouteEditingLockedMessage(); return }
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         if isCellularBootstrapPreparationNeeded {
             let firstCoord = geometry.coordinates.first
             requestBootstrapIfCellular(targetCoordinate: firstCoord) { [weak self] in
@@ -1419,7 +1431,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     private func canMutateRouteDraft(notifyIfLocked: Bool) -> Bool {
-        guard !isAnyRouteActive else {
+        guard !isAnyRouteActive && !isSavingDraftForPlayback else {
             if notifyIfLocked { showRouteEditingLockedMessage() }
             return false
         }
@@ -1427,7 +1439,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     private func showRouteEditingLockedMessage() {
-        let message = L10n.text("路線播放中，請先停止路線再編輯。")
+        let message = L10n.text(isSavingDraftForPlayback ? "儲存草稿中，請稍候再編輯。" : "路線播放中，請先停止路線再編輯。")
         statusMessage = message
         ToastManager.shared.show(message, kind: .info)
     }
