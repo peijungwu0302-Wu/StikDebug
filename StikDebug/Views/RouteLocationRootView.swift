@@ -76,6 +76,8 @@ struct RouteLocationRootView: View {
         }
         .onChange(of: model.showModeSwitchAlert) { _, visible in if visible { tutorial.interrupt() } }
         .onChange(of: model.showActiveRouteSwitchAlert) { _, visible in if visible { tutorial.interrupt() } }
+        .onChange(of: model.showSavedRouteDraftConflict) { _, visible in if visible { tutorial.interrupt() } }
+        .onChange(of: model.showCoordinatePasteChoice) { _, visible in if visible { tutorial.interrupt() } }
         .onChange(of: tutorial.completedFlow) { _, flow in
             if flow != nil { toast.show(L10n.text("tutorial.completed"), kind: .success) }
         }
@@ -147,6 +149,25 @@ struct RouteLocationRootView: View {
 
     private var presentationContent: some View {
         alertContent
+        .alert(L10n.text("保留未儲存的路線草稿？"), isPresented: $model.showSavedRouteDraftConflict) {
+            Button(L10n.text("儲存草稿並播放")) {
+                Task { await model.resolveSavedRouteDraftConflict(saveDraft: true) }
+            }
+            Button(L10n.text("捨棄草稿並播放"), role: .destructive) {
+                Task { await model.resolveSavedRouteDraftConflict(saveDraft: false) }
+            }
+            Button(L10n.text("取消"), role: .cancel) { model.cancelSavedRouteDraftConflict() }
+        } message: {
+            Text(L10n.text("播放已儲存路線將取代目前草稿。儲存失敗時會保留草稿，不開始播放。"))
+        }
+        .confirmationDialog(L10n.text("目前已有路線草稿"), isPresented: $model.showCoordinatePasteChoice, titleVisibility: .visible) {
+            Button(L10n.text("取代目前路線並預覽")) { model.resolveCoordinatePaste(.replace) }
+            Button(L10n.text("附加到目前路線")) { model.resolveCoordinatePaste(.append) }
+            Button(L10n.text("取消"), role: .cancel) { model.resolveCoordinatePaste(.cancel) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .switchToMapTab)) { _ in
+            selectedTab = .map
+        }
         .onReceive(NotificationCenter.default.publisher(for: .switchToRoutesTab)) { _ in
             selectedTab = .my
         }

@@ -5,12 +5,16 @@ import UniformTypeIdentifiers
 /// Pure validation shared by the coordinate-entry UI and its deterministic tests.
 enum CoordinateAlertInputValidation {
     static func coordinate(in text: String) -> RouteCoordinate? {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return try? CoordinateImportParser.parseInline(text).first
+        let values = coordinates(in: text)
+        return values.count == 1 ? values.first : nil
+    }
+
+    static func coordinates(in text: String) -> [RouteCoordinate] {
+        (try? CoordinatePastePayload.parse([text])) ?? []
     }
 
     static func actionsEnabled(for text: String) -> Bool {
-        coordinate(in: text) != nil
+        !coordinates(in: text).isEmpty
     }
 }
 
@@ -43,7 +47,7 @@ enum CoordinateAlertPasteControl {
 struct CoordinateAlertPresenter: UIViewControllerRepresentable {
     @EnvironmentObject private var tutorial: GuidedTutorialCoordinator
     @Binding var isPresented: Bool
-    let onSubmit: (RouteCoordinate, Bool) -> Void
+    let onSubmit: ([RouteCoordinate], Bool) -> Void
 
     func makeUIViewController(context: Context) -> CoordinateAlertHostController {
         CoordinateAlertHostController()
@@ -63,7 +67,7 @@ struct CoordinateAlertPresenter: UIViewControllerRepresentable {
 
 final class CoordinateAlertHostController: UIViewController {
     var isPresented: Binding<Bool>?
-    var onSubmit: ((RouteCoordinate, Bool) -> Void)?
+    var onSubmit: (([RouteCoordinate], Bool) -> Void)?
     weak var tutorial: GuidedTutorialCoordinator?
     private weak var activeModal: CoordinateEntryModalViewController?
 
@@ -78,11 +82,15 @@ final class CoordinateAlertHostController: UIViewController {
 
         let modal = CoordinateEntryModalViewController(onSubmit: { [weak self] coordinate, simulateImmediately in
             self?.finishPresentation()
-            self?.onSubmit?(coordinate, simulateImmediately)
+            self?.onSubmit?([coordinate], simulateImmediately)
         }, onCancel: { [weak self] in
             self?.tutorial?.skip()
             self?.finishPresentation()
         })
+        modal.onSubmitCoordinates = { [weak self] coordinates, simulateImmediately in
+            self?.finishPresentation()
+            self?.onSubmit?(coordinates, simulateImmediately)
+        }
         if tutorial?.isActive == true {
             modal.onSkipTutorial = { [weak self] in self?.tutorial?.skip() }
         }
@@ -130,6 +138,7 @@ final class CoordinateEntryModalViewController: UIViewController {
     private var hasFinished = false
 
     var onSubmit: (RouteCoordinate, Bool) -> Void
+    var onSubmitCoordinates: (([RouteCoordinate], Bool) -> Void)?
     var onCancel: () -> Void
     // Optional, UI-only tutorial actions. Neither action invokes simulation.
     var onSkipTutorial: (() -> Void)?
@@ -415,6 +424,9 @@ final class CoordinateEntryModalViewController: UIViewController {
         let enabled = CoordinateAlertInputValidation.actionsEnabled(for: coordinateTextField.text ?? "")
         previewButton.isEnabled = enabled
         simulateButton.isEnabled = enabled
+        let multiple = CoordinateAlertInputValidation.coordinates(in: coordinateTextField.text ?? "").count > 1
+        simulateButton.configuration?.title = L10n.text(multiple ? "建立路線預覽" : "立即模擬")
+        simulateButton.accessibilityLabel = L10n.text(multiple ? "建立路線預覽" : "立即模擬")
     }
 
     @objc private func previewPressed() {
@@ -430,11 +442,16 @@ final class CoordinateEntryModalViewController: UIViewController {
     }
 
     private func submit(simulateImmediately: Bool) {
-        guard let coordinate = CoordinateAlertInputValidation.coordinate(in: coordinateTextField.text ?? "") else {
+        let coordinates = CoordinateAlertInputValidation.coordinates(in: coordinateTextField.text ?? "")
+        guard !coordinates.isEmpty else {
             updateActionAvailability()
             return
         }
-        finish { [onSubmit] in onSubmit(coordinate, simulateImmediately) }
+        if let onSubmitCoordinates {
+            finish { onSubmitCoordinates(coordinates, simulateImmediately && coordinates.count == 1) }
+        } else if coordinates.count == 1, let coordinate = coordinates.first {
+            finish { [onSubmit] in onSubmit(coordinate, simulateImmediately) }
+        }
     }
 
     private func finish(completion: @escaping () -> Void) {

@@ -85,6 +85,10 @@ final class RouteLocationModel: ObservableObject {
     private(set) var locationAlreadyWrittenByBootstrap: RouteCoordinate?
     @Published var previewingRoute: SavedRoute?
     @Published var showActiveRouteSwitchAlert = false
+    @Published var showSavedRouteDraftConflict = false
+    @Published private(set) var pendingDraftPlaybackRoute: SavedRoute?
+    @Published var showCoordinatePasteChoice = false
+    private var pendingCoordinatePaste: [RouteCoordinate] = []
     @Published var pendingSwitchRoute: SavedRoute?
     @Published var showEndRouteOptions = false
     private var pendingBootstrapAction: (@MainActor () -> Void)?
@@ -105,6 +109,7 @@ final class RouteLocationModel: ObservableObject {
     @Published var presentedError: String?
     @Published var statusMessage: String?
     @Published private(set) var mapFocusRevision = UUID()
+    private(set) var mapFocusTargetsRoute = false
 
     let playback: RoutePlaybackEngine
     let connectionMonitor: ConnectionMonitor
@@ -302,6 +307,7 @@ final class RouteLocationModel: ObservableObject {
 
     func focusOnMap(_ coordinate: RouteCoordinate) {
         guard coordinate.isValid else { return }
+        mapFocusTargetsRoute = false
         previewingRoute = nil
         selectedCoordinate = coordinate
         selectedPlaceRevision = UUID()
@@ -685,6 +691,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func previewRoute(_ route: SavedRoute) {
+        mapFocusTargetsRoute = true
         // Previewing a different saved route is read-only with respect to the
         // immutable active playback snapshot.  Starting or editing it remains
         // guarded by the route-switch/edit flows.
@@ -693,6 +700,7 @@ final class RouteLocationModel: ObservableObject {
     }
 
     func cancelRoutePreview() {
+        mapFocusTargetsRoute = false
         previewingRoute = nil
         mapFocusRevision = UUID()
     }
@@ -714,9 +722,98 @@ final class RouteLocationModel: ObservableObject {
 
     func startRoute(_ route: SavedRoute) async {
         guard canMutateRouteDraft(notifyIfLocked: true) else { return }
+        await waitForInitialPersistenceLoad()
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
+        if hasUnsavedRouteDraft {
+            pendingDraftPlaybackRoute = route
+            showSavedRouteDraftConflict = true
+            return
+        }
+        await beginSavedRoute(route)
+    }
+
+    /// A loaded, unchanged saved route is not an unsaved draft. Any other
+    /// nonempty draft is protected, including edits to a previously saved route.
+    var hasUnsavedRouteDraft: Bool {
+        guard !waypoints.isEmpty else { return false }
+        guard let saved = currentSavedRoute else { return true }
+        return saved.name != routeName || saved.waypoints != waypoints
+            || saved.resolvedGeometry != geometry || saved.routeMode != routeMode
+            || saved.navigationTransportMode != navigationTransport
+            || saved.isClosedLoop != isClosedLoop || saved.playbackMode != playbackMode
+            || saved.preferredSpeedKmh != speedKmh || navigationGeometryNeedsRecalculation
+    }
+
+    func cancelSavedRouteDraftConflict() {
+        showSavedRouteDraftConflict = false
+        pendingDraftPlaybackRoute = nil
+    }
+
+    func resolveSavedRouteDraftConflict(saveDraft: Bool) async {
+        guard let route = pendingDraftPlaybackRoute,
+              canMutateRouteDraft(notifyIfLocked: true) else { return }
+        if saveDraft {
+            // Persist before replacing the draft; a failure leaves it intact.
+            guard await saveCurrentRoute(asCopy: true) else { return }
+        }
+        guard canMutateRouteDraft(notifyIfLocked: true),
+              pendingDraftPlaybackRoute?.id == route.id else { return }
+        cancelSavedRouteDraftConflict()
+        await beginSavedRoute(route)
+    }
+
+    private func beginSavedRoute(_ route: SavedRoute) async {
         previewingRoute = nil
         loadRoute(route)
         await startPlayback()
+    }
+
+    var quickPlaybackRoute: SavedRoute? {
+        let favorites = savedRoutes.filter(\.isFavorite).sorted {
+            let left = $0.lastUsedAt ?? $0.updatedAt
+            let right = $1.lastUsedAt ?? $1.updatedAt
+            return left == right ? $0.id.uuidString < $1.id.uuidString : left > right
+        }
+        return favorites.first ?? RouteLibrarySortPolicy.recentlyUsed(savedRoutes).first
+    }
+
+    /// Clipboard and coordinate entry share one interpretation; neither starts
+    /// simulation. Multiple points retain the existing replace/append choice.
+    func requestCoordinatePreview(_ coordinates: [RouteCoordinate]) {
+        guard !coordinates.isEmpty, coordinates.allSatisfy(\.isValid),
+              canMutateRouteDraft(notifyIfLocked: true) else { return }
+        if coordinates.count == 1, let coordinate = coordinates.first {
+            quickRouteMode = .singlePoint
+            focusOnMap(coordinate)
+        } else {
+            pendingCoordinatePaste = coordinates
+            if MultiCoordinatePastePolicy.requiresChoice(existingDraftCount: waypoints.count) {
+                showCoordinatePasteChoice = true
+            } else {
+                resolveCoordinatePaste(.replace)
+            }
+        }
+    }
+
+    func resolveCoordinatePaste(_ decision: MultiCoordinatePasteDecision) {
+        showCoordinatePasteChoice = false
+        let coordinates = pendingCoordinatePaste
+        pendingCoordinatePaste = []
+        guard decision != .cancel else { return }
+        applyCoordinatePaste(coordinates, appending: decision == .append)
+    }
+
+    func applyCoordinatePaste(_ coordinates: [RouteCoordinate], appending: Bool) {
+        guard !coordinates.isEmpty else { return }
+        if coordinates.count == 1 {
+            requestCoordinatePreview(coordinates)
+            return
+        }
+        let applied = appending ? appendWaypoints(coordinates) : replaceWaypoints(coordinates)
+        guard applied else { return }
+        mapFocusTargetsRoute = true
+        mapFocusRevision = UUID()
+        ToastManager.shared.show(L10n.format("已匯入 %d 個航點。", coordinates.count), kind: .success)
     }
 
     func confirmSwitchToRoute(_ route: SavedRoute) async {
@@ -1227,6 +1324,9 @@ final class RouteLocationModel: ObservableObject {
             if routeMode == .navigation, navigationGeometryNeedsRecalculation { throw RouteLocationError.navigationNeedsRecalculation }
             try await playback.start(routeName: routeName, geometry: geometry, speedKmh: speedKmh, mode: playbackMode)
             simulationMode = .routePlaying
+            mapFocusTargetsRoute = true
+            mapFocusRevision = UUID()
+            NotificationCenter.default.post(name: .switchToMapTab, object: nil)
             LocationSessionCoordinator.shared.markSessionHealthy()
             if let loadedRouteID {
                 await markRouteUsed(id: loadedRouteID)

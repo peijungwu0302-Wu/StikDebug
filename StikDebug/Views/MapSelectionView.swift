@@ -29,8 +29,6 @@ struct RouteMapView: View {
     @State private var showFavoriteRouteName = false
     @State private var showCoordinateEntry = false
     @State private var showMyRoutes = false
-    @State private var pendingPasteCoordinates: [RouteCoordinate] = []
-    @State private var showPasteDraftChoice = false
     @State private var favoriteName = ""
     @State private var favoriteRouteName = ""
     @State private var favoriteCoordinate: RouteCoordinate?
@@ -177,13 +175,6 @@ struct RouteMapView: View {
                 fitRoute()
             }
         }
-        .confirmationDialog(L10n.text("目前已有路線草稿"), isPresented: $showPasteDraftChoice, titleVisibility: .visible) {
-            Button(L10n.text("取代草稿並預覽")) { applyPastedRoute(replacing: true) }
-            Button(L10n.text("附加到目前路線")) { applyPastedRoute(replacing: false) }
-            Button(L10n.text("取消"), role: .cancel) { pendingPasteCoordinates = [] }
-        } message: {
-            Text(L10n.text("貼上的多個座標會建立路線。您可以取代或附加到目前草稿；取消不會變更路線。"))
-        }
         .sheet(isPresented: $showSearch) {
             LocationSearchPicker { coordinate in
                 model.select(coordinate.clCoordinate)
@@ -191,11 +182,12 @@ struct RouteMapView: View {
             }
         }
         .background {
-            CoordinateAlertPresenter(isPresented: $showCoordinateEntry) { coordinate, simulateImmediately in
-                model.select(coordinate.clCoordinate)
-                camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
-                if simulateImmediately {
+            CoordinateAlertPresenter(isPresented: $showCoordinateEntry) { coordinates, simulateImmediately in
+                if coordinates.count == 1, let coordinate = coordinates.first, simulateImmediately {
+                    model.focusOnMap(coordinate)
                     model.requestSinglePointSimulation(at: coordinate)
+                } else {
+                    model.requestCoordinatePreview(coordinates)
                 }
             }
             .frame(width: 1, height: 1)
@@ -215,7 +207,7 @@ struct RouteMapView: View {
             }
         }
         .onChange(of: model.mapFocusRevision) { _, _ in
-            if model.previewingRoute != nil {
+            if model.previewingRoute != nil || model.mapFocusTargetsRoute {
                 fitRoute()
             } else if let coordinate = model.selectedCoordinate {
                 camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
@@ -279,41 +271,12 @@ struct RouteMapView: View {
         s2Grid.update(samples: samples, metersPerPoint: metersPerPoint, mode: mode)
     }
 
-    private func acceptPastedCoordinates(_ text: String) {
-        do {
-            let coordinates = try CoordinateImportParser.parseInline(text)
-            guard !coordinates.isEmpty else { return }
-            if coordinates.count == 1, let coordinate = coordinates.first {
-                model.quickRouteMode = .singlePoint
-                model.focusOnMap(coordinate)
-                camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
-                return
-            }
-            pendingPasteCoordinates = coordinates
-            if MultiCoordinatePastePolicy.requiresChoice(existingDraftCount: model.waypoints.count) {
-                showPasteDraftChoice = true
-            } else {
-                applyPastedRoute(replacing: true)
-            }
-        } catch {
-            model.presentedError = error.localizedDescription
-        }
-    }
 
     private func handlePastedValues(_ values: [String]) {
-        guard let text = values.first else { return }
-        acceptPastedCoordinates(text)
+        do { model.requestCoordinatePreview(try CoordinatePastePayload.parse(values)) }
+        catch { model.presentedError = error.localizedDescription }
     }
 
-    private func applyPastedRoute(replacing: Bool) {
-        let coordinates = pendingPasteCoordinates
-        pendingPasteCoordinates = []
-        guard !coordinates.isEmpty else { return }
-        let applied = replacing ? model.replaceWaypoints(coordinates) : model.appendWaypoints(coordinates)
-        guard applied else { return }
-        fitRoute()
-        model.statusMessage = L10n.format("已匯入 %d 個航點。", coordinates.count)
-    }
 
     @ViewBuilder
     private var controlCard: some View {
@@ -355,6 +318,16 @@ struct RouteMapView: View {
                 }
             }
             if isCardExpanded {
+                if model.waypoints.isEmpty, model.selectedCoordinate == nil,
+                   model.previewingRoute == nil, !model.simulationMode.isSimulating,
+                   let route = model.quickPlaybackRoute {
+                    Button { model.requestStartRoute(route) } label: {
+                        Label(L10n.format("播放：%@", route.name), systemImage: "play.fill")
+                            .lineLimit(2).frame(minHeight: 44, alignment: .leading)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel(L10n.format("開始路線：%@", route.name))
+                }
                 if let active = model.activeSimulatedCoordinate, !model.simulationMode.isRouteSimulation {
                     if let candidate = ClassicRouteMapCardSelection.selectedCandidate(
                         active: active,
@@ -523,7 +496,11 @@ struct QuickRouteMapView: View {
                         showsSelection: model.quickRouteMode == .singlePoint,
                         waypoints: model.waypoints,
                         routeCoordinates: model.geometry.coordinates,
-                        showsRoute: model.quickRouteMode == .route,
+                        showsRoute: RouteMapOverlayPolicy.shouldShowRouteGeometry(
+                            mode: model.quickRouteMode,
+                            hasPreview: model.previewingRoute != nil,
+                            routeIsActive: model.isAnyRouteActive
+                        ),
                         activeCoordinate: playback.currentCoordinate
                     )
                 }
@@ -578,15 +555,13 @@ struct QuickRouteMapView: View {
             }
         }
         .background {
-            CoordinateAlertPresenter(isPresented: $showCoordinateEntry) { coordinate, simulateImmediately in
-                if simulateImmediately {
+            CoordinateAlertPresenter(isPresented: $showCoordinateEntry) { coordinates, simulateImmediately in
+                if coordinates.count == 1, let coordinate = coordinates.first, simulateImmediately {
+                    model.focusOnMap(coordinate)
                     model.requestSinglePointSimulation(at: coordinate)
-                } else if model.quickRouteMode == .route {
-                    model.addWaypointAndSwitchToRoute(coordinate)
                 } else {
-                    model.select(coordinate.clCoordinate)
+                    model.requestCoordinatePreview(coordinates)
                 }
-                camera = .region(MKCoordinateRegion(center: coordinate.clCoordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))
             }
             .frame(width: 1, height: 1)
         }

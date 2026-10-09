@@ -5,6 +5,29 @@ import UniformTypeIdentifiers
 @testable import RouteLocation
 
 struct V1_2_14UXTests {
+    @Test @MainActor func multiPointCoordinateModalReturnsEveryWaypointWithoutSimulation() {
+        var submitted: [RouteCoordinate] = []
+        var simulate = true
+        let controller = CoordinateEntryModalViewController(onSubmit: { _, _ in
+            Issue.record("Multi-point input must not enter the single-point callback")
+        }, onCancel: {})
+        controller.onSubmitCoordinates = { values, immediately in
+            submitted = values
+            simulate = immediately
+        }
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+        controller.coordinateTextField.text = "25.033964,121.564468\n25.04,121.57"
+        controller.coordinateTextField.sendActions(for: .editingChanged)
+        #expect(controller.previewButton.isEnabled && controller.simulateButton.isEnabled)
+        #expect(controller.coordinateTextField.bounds.width > 100)
+        #expect(controller.pasteControlContainer.bounds.width == 92)
+        controller.simulateButton.sendActions(for: .touchUpInside)
+        #expect(submitted.count == 2)
+        #expect(submitted.last == RouteCoordinate(latitude: 25.04, longitude: 121.57))
+        #expect(!simulate)
+    }
     @Test func routeCopyDocumentPreservesRouteAndPlaybackMetadata() throws {
         let coordinates = [
             RouteCoordinate(latitude: 25.033996, longitude: 121.561216),

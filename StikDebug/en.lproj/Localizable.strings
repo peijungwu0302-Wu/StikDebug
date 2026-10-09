@@ -1073,3 +1073,9 @@
 "無法匯入路線：%@" = "Could not import route: %@";
 "路線已匯入並儲存，可在我的路線中再次使用。" = "Route imported and saved. Find it in My → Routes.";
 "找不到路線" = "No routes found";
+"保留未儲存的路線草稿？" = "Keep your unsaved route draft?";
+"儲存草稿並播放" = "Save Draft and Play";
+"捨棄草稿並播放" = "Discard Draft and Play";
+"播放已儲存路線將取代目前草稿。儲存失敗時會保留草稿，不開始播放。" = "Playing a saved route replaces the current draft. If saving fails, your draft is kept and playback does not start.";
+"建立路線預覽" = "Preview Route";
+"播放：%@" = "Play: %@";

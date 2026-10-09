@@ -720,6 +720,68 @@ struct SimulationStateMachineTests {
     init() {
         TestBootstrapEnvironment.reset()
     }
+    @Test func savedRouteDirectStartFromSingleShowsRouteAndFocusesOnlyOnce() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = RouteLocationModel(persistence: RoutePersistenceStore(rootURL: directory), simulationService: sink)
+        let route = SavedRoute.testRoute(waypoints: [RouteCoordinate(latitude: 25, longitude: 121), RouteCoordinate(latitude: 25.1, longitude: 121.1)])
+        let before = model.mapFocusRevision
+        await model.startRoute(route)
+        #expect(model.quickRouteMode == .singlePoint)
+        #expect(model.simulationMode == .routePlaying)
+        #expect(model.mapFocusRevision != before)
+        #expect(model.mapFocusTargetsRoute)
+        #expect(RouteMapOverlayPolicy.shouldShowRouteGeometry(mode: model.quickRouteMode, hasPreview: false, routeIsActive: model.isAnyRouteActive))
+        #expect(model.geometry == route.resolvedGeometry)
+        let revision = model.mapFocusRevision
+        model.playback.pause()
+        #expect(model.mapFocusRevision == revision)
+        let clears = await sink.clearCallCount()
+        #expect(clears == 0)
+        model.stopRoutePlayback(clearMarker: false)
+    }
+
+    @Test func saveDraftBeforeSavedRoutePlaybackPersistsOriginalPoints() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RoutePersistenceStore(rootURL: directory)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+        let draft = [RouteCoordinate(latitude: 25, longitude: 121), RouteCoordinate(latitude: 25.1, longitude: 121.1)]
+        let target = SavedRoute.testRoute(name: "Target", waypoints: [RouteCoordinate(latitude: 35, longitude: 139), RouteCoordinate(latitude: 35.1, longitude: 139.1)])
+        model.replaceWaypoints(draft)
+        await model.startRoute(target)
+        #expect(model.simulationMode == .idle)
+        await model.resolveSavedRouteDraftConflict(saveDraft: true)
+        let saved = try await store.loadRoutes()
+        #expect(saved.count == 1)
+        #expect(saved.first?.waypoints == draft)
+        #expect(model.waypoints == target.waypoints)
+        #expect(model.simulationMode == .routePlaying)
+        model.stopRoutePlayback(clearMarker: false)
+    }
+
+    @Test func failedDraftSaveDoesNotStartButExplicitDiscardCanPlay() async {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = RouteLocationModel(persistence: RoutePersistenceStore(rootURL: directory), simulationService: sink)
+        let first = RouteCoordinate(latitude: 25, longitude: 121)
+        let target = SavedRoute.testRoute(waypoints: [first, RouteCoordinate(latitude: 25.1, longitude: 121.1)])
+        model.replaceWaypoints([first])
+        await model.startRoute(target)
+        await model.resolveSavedRouteDraftConflict(saveDraft: true)
+        #expect(model.waypoints == [first])
+        #expect(model.simulationMode == .idle)
+        let calls = await sink.callCount()
+        #expect(calls == 0)
+        #expect(model.pendingDraftPlaybackRoute?.id == target.id)
+        await model.resolveSavedRouteDraftConflict(saveDraft: false)
+        #expect(model.waypoints == target.waypoints)
+        #expect(model.simulationMode == .routePlaying)
+        model.stopRoutePlayback(clearMarker: false)
+    }
     @Test func singlePointToRouteStartsNormallyWithoutClearingRealLocation() async throws {
         let sink = FakeLocationSink()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

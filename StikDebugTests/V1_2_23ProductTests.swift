@@ -3,6 +3,83 @@ import CoreLocation
 import Testing
 @testable import RouteLocation
 
+struct V1_2_24WorkflowTests {
+    private let a = RouteCoordinate(latitude: 25.033964, longitude: 121.564468)
+    private let b = RouteCoordinate(latitude: 25.04, longitude: 121.57)
+
+    @Test func pastePreservesEveryStringAndCoordinate() throws {
+        #expect(try CoordinatePastePayload.parse(["25.033964,121.564468", "25.04,121.57"]) == [a, b])
+        #expect(CoordinateAlertInputValidation.coordinates(in: "25.033964,121.564468\n25.04,121.57") == [a, b])
+    }
+
+    @MainActor @Test func singlePastePreviewsWithoutChangingDraftOrSimulating() {
+        let model = RouteLocationModel()
+        #expect(model.replaceWaypoints([a, b]))
+        model.requestCoordinatePreview([b])
+        #expect(model.selectedCoordinate == b)
+        #expect(model.quickRouteMode == .singlePoint)
+        #expect(model.waypoints == [a, b])
+        #expect(model.simulationMode == .idle)
+    }
+
+    @MainActor @Test func multiPasteProtectsDraftAndCancelPreservesIt() {
+        let model = RouteLocationModel()
+        #expect(model.replaceWaypoints([a]))
+        model.requestCoordinatePreview([a, b])
+        #expect(model.showCoordinatePasteChoice)
+        #expect(model.waypoints == [a])
+        model.resolveCoordinatePaste(.cancel)
+        #expect(model.waypoints == [a])
+        #expect(model.simulationMode == .idle)
+    }
+
+    @MainActor @Test func multiPasteCreatesDraftWithoutStartingPlayback() {
+        let model = RouteLocationModel()
+        model.requestCoordinatePreview([a, b])
+        #expect(model.waypoints == [a, b])
+        #expect(model.quickRouteMode == .route)
+        #expect(model.simulationMode == .idle)
+    }
+
+    @MainActor @Test func savedRouteStartCannotOverwriteDraftWithoutDecision() async {
+        let model = RouteLocationModel()
+        #expect(model.replaceWaypoints([a]))
+        let route = SavedRoute(name: "Requested", waypoints: [a, b], resolvedGeometry: RouteGeometry(coordinates: [a, b]), routeMode: .straight, isClosedLoop: false, preferredSpeedKmh: 18, playbackMode: .once)
+        await model.startRoute(route)
+        #expect(model.showSavedRouteDraftConflict)
+        #expect(model.pendingDraftPlaybackRoute?.id == route.id)
+        #expect(model.waypoints == [a])
+        #expect(model.simulationMode == .idle)
+        model.cancelSavedRouteDraftConflict()
+        #expect(model.pendingDraftPlaybackRoute == nil)
+        #expect(model.waypoints == [a])
+    }
+
+    @MainActor @Test func savedUnchangedDraftDoesNotRequireProtectionButEditsDo() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = RouteLocationModel(persistence: RoutePersistenceStore(rootURL: root))
+        let route = try #require(await model.importSavedRoute([a, b], named: "Saved"))
+        model.loadRoute(route)
+        #expect(!model.hasUnsavedRouteDraft)
+        #expect(model.addWaypoint(a))
+        #expect(model.hasUnsavedRouteDraft)
+    }
+
+    @MainActor @Test func quickPlayNamesAnExistingFavoriteWithoutCreatingNewRouteState() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = RouteLocationModel(persistence: RoutePersistenceStore(rootURL: root))
+        let route = try #require(await model.importSavedRoute([a, b], named: "Morning route"))
+        await model.toggleFavoriteRoute(route)
+        #expect(model.quickPlaybackRoute?.id == route.id)
+        #expect(model.quickPlaybackRoute?.name == "Morning route")
+        #expect(model.savedRoutes.count == 1)
+        #expect(model.waypoints.isEmpty)
+        #expect(model.simulationMode == .idle)
+    }
+}
+
 struct V1_2_23MapAndRoutePolicyTests {
     @Test func mapTapDoesNotRequestCameraRecenterButIntentionalFocusDoes() {
         #expect(!MapCameraActionPolicy.shouldRecenter(for: .mapTapSelection))

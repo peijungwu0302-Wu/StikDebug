@@ -18,6 +18,12 @@ enum CoordinateImportError: LocalizedError, Equatable {
     }
 }
 
+enum CoordinatePastePayload {
+    static func parse(_ strings: [String]) throws -> [RouteCoordinate] {
+        try CoordinateImportParser.parseInline(strings.joined(separator: "\n"))
+    }
+}
+
 enum CoordinateImportParser {
     static let supportedContentTypes: [UTType] = [
         .item, .plainText, .commaSeparatedText, .tabSeparatedText, .json, .xml,
