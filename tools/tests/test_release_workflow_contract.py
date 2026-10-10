@@ -29,6 +29,17 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         self.assertIn('if [[ "$COUNT" -ne 1 ]]', workflow)
         self.assertIn('select(.name == $name and .expired == false)', workflow)
 
+    def test_manual_feature_build_keeps_provenance_guards(self) -> None:
+        workflow = (ROOT / ".github/workflows/promote_release.yml").read_text(encoding="utf-8")
+        self.assertIn('(.event == "push" or .event == "workflow_dispatch")', workflow)
+        self.assertIn('( "$RUN_EVENT" != push && "$RUN_EVENT" != workflow_dispatch )', workflow)
+        self.assertIn('select(.head_sha == $sha', workflow)
+        self.assertIn('.conclusion == "success"', workflow)
+        self.assertIn('select(.head_branch | startswith("feat/"))', workflow)
+        self.assertIn('"$RUN_BRANCH" != feat/*', workflow)
+        self.assertIn('"$RUN_PATH" != *build_ipa.yml*', workflow)
+        self.assertIn('if [[ "$COUNT" -ne 1 ]]', workflow)
+
     def test_promotion_verifies_exact_artifact_before_publish_and_updates_source_from_ipa(self) -> None:
         workflow = (ROOT / ".github/workflows/promote_release.yml").read_text(encoding="utf-8")
         dry_run_block = workflow.split("- name: Complete promotion dry-run", 1)[1].split("- name: Create production GitHub Release", 1)[0]

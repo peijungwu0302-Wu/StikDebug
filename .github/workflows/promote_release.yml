@@ -142,13 +142,13 @@ jobs:
           RUNS_JSON=$(gh api "repos/$REPOSITORY/actions/workflows/build_ipa.yml/runs?head_sha=$SOURCE_SHA&per_page=100")
           mapfile -t RUN_IDS < <(jq -r --arg sha "$SOURCE_SHA" '
             .workflow_runs[]
-            | select(.head_sha == $sha and .event == "push" and .conclusion == "success")
+            | select(.head_sha == $sha and (.event == "push" or .event == "workflow_dispatch") and .conclusion == "success")
             | select(.head_branch | startswith("feat/"))
             | select(.path | contains("build_ipa.yml"))
             | .id
           ' <<<"$RUNS_JSON")
           if [[ ${#RUN_IDS[@]} -eq 0 ]]; then
-            echo "No successful feature push run from build_ipa.yml exists for $SOURCE_SHA" >&2
+            echo "No successful feature push or manually dispatched run from build_ipa.yml exists for $SOURCE_SHA" >&2
             exit 1
           fi
 
@@ -161,7 +161,7 @@ jobs:
             RUN_EVENT=$(jq -r .event <<<"$RUN_JSON")
             RUN_BRANCH=$(jq -r .head_branch <<<"$RUN_JSON")
             RUN_PATH=$(jq -r .path <<<"$RUN_JSON")
-            if [[ "$RUN_SHA" != "$SOURCE_SHA" || "$RUN_CONCLUSION" != success || "$RUN_EVENT" != push || "$RUN_BRANCH" != feat/* || "$RUN_PATH" != *build_ipa.yml* ]]; then
+            if [[ "$RUN_SHA" != "$SOURCE_SHA" || "$RUN_CONCLUSION" != success || ( "$RUN_EVENT" != push && "$RUN_EVENT" != workflow_dispatch ) || "$RUN_BRANCH" != feat/* || "$RUN_PATH" != *build_ipa.yml* ]]; then
               continue
             fi
             ARTIFACTS_JSON=$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100")
