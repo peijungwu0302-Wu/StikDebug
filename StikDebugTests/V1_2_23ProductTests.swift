@@ -7,6 +7,7 @@ struct V1_2_24WorkflowTests {
     // v1.2.25 targeted regression coverage.
     private let a = RouteCoordinate(latitude: 25.033964, longitude: 121.564468)
     private let b = RouteCoordinate(latitude: 25.04, longitude: 121.57)
+    private let c = RouteCoordinate(latitude: 25.05, longitude: 121.58)
 
     @MainActor @Test func clearingPastedDraftReturnsToSelectionAndClearsPendingPaste() {
         for classic in [false, true] {
@@ -47,13 +48,19 @@ struct V1_2_24WorkflowTests {
         for decision in MultiCoordinatePasteDecision.allCases {
             let model = RouteLocationModel()
             model.requestCoordinatePreview([a, b])
-            model.requestCoordinatePreview([b, a])
+            model.requestCoordinatePreview([c, a])
             model.resolveCoordinatePaste(decision)
-            let expected = decision == .append ? [a, b, b, a] : decision == .replace ? [b, a] : [a, b]
+            let expected = decision == .append ? [a, b, c, a] : decision == .replace ? [c, a] : [a, b]
             #expect(model.waypoints == expected)
             #expect(model.simulationMode == .idle)
             #expect(!model.showCoordinatePasteChoice)
         }
+        // Preserve the established adjacent-waypoint deduplication policy.
+        let model = RouteLocationModel()
+        model.requestCoordinatePreview([a, b])
+        model.requestCoordinatePreview([b, a])
+        model.resolveCoordinatePaste(.append)
+        #expect(model.waypoints == [a, b, a])
     }
 
     @MainActor @Test func previewEditorRequestSurvivesUntilColdLibraryConsumesIt() async throws {
