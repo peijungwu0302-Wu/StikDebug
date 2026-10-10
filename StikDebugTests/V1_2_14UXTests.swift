@@ -5,6 +5,28 @@ import UniformTypeIdentifiers
 @testable import RouteLocation
 
 struct V1_2_14UXTests {
+    @Test func flattenedCoordinateTextRetainsAllPoints() throws {
+        // UITextField is single-line: pasted line breaks may become spaces.
+        let points = try CoordinatePastePayload.parse(["25.033964,121.564468 25.04,121.57"])
+        #expect(points == [
+            RouteCoordinate(latitude: 25.033964, longitude: 121.564468),
+            RouteCoordinate(latitude: 25.04, longitude: 121.57)
+        ])
+    }
+
+    @Test func incompleteNumericCoordinateListCannotDropTrailingValues() {
+        #expect(throws: CoordinateImportError.self) {
+            try CoordinatePastePayload.parse(["25.033964,121.564468 25.04"])
+        }
+        #expect(!CoordinateAlertInputValidation.actionsEnabled(for: "25.033964,121.564468 25.04"))
+    }
+
+    @Test func invalidLaterCoordinateCannotSubmitEarlierPoint() {
+        #expect(throws: CoordinateImportError.self) {
+            try CoordinatePastePayload.parse(["25.033964,121.564468 91,121.57"])
+        }
+    }
+
     @Test @MainActor func multiPointCoordinateModalReturnsEveryWaypointWithoutSimulation() {
         var submitted: [RouteCoordinate] = []
         var simulate = true

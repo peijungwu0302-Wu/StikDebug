@@ -22,12 +22,34 @@ enum CoordinatePastePayload {
     static func parse(_ strings: [String]) throws -> [RouteCoordinate] {
         var result: [RouteCoordinate] = []
         for text in strings where !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            for coordinate in try CoordinateImportParser.parseInline(text) where result.last != coordinate {
+            let coordinates = try numericCoordinateList(text) ?? CoordinateImportParser.parseInline(text)
+            for coordinate in coordinates where result.last != coordinate {
                 result.append(coordinate)
             }
         }
         guard !result.isEmpty else { throw CoordinateImportError.emptyInput }
         return result
+    }
+
+    /// A single-line UITextField may flatten pasted line breaks. Recognize only
+    /// complete numeric lists here; URLs, CSV headers, and JSON retain the
+    /// existing import path. Never silently discard an unmatched trailing value.
+    private static func numericCoordinateList(_ text: String) throws -> [RouteCoordinate]? {
+        let number = #"[-+]?(?:\d+(?:\.\d*)?|\.\d+)"#
+        let pattern = #"^\s*"# + number + #"(?:[\s,;]+"# + number + #")+\s*$"#
+        guard text.range(of: pattern, options: .regularExpression) != nil else { return nil }
+        let tokens = text.split(whereSeparator: { $0.isWhitespace || $0 == "," || $0 == ";" })
+        guard tokens.count.isMultiple(of: 2) else { throw CoordinateImportError.noCoordinates }
+        var coordinates: [RouteCoordinate] = []
+        for index in stride(from: 0, to: tokens.count, by: 2) {
+            guard let latitude = Double(tokens[index]), let longitude = Double(tokens[index + 1]) else {
+                throw CoordinateImportError.noCoordinates
+            }
+            let coordinate = RouteCoordinate(latitude: latitude, longitude: longitude)
+            guard coordinate.isValid else { throw CoordinateImportError.invalidCoordinate(line: index / 2 + 1) }
+            coordinates.append(coordinate)
+        }
+        return coordinates
     }
 }
 
