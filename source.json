@@ -15,6 +15,24 @@
       "tintColor": "#007AFF",
       "versions": [
         {
+          "version": "1.2.25",
+          "date": "2026-10-10",
+          "size": 7136442,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.25/RouteLocation-v1.2.25-unsigned.ipa",
+          "localizedDescription": "RouteLocation v1.2.25 clarifies map selection and waypoint operations, safely resets cleared drafts, adds expandable route endpoint time zones, and improves saved-route switching and first-use editing. Live speed changes no longer count as structural draft edits. / RouteLocation v1.2.25 明確區分選點與加航點操作，清除草稿安全返回選點，加入可展開的路線起終點時區，並改善已儲存路線切換及首次編輯。播放中的速度調整不再誤判為草稿結構變更。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        },
+        {
           "version": "1.2.24",
           "date": "2026-10-10",
           "size": 7118953,
