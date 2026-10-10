@@ -4,6 +4,29 @@ import Testing
 @testable import RouteLocation
 
 struct V1_2_24WorkflowTests {
+    @MainActor @Test func pinnedQuickRouteSurvivesReloadAndFallsBackAfterDelete() async throws {
+        let name = UUID().uuidString
+        let preferences = try #require(UserDefaults(suiteName: name))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        defer { preferences.removePersistentDomain(forName: name); try? FileManager.default.removeItem(at: root) }
+        let store = RoutePersistenceStore(rootURL: root)
+        let model = RouteLocationModel(persistence: store, quickRoutePreferences: preferences)
+        let a = try #require(await model.importSavedRoute([RouteCoordinate(latitude: 25, longitude: 121), RouteCoordinate(latitude: 26, longitude: 122)], named: "A"))
+        let b = try #require(await model.importSavedRoute([RouteCoordinate(latitude: 35, longitude: 139), RouteCoordinate(latitude: 36, longitude: 140)], named: "B"))
+        model.pinQuickPlaybackRoute(a)
+        #expect(model.quickPlaybackRoute?.id == a.id)
+        #expect(model.simulationMode == .idle)
+        let reloaded = RouteLocationModel(persistence: store, quickRoutePreferences: preferences)
+        // The existing lifecycle barrier waits for initial load without sleep.
+        await reloaded.retryFailedPersistenceLoads()
+        #expect(reloaded.quickPlaybackRoute?.id == a.id)
+        await reloaded.deleteRoute(a)
+        #expect(reloaded.quickPlaybackRoute?.id != a.id)
+        reloaded.pinQuickPlaybackRoute(b)
+        reloaded.pinQuickPlaybackRoute(nil)
+        #expect(reloaded.pinnedQuickPlaybackRouteID == nil)
+        #expect(preferences.string(forKey: RouteLocationModel.pinnedQuickRouteKey) == nil)
+    }
     // v1.2.25 targeted regression coverage.
     private let a = RouteCoordinate(latitude: 25.033964, longitude: 121.564468)
     private let b = RouteCoordinate(latitude: 25.04, longitude: 121.57)

@@ -5,6 +5,76 @@ import UniformTypeIdentifiers
 @testable import RouteLocation
 
 struct V1_2_14UXTests {
+    @Test(arguments: ["", "bad input", "25.033964,121.564468", "25.033964,121.564468 25.04,121.57"])
+    @MainActor func keyboardDoneNeverRequestsSimulation(_ input: String) {
+        var received: [RouteCoordinate] = []
+        var requestedSimulation = false
+        var callbacks = 0
+        let modal = CoordinateEntryModalViewController(onSubmit: { _, simulate in requestedSimulation = simulate }, onCancel: {})
+        modal.onSubmitCoordinates = { received = $0; requestedSimulation = $1; callbacks += 1 }
+        modal.loadViewIfNeeded()
+        modal.coordinateTextField.text = input
+        modal.coordinateTextField.sendActions(for: .editingChanged)
+        modal.commitKeyboardInput()
+        #expect(!requestedSimulation)
+        #expect(received.count == (input.contains("25.04") ? 2 : input.hasPrefix("25.033") ? 1 : 0))
+        #expect(callbacks == (received.isEmpty ? 0 : 1))
+        #expect(modal.subtitleHasValidationError == (input == "bad input"))
+    }
+
+    @Test @MainActor func multiPointActionAndCloseAreSafe() {
+        var cancelled = false
+        var submitted = false
+        let modal = CoordinateEntryModalViewController(onSubmit: { _, _ in submitted = true }, onCancel: { cancelled = true })
+        modal.loadViewIfNeeded()
+        modal.coordinateTextField.text = "25,121 26,122"
+        modal.coordinateTextField.sendActions(for: .editingChanged)
+        #expect(modal.previewButton.isHidden)
+        #expect(modal.simulateButton.configuration?.title == L10n.text("建立路線草稿"))
+        modal.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        modal.view.layoutIfNeeded()
+        #expect(modal.closeButton.bounds.height >= 44)
+        modal.closeButton.sendActions(for: .touchUpInside)
+        #expect(cancelled && !submitted)
+    }
+
+    @Test func recentLocalTimeNeverFallsBackToDeviceTimeZone() {
+        let now = Date(timeIntervalSince1970: 0)
+        #expect(RecentPlaceTimePresentation.localTime(identifier: nil, at: now) == "--:--")
+        #expect(RecentPlaceTimePresentation.localTime(identifier: "invalid", at: now) == "--:--")
+        #expect(RecentPlaceTimePresentation.localTime(identifier: "Asia/Taipei", at: now) == "08:00")
+        #expect(RecentPlaceTimePresentation.localTime(identifier: "America/New_York", at: now) == "19:00")
+    }
+
+    @Test func recentYesterdayUsesTheProvidedClock() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let yesterday = try #require(Calendar.current.date(byAdding: .day, value: -1, to: now))
+        #expect(RecentPlaceTimePresentation.lastUsed(yesterday, now: now) == L10n.text("昨天使用"))
+    }
+
+    @Test func routeTimeZoneExpansionUsesExistingDirectionalThresholds() {
+        var expansion = MapBottomCardExpansion.collapsed
+        expansion.snap(for: -40)
+        #expect(expansion == .expanded)
+        expansion.snap(for: 5)
+        #expect(expansion == .expanded)
+        expansion.snap(for: 40)
+        #expect(expansion == .collapsed)
+    }
+
+    @Test func s2FreshDefaultsPreserveExplicitPreferences() throws {
+        let name = UUID().uuidString
+        let preferences = try #require(UserDefaults(suiteName: name))
+        defer { preferences.removePersistentDomain(forName: name) }
+        S2GridPreferences.registerDefaults(in: preferences)
+        #expect(preferences.bool(forKey: S2GridPreferences.enabledKey))
+        #expect(preferences.string(forKey: S2GridPreferences.levelKey) == "17")
+        preferences.set(false, forKey: S2GridPreferences.enabledKey)
+        preferences.set("auto", forKey: S2GridPreferences.levelKey)
+        S2GridPreferences.registerDefaults(in: preferences)
+        #expect(!preferences.bool(forKey: S2GridPreferences.enabledKey))
+        #expect(preferences.string(forKey: S2GridPreferences.levelKey) == "auto")
+    }
     @Test func flattenedCoordinateTextRetainsAllPoints() throws {
         // UITextField is single-line: pasted line breaks may become spaces.
         let points = try CoordinatePastePayload.parse(["25.033964,121.564468 25.04,121.57"])
@@ -253,7 +323,7 @@ struct V1_2_14UXTests {
         #expect(controller.initialFocusWasRequested)
 
         let centeredAgainst = controller.cardCenterYConstraint?.secondItem as? UILayoutGuide
-        #expect(centeredAgainst === controller.view.safeAreaLayoutGuide)
+        #expect(centeredAgainst === controller.cardAvailableArea)
         #expect(centeredAgainst !== controller.view.keyboardLayoutGuide)
     }
 
@@ -412,6 +482,21 @@ struct V1_2_14UXTests {
         #expect(await sink.clearCallCount() == 0)
         #expect(await sink.updates().last == b)
         model.stopRoutePlayback(clearMarker: false)
+    }
+
+    @Test @MainActor func explicitRouteStopHoldsUntilRestoreIsChosen() async {
+        let sink = RetargetRecordingSink()
+        let model = RouteLocationModel(simulationService: sink)
+        let coordinate = RouteCoordinate(latitude: 25.033964, longitude: 121.564468)
+        model.playback.testSetStateForTesting(.running, currentCoordinate: coordinate)
+        model.testSetSimulationModeForTesting(.routePlaying)
+        model.stopAndHoldCurrentLocation()
+        #expect(model.simulationMode == .singlePoint(coordinate))
+        #expect(model.activeSimulatedCoordinate == coordinate)
+        #expect(await sink.clearCallCount() == 0)
+        await model.returnToRealLocation()
+        #expect(model.simulationMode == .idle)
+        #expect(await sink.clearCallCount() == 1)
     }
 
     @Test @MainActor func naturalOnceCompletionKeepsFinalCoordinateAsSinglePoint() async throws {

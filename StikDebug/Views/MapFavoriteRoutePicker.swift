@@ -3,16 +3,17 @@ import SwiftUI
 struct MapFavoriteRoutePicker: View {
     @EnvironmentObject private var model: RouteLocationModel
     @Environment(\.dismiss) private var dismiss
+    var pinSelection = false
     let onSelect: (SavedRoute) -> Void
 
     private var favoriteRoutes: [SavedRoute] {
-        model.savedRoutes.filter(\.isFavorite).sorted {
+        model.savedRoutes.filter { $0.isFavorite && $0.lastUsedAt == nil }.sorted {
             ($0.lastUsedAt ?? $0.updatedAt) > ($1.lastUsedAt ?? $1.updatedAt)
         }
     }
 
     private var recentRoutes: [SavedRoute] {
-        model.savedRoutes.filter { !$0.isFavorite && $0.lastUsedAt != nil }.sorted {
+        model.savedRoutes.filter { $0.lastUsedAt != nil }.sorted {
             ($0.lastUsedAt ?? .distantPast) > ($1.lastUsedAt ?? .distantPast)
         }
     }
@@ -26,6 +27,12 @@ struct MapFavoriteRoutePicker: View {
     var body: some View {
         NavigationStack {
             List {
+                if pinSelection {
+                    Button(L10n.text("取消固定，使用自動挑選")) {
+                        model.pinQuickPlaybackRoute(nil)
+                        dismiss()
+                    }
+                }
                 if model.savedRoutes.isEmpty {
                     ContentUnavailableView(
                         L10n.text("尚未儲存路線"),
@@ -102,6 +109,9 @@ struct MapFavoriteRoutePicker: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(L10n.format("選擇路線：%@", route.name))
+        .contextMenu {
+            Button(L10n.text("固定為快捷播放路線")) { model.pinQuickPlaybackRoute(route) }
+        }
     }
 
     private func formatDistance(_ meters: Double) -> String {
@@ -109,5 +119,34 @@ struct MapFavoriteRoutePicker: View {
             return String(format: "%.1f km", meters / 1000)
         }
         return String(format: "%d m", Int(meters))
+    }
+}
+
+/// Choosing/pinning is deliberately separate from the guarded play action.
+struct QuickPlaybackRouteShortcut: View {
+    @EnvironmentObject private var model: RouteLocationModel
+    @State private var choosingRoute = false
+
+    var body: some View {
+        if !model.savedRoutes.isEmpty {
+            HStack(spacing: 8) {
+                if let route = model.quickPlaybackRoute {
+                    Button { model.requestStartRoute(route) } label: {
+                        Image(systemName: "play.fill").frame(minWidth: 44, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityLabel(L10n.format("開始路線：%@", route.name))
+                }
+                Button { choosingRoute = true } label: {
+                    Label(model.quickPlaybackRoute?.name ?? L10n.text("選擇快捷路線"), systemImage: model.pinnedQuickPlaybackRouteID == model.quickPlaybackRoute?.id && model.quickPlaybackRoute != nil ? "pin.fill" : "chevron.up.chevron.down")
+                        .lineLimit(1).frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(L10n.text("選擇路線不會開始模擬。"))
+            }
+            .sheet(isPresented: $choosingRoute) {
+                MapFavoriteRoutePicker(pinSelection: true) { route in model.pinQuickPlaybackRoute(route) }
+            }
+        }
     }
 }

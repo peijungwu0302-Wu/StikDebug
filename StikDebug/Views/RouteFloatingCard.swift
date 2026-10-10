@@ -21,6 +21,7 @@ struct RouteFloatingCard: View {
 
     @State private var isEditingSpeed = false
     @State private var editedSpeed = ""
+    @State private var showStopOptions = false
     @FocusState private var speedFieldFocused: Bool
 
     var body: some View {
@@ -49,6 +50,11 @@ struct RouteFloatingCard: View {
                 Spacer()
                 Button(L10n.text("完成")) { commitSpeedEdit() }
             }
+        }
+        .confirmationDialog(L10n.text("停止路線"), isPresented: $showStopOptions, titleVisibility: .visible) {
+            Button(L10n.text("停止並保留目前位置"), action: onEndRoute)
+            Button(L10n.text("停止並恢復真實位置"), role: .destructive, action: onRestoreRealLocation)
+            Button(L10n.text("取消"), role: .cancel) {}
         }
     }
 
@@ -202,14 +208,16 @@ struct RouteFloatingCard: View {
             Spacer(minLength: 8)
 
             if playback.state.showsRouteControls {
-                Button(action: onEndRoute) {
+                Button { showStopOptions = true } label: {
                     Image(systemName: "stop.fill")
                         .font(.caption.bold())
                         .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(L10n.text("停止並停留目前位置"))
+                .accessibilityLabel(L10n.text("停止路線"))
                 .tutorialTarget(.stopAndHold)
+                .tutorialTarget(.restore)
+                .tutorialTarget(.recovery)
             }
 
             Button(action: copyCurrentRoute) {
@@ -219,23 +227,18 @@ struct RouteFloatingCard: View {
             .buttonStyle(.plain)
             .accessibilityLabel(L10n.text("複製路線"))
 
-            Menu {
+            Button {
                 if model.currentSavedRoute != nil {
-                    Button(L10n.text(model.currentRouteIsFavorite ? "取消收藏目前路線" : "收藏目前路線")) {
-                        Task { await model.toggleFavoriteCurrentRoute() }
-                    }
+                    Task { await model.toggleFavoriteCurrentRoute() }
                 } else {
-                    Button(L10n.text("收藏目前路線"), action: onFavoriteUnsavedRoute)
+                    onFavoriteUnsavedRoute()
                 }
-                Button(L10n.text("停止並停留目前位置"), action: onEndRoute)
-                Button(L10n.text("停止路線並恢復真實位置"), role: .destructive, action: onRestoreRealLocation)
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: model.currentRouteIsFavorite ? "star.fill" : "star")
                     .frame(minWidth: 44, minHeight: 44)
             }
-            .accessibilityLabel(L10n.text("更多路線操作"))
-            .tutorialTarget(.restore)
-            .tutorialTarget(.recovery)
+            .buttonStyle(.plain)
+            .accessibilityLabel(L10n.text(model.currentRouteIsFavorite ? "取消收藏目前路線" : "收藏目前路線"))
         }
     }
 
@@ -348,7 +351,8 @@ struct RouteEndpointTimeZoneSummary: View {
     let isClosedLoop: Bool
     @State private var startInfo: PlaceInfo?
     @State private var endInfo: PlaceInfo?
-    @State private var expanded = false
+    @State private var expansion = MapBottomCardExpansion.collapsed
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("RouteLocation.timeZoneComparisonBaseline") private var baselineRawValue = TimeZoneComparisonBaseline.taiwan.rawValue
 
     init(route: SavedRoute) {
@@ -367,7 +371,29 @@ struct RouteEndpointTimeZoneSummary: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 4) {
+                VStack(spacing: 4) {
+                    Capsule().fill(.secondary.opacity(0.45)).frame(width: 36, height: 4)
+                        .frame(maxWidth: .infinity, minHeight: 20)
+                    Button {
+                        setExpansion(expansion == .collapsed ? .expanded : .collapsed)
+                    } label: {
+                        Text(RouteTimeZonePresentation.summary(start: startInfo, end: endInfo, at: context.date) ?? L10n.text("路線時區"))
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                            .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .contentShape(Rectangle())
+                .simultaneousGesture(DragGesture(minimumDistance: 8).onEnded { value in
+                    var next = expansion
+                    next.snap(for: value.translation.height)
+                    setExpansion(next)
+                })
+                .accessibilityValue(L10n.text(expansion == .expanded ? "已展開" : "已收起"))
+                .accessibilityAction(named: L10n.text("展開時區資訊")) { setExpansion(.expanded) }
+                .accessibilityAction(named: L10n.text("收合時區資訊")) { setExpansion(.collapsed) }
+                if expansion == .expanded {
                 VStack(alignment: .leading, spacing: 6) {
                     endpointDetails(startInfo, title: L10n.text("起點"), date: context.date)
                     if endpoints?.returnsToStart == true {
@@ -378,9 +404,7 @@ struct RouteEndpointTimeZoneSummary: View {
                 }
                 .font(.caption)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            } label: {
-                Text(RouteTimeZonePresentation.summary(start: startInfo, end: endInfo, at: context.date) ?? L10n.text("路線時區"))
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                }
             }
         }
         .task(id: endpoints) {
@@ -401,6 +425,10 @@ struct RouteEndpointTimeZoneSummary: View {
                 endInfo = values.1
             }
         }
+    }
+
+    private func setExpansion(_ next: MapBottomCardExpansion) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) { expansion = next }
     }
 
     @ViewBuilder

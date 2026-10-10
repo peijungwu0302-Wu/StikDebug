@@ -155,6 +155,28 @@ private struct RecentLocationsView: View {
     }
 }
 
+enum RecentPlaceTimePresentation {
+    static func localTime(identifier: String?, at date: Date) -> String {
+        guard let identifier, let zone = TimeZone(identifier: identifier) else { return "--:--" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        formatter.timeZone = zone
+        return formatter.string(from: date)
+    }
+
+    static func lastUsed(_ date: Date, now: Date) -> String {
+        let calendar = Calendar.current
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+           calendar.isDate(date, inSameDayAs: yesterday) { return L10n.text("昨天使用") }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        let language = UserDefaults.standard.string(forKey: AppLanguage.defaultsKey) ?? AppLanguage.traditionalChinese.rawValue
+        formatter.locale = Locale(identifier: language)
+        return L10n.format("%@使用", formatter.localizedString(for: date, relativeTo: now))
+    }
+}
+
 private struct RecentPlaceInfo: View {
     let coordinate: RouteCoordinate
     let title: String
@@ -165,6 +187,25 @@ private struct RecentPlaceInfo: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             VStack(alignment: .leading, spacing: density == .compact ? 2 : 4) {
+                if density == .compact {
+                    HStack(spacing: 5) {
+                        if let flag = CountryFlagFormatter.flag(for: info?.countryCode) { Text(flag) }
+                        Text(title).font(.headline).lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(RecentPlaceTimePresentation.localTime(identifier: info?.timeZoneIdentifier, at: context.date))
+                            .font(.caption).monospacedDigit().fixedSize()
+                            .accessibilityLabel(L10n.format("當地時間：%@", RecentPlaceTimePresentation.localTime(identifier: info?.timeZoneIdentifier, at: context.date)))
+                    }
+                    HStack(spacing: 4) {
+                        Text([info?.administrativeArea, info?.locality, info?.subLocality].compactMap { $0 }.joined(separator: " · "))
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(RecentPlaceTimePresentation.lastUsed(createdAt, now: context.date))
+                            .lineLimit(1).layoutPriority(1)
+                            .accessibilityLabel(L10n.format("最近使用：%@", RecentPlaceTimePresentation.lastUsed(createdAt, now: context.date)))
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
+                } else {
                 HStack(spacing: 5) {
                     if let flag = CountryFlagFormatter.flag(for: info?.countryCode) { Text(flag) }
                     Text(title).font(.headline).lineLimit(1)
@@ -193,6 +234,7 @@ private struct RecentPlaceInfo: View {
                 } else {
                     CoordinateValueText(coordinate: coordinate)
                         .foregroundStyle(.secondary)
+                }
                 }
             }
         }

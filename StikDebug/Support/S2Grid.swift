@@ -151,6 +151,14 @@ enum S2GridLevelMode: Equatable, Sendable {
     }
 }
 
+enum S2GridPreferences {
+    static let enabledKey = "RouteLocation.s2GridEnabled"
+    static let levelKey = "RouteLocation.s2GridLevelMode"
+    static func registerDefaults(in defaults: UserDefaults) {
+        defaults.register(defaults: [enabledKey: true, levelKey: "17"])
+    }
+}
+
 enum S2GridLevelPolicy {
     static let minimumLevel = 14
     static let maximumLevel = 20

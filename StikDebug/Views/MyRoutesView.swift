@@ -23,7 +23,7 @@ struct MyRoutesView: View {
         List {
             Section {
                 Picker(L10n.text("路線列表"), selection: $showingRecentlyUsed) {
-                    Text(L10n.text("最近使用")).tag(true)
+                    Text(L10n.text("最近路線")).tag(true)
                     Text(L10n.text("所有路線")).tag(false)
                 }
                 .pickerStyle(.segmented)
@@ -173,6 +173,9 @@ struct MyRoutesView: View {
             Button(L10n.text("重新命名")) { renamingRoute = route }.tint(.blue)
         }
         .contextMenu {
+            Button(L10n.text(model.pinnedQuickPlaybackRouteID == route.id ? "取消固定，使用自動挑選" : "固定為快捷播放路線")) {
+                model.pinQuickPlaybackRoute(model.pinnedQuickPlaybackRouteID == route.id ? nil : route)
+            }
             Button { model.previewRoute(route); selectedTab = .map } label: {
                 Label(L10n.text("查看地圖"), systemImage: "map")
             }

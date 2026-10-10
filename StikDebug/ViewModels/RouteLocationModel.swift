@@ -162,14 +162,20 @@ final class RouteLocationModel: ObservableObject {
 
     var hasLoadedRoute: Bool { loadedRouteID != nil }
     var favoriteRoutes: [SavedRoute] { savedRoutes.filter(\.isFavorite) }
+    static let pinnedQuickRouteKey = "RouteLocation.pinnedQuickPlaybackRouteID"
+    private let quickRoutePreferences: UserDefaults
+    @Published private(set) var pinnedQuickPlaybackRouteID: UUID?
 
     init(
         persistence: RoutePersistenceStore = RoutePersistenceStore(),
         simulationService: any LocationSimulationSink = DeviceLocationSimulationService(),
-        connectionMonitor: ConnectionMonitor? = nil
+        connectionMonitor: ConnectionMonitor? = nil,
+        quickRoutePreferences: UserDefaults = .standard
     ) {
         let connectionMonitor = connectionMonitor ?? ConnectionMonitor.shared
         self.persistence = persistence
+        self.quickRoutePreferences = quickRoutePreferences
+        pinnedQuickPlaybackRouteID = quickRoutePreferences.string(forKey: Self.pinnedQuickRouteKey).flatMap(UUID.init(uuidString:))
         self.simulationService = simulationService
         self.connectionMonitor = connectionMonitor
         let savedSpeed = UserDefaults.standard.double(forKey: Self.speedKey)
@@ -810,12 +816,25 @@ final class RouteLocationModel: ObservableObject {
     }
 
     var quickPlaybackRoute: SavedRoute? {
+        if let id = pinnedQuickPlaybackRouteID, let route = savedRoutes.first(where: { $0.id == id }) {
+            return route
+        }
         let favorites = savedRoutes.filter(\.isFavorite).sorted {
             let left = $0.lastUsedAt ?? $0.updatedAt
             let right = $1.lastUsedAt ?? $1.updatedAt
             return left == right ? $0.id.uuidString < $1.id.uuidString : left > right
         }
         return favorites.first ?? RouteLibrarySortPolicy.recentlyUsed(savedRoutes).first
+    }
+
+    func pinQuickPlaybackRoute(_ route: SavedRoute?) {
+        guard route == nil || savedRoutes.contains(where: { $0.id == route?.id }) else { return }
+        pinnedQuickPlaybackRouteID = route?.id
+        if let id = route?.id {
+            quickRoutePreferences.set(id.uuidString, forKey: Self.pinnedQuickRouteKey)
+        } else {
+            quickRoutePreferences.removeObject(forKey: Self.pinnedQuickRouteKey)
+        }
     }
 
     /// Clipboard and coordinate entry share one interpretation; neither starts

@@ -107,7 +107,7 @@ jobs:
           EXPECTED_BUILD=$(jq -r .build <<<"$PROJECT_SETTINGS")
           BUNDLE_ID=$(jq -r .bundle <<<"$PROJECT_SETTINGS")
           MIN_OS=$(jq -r .deployment <<<"$PROJECT_SETTINGS")
-          SOURCE_DESCRIPTION="RouteLocation v${VERSION} clarifies map selection and waypoint operations, safely resets cleared drafts, adds expandable route endpoint time zones, and improves saved-route switching and first-use editing. Live speed changes no longer count as structural draft edits. / RouteLocation v${VERSION} 明確區分選點與加航點操作，清除草稿安全返回選點，加入可展開的路線起終點時區，並改善已儲存路線切換及首次編輯。播放中的速度調整不再誤判為草稿結構變更。"
+          SOURCE_DESCRIPTION="RouteLocation v${VERSION} improves keyboard-safe coordinate entry, unifies route stop choices, adds pinned quick playback routes, and shows local time in compact recents with swipe-expandable route time zones. New S2 preferences default to Lv.17 without changing saved choices. / RouteLocation v${VERSION} 改善座標輸入及鍵盤布局、整合路線停止選項、加入可固定的快捷播放路線，精簡最近位置顯示當地時間，路線時區支援拖拉展開。未設定的 S2 偏好預設 Lv.17，既有選擇保持不變。"
           RELEASE_NOTES_FILE=".github/RELEASE_NOTES_v${VERSION}.md"
           if [[ "$EXPECTED_PROJECT_VERSION" != "$VERSION" || "$BUNDLE_ID" != "com.routelocation.app" || "$MIN_OS" != "17.4" ]]; then
             echo "Project metadata mismatch: $PROJECT_SETTINGS vs release $VERSION" >&2

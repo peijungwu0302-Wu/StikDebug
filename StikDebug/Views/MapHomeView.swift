@@ -10,8 +10,8 @@ struct MapHomeView: View {
     @StateObject private var s2Grid = S2GridController()
     @State private var projectedViewportWidth: Double?
     @State private var projectedViewportLatitude: Double?
-    @AppStorage("RouteLocation.s2GridEnabled") private var s2GridEnabled = false
-    @AppStorage("RouteLocation.s2GridLevelMode") private var s2GridLevelRawValue = "auto"
+    @AppStorage("RouteLocation.s2GridEnabled") private var s2GridEnabled = true
+    @AppStorage("RouteLocation.s2GridLevelMode") private var s2GridLevelRawValue = "17"
     @State private var showSearch = false
     @State private var showCoordinateEntry = false
     @State private var showRouteInputChooser = false
@@ -687,15 +687,7 @@ struct MapHomeView: View {
 
     @ViewBuilder
     private var quickPlaybackShortcut: some View {
-        if let route = model.quickPlaybackRoute {
-            Button { model.requestStartRoute(route) } label: {
-                Label(L10n.format("播放：%@", route.name), systemImage: "play.fill")
-                    .lineLimit(2)
-                    .frame(minHeight: 44, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
-            .accessibilityLabel(L10n.format("開始路線：%@", route.name))
-        }
+        QuickPlaybackRouteShortcut()
     }
 
     private func commitPlanningSpeedEdit() {
@@ -837,6 +829,7 @@ struct CoordinatePasteToolbarButton: View {
 
     var body: some View {
         PasteButton(payloadType: String.self, onPaste: onPaste)
+            .labelStyle(.iconOnly)
             .accessibilityLabel(L10n.text("貼上座標"))
             .disabled(isDisabled)
     }

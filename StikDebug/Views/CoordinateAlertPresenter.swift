@@ -118,7 +118,7 @@ final class CoordinateAlertHostController: UIViewController {
 /// A small UIKit card gives the text field and native paste control independent,
 /// predictable layout while keeping the existing preview/simulate callbacks.
 @MainActor
-final class CoordinateEntryModalViewController: UIViewController {
+final class CoordinateEntryModalViewController: UIViewController, UITextFieldDelegate {
     private(set) var coordinateTextField = UITextField()
     private(set) var pasteControl: UIPasteControl?
     private(set) var pasteControlContainer = UIView()
@@ -126,6 +126,9 @@ final class CoordinateEntryModalViewController: UIViewController {
     private(set) var previewButton = UIButton(type: .system)
     private(set) var simulateButton = UIButton(type: .system)
     private(set) var cancelButton = UIButton(type: .system)
+    private(set) var closeButton = UIButton(type: .system)
+    private(set) var cardAvailableArea = UILayoutGuide()
+    private(set) var subtitleHasValidationError = false
     private(set) var initialFocusWasRequested = false
     private(set) var cardCenterYConstraint: NSLayoutConstraint?
 
@@ -236,7 +239,16 @@ final class CoordinateEntryModalViewController: UIViewController {
             multiplier: 0.9
         )
         preferredCardWidth.priority = .defaultHigh
-        let centerYConstraint = cardView.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor)
+        // This area follows UIKit's keyboard geometry, not text length or
+        // coordinate count. Input changes keep the action row's height fixed.
+        view.addLayoutGuide(cardAvailableArea)
+        NSLayoutConstraint.activate([
+            cardAvailableArea.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            cardAvailableArea.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            cardAvailableArea.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            cardAvailableArea.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor)
+        ])
+        let centerYConstraint = cardView.centerYAnchor.constraint(equalTo: cardAvailableArea.centerYAnchor)
         centerYConstraint.priority = .defaultHigh
         cardCenterYConstraint = centerYConstraint
         NSLayoutConstraint.activate([
@@ -248,7 +260,7 @@ final class CoordinateEntryModalViewController: UIViewController {
             cardView.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
             cardView.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
             cardView.topAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            cardView.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            cardView.bottomAnchor.constraint(lessThanOrEqualTo: cardAvailableArea.bottomAnchor, constant: -8),
             cardView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             centerYConstraint,
             preferredCardWidth,
@@ -266,14 +278,37 @@ final class CoordinateEntryModalViewController: UIViewController {
         cardStack.translatesAutoresizingMaskIntoConstraints = false
         cardStack.isLayoutMarginsRelativeArrangement = true
         cardStack.layoutMargins = UIEdgeInsets(top: 18, left: 18, bottom: 14, right: 18)
-        cardStack.addArrangedSubview(titleLabel)
-        cardStack.addArrangedSubview(subtitleLabel)
-        cardStack.addArrangedSubview(inputRowStack)
-        cardStack.addArrangedSubview(actionRow)
+        let header = UIStackView(arrangedSubviews: [titleLabel, closeButton])
+        header.axis = .horizontal
+        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeButton.accessibilityLabel = L10n.text("關閉")
+        closeButton.addTarget(self, action: #selector(cancelPressed), for: .touchUpInside)
+        closeButton.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        closeButton.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        cardStack.addArrangedSubview(header)
+        // Only the middle content scrolls on compact screens / large text.
+        // Close and Cancel remain reachable above the keyboard.
+        let scroll = UIScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        let content = UIStackView(arrangedSubviews: [subtitleLabel, inputRowStack, actionRow])
+        content.axis = .vertical
+        content.spacing = 12
+        content.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(content)
+        cardStack.addArrangedSubview(scroll)
         cardStack.addArrangedSubview(cancelButton)
         cardView.addSubview(cardStack)
+        let preferredContentHeight = scroll.heightAnchor.constraint(equalTo: content.heightAnchor)
+        preferredContentHeight.priority = UILayoutPriority(749)
 
         NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            content.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            content.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            content.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
+            preferredContentHeight,
+            scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
             cardStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
             cardStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
             cardStack.topAnchor.constraint(equalTo: cardView.topAnchor),
@@ -319,6 +354,14 @@ final class CoordinateEntryModalViewController: UIViewController {
         coordinateTextField.clearButtonMode = .never
         coordinateTextField.accessibilityLabel = L10n.text("座標或 Google Maps 連結")
         coordinateTextField.returnKeyType = .done
+        coordinateTextField.delegate = self
+        let keyboardToolbar = UIToolbar()
+        keyboardToolbar.sizeToFit()
+        keyboardToolbar.items = [
+            UIBarButtonItem(systemItem: .flexibleSpace),
+            UIBarButtonItem(title: L10n.text("完成"), style: .done, target: self, action: #selector(keyboardDonePressed))
+        ]
+        coordinateTextField.inputAccessoryView = keyboardToolbar
         coordinateTextField.addTarget(self, action: #selector(coordinateTextDidChange(_:)), for: .editingChanged)
 
         pasteControlContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -425,8 +468,33 @@ final class CoordinateEntryModalViewController: UIViewController {
         previewButton.isEnabled = enabled
         simulateButton.isEnabled = enabled
         let multiple = CoordinateAlertInputValidation.coordinates(in: coordinateTextField.text ?? "").count > 1
-        simulateButton.configuration?.title = L10n.text(multiple ? "建立路線預覽" : "立即模擬")
-        simulateButton.accessibilityLabel = L10n.text(multiple ? "建立路線預覽" : "立即模擬")
+        previewButton.isHidden = multiple
+        simulateButton.configuration?.title = L10n.text(multiple ? "建立路線草稿" : "立即模擬")
+        simulateButton.accessibilityLabel = L10n.text(multiple ? "建立路線草稿" : "立即模擬")
+        subtitleHasValidationError = false
+        subtitleLabel.text = L10n.text("支援座標或 Google Maps 連結")
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        commitKeyboardInput()
+        return false
+    }
+
+    @objc private func keyboardDonePressed() { commitKeyboardInput() }
+
+    func commitKeyboardInput() {
+        let text = (coordinateTextField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        coordinateTextField.resignFirstResponder()
+        guard !text.isEmpty else { return }
+        guard CoordinateAlertInputValidation.actionsEnabled(for: text) else {
+            subtitleHasValidationError = true
+            subtitleLabel.text = L10n.text("座標格式無效，請輸入座標或 Google Maps 連結。")
+            UIAccessibility.post(notification: .announcement, argument: subtitleLabel.text)
+            return
+        }
+        // Keyboard completion always previews; only the explicit Simulate
+        // button may request a single-point device command.
+        submit(simulateImmediately: false)
     }
 
     @objc private func previewPressed() {

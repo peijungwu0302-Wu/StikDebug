@@ -28,6 +28,22 @@ final class RouteLocationGuideUITests: XCTestCase {
     }
 
     @MainActor
+    func testPlayerStopCancelHasNoPlaybackSideEffects() throws {
+        let app = launch(language: "en", scenario: "player")
+        XCTAssertTrue(app.staticTexts["guide.fixture.ready"].waitForExistence(timeout: 20))
+        let pause = app.buttons["Pause Movement"]
+        XCTAssertTrue(pause.waitForExistence(timeout: 5))
+        let stop = app.buttons["Stop Route"]
+        XCTAssertTrue(stop.isHittable)
+        stop.tap()
+        XCTAssertTrue(app.buttons["Stop and Keep Current Position"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Stop and Restore Real Location"].exists)
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(pause.isHittable)
+        XCTAssertTrue(stop.isHittable)
+    }
+
+    @MainActor
     func testColdPreviewEditOpensProductionEditorInQuickAndClassic() throws {
         for scenario in ["preview", "classicPreview"] {
             let app = launch(language: "en", scenario: scenario)
@@ -76,6 +92,8 @@ final class RouteLocationGuideUITests: XCTestCase {
                 XCTAssertTrue(field.waitForExistence(timeout: 5))
                 field.tap()
                 field.typeText("25.033964, 121.564468")
+                XCTAssertTrue(app.buttons[cancel].isHittable, "Cancel must remain above the keyboard")
+                XCTAssertTrue(app.buttons[language == "en" ? "Close" : "關閉"].isHittable)
                 capture(app, name: "readme-\(language)-coordinate-input-demo")
                 app.buttons[cancel].tap()
                 XCTAssertTrue(app.staticTexts["guide.fixture.ready"].waitForExistence(timeout: 5))

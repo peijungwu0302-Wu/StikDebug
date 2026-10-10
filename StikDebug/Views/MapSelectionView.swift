@@ -22,8 +22,8 @@ struct RouteMapView: View {
     @StateObject private var s2Grid = S2GridController()
     @State private var projectedViewportWidth: Double?
     @State private var projectedViewportLatitude: Double?
-    @AppStorage("RouteLocation.s2GridEnabled") private var s2GridEnabled = false
-    @AppStorage("RouteLocation.s2GridLevelMode") private var s2GridLevelRawValue = "auto"
+    @AppStorage("RouteLocation.s2GridEnabled") private var s2GridEnabled = true
+    @AppStorage("RouteLocation.s2GridLevelMode") private var s2GridLevelRawValue = "17"
     @State private var showSearch = false
     @State private var showFavoriteName = false
     @State private var showFavoriteRouteName = false
@@ -325,14 +325,8 @@ struct RouteMapView: View {
             }
             if isCardExpanded {
                 if model.waypoints.isEmpty, model.selectedCoordinate == nil,
-                   model.previewingRoute == nil, !model.simulationMode.isSimulating,
-                   let route = model.quickPlaybackRoute {
-                    Button { model.requestStartRoute(route) } label: {
-                        Label(L10n.format("播放：%@", route.name), systemImage: "play.fill")
-                            .lineLimit(2).frame(minHeight: 44, alignment: .leading)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel(L10n.format("開始路線：%@", route.name))
+                   model.previewingRoute == nil, !model.simulationMode.isSimulating {
+                    QuickPlaybackRouteShortcut()
                 }
                 if let active = model.activeSimulatedCoordinate, !model.simulationMode.isRouteSimulation {
                     if let candidate = ClassicRouteMapCardSelection.selectedCandidate(
