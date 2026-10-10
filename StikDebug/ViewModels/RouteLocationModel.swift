@@ -65,6 +65,12 @@ final class RouteLocationModel: ObservableObject {
                 speedKmh = normalized
                 return
             }
+            // Live speed is a playback preference, not a structural draft edit.
+            if isAnyRouteActive {
+                if draftSpeedBeforePlayback == nil { draftSpeedBeforePlayback = oldValue }
+            } else {
+                draftSpeedBeforePlayback = nil
+            }
             UserDefaults.standard.set(normalized, forKey: Self.speedKey)
         }
     }
@@ -86,6 +92,7 @@ final class RouteLocationModel: ObservableObject {
     @Published private(set) var pendingBootstrapTargetCoordinate: RouteCoordinate?
     private(set) var locationAlreadyWrittenByBootstrap: RouteCoordinate?
     @Published var previewingRoute: SavedRoute?
+    @Published private(set) var pendingRouteEditorID: UUID?
     @Published var showActiveRouteSwitchAlert = false
     @Published var showSavedRouteDraftConflict = false
     @Published private(set) var isSavingDraftForPlayback = false
@@ -134,6 +141,7 @@ final class RouteLocationModel: ObservableObject {
     /// stale coordinate after a newer request has won.
     private var singlePointRetargetGeneration = 0
     private var loadedRouteID: UUID?
+    private var draftSpeedBeforePlayback: Double?
     private var cancellables: Set<AnyCancellable> = []
     private var persistenceLoadTask: Task<Void, Never>?
     #if DEBUG
@@ -414,6 +422,7 @@ final class RouteLocationModel: ObservableObject {
 
     func clearCurrentDraft() {
         guard canMutateRouteDraft(notifyIfLocked: true) else { return }
+        resetDraftPresentation()
         waypoints = []
         loadedRouteID = nil
         routeName = L10n.text("新路線")
@@ -424,11 +433,7 @@ final class RouteLocationModel: ObservableObject {
 
     func clearCurrentRoute() {
         guard canMutateRouteDraft(notifyIfLocked: true) else { return }
-        navigationResolver.cancel()
-        stopRoutePlayback(clearMarker: true)
-        if simulationMode.isRouteSimulation {
-            simulationMode = .idle
-        }
+        resetDraftPresentation()
         loadedRouteID = nil
         routeName = L10n.text("新路線")
         selectedCoordinate = nil
@@ -440,6 +445,20 @@ final class RouteLocationModel: ObservableObject {
         geometry = RouteGeometry(coordinates: [])
         navigationGeometryNeedsRecalculation = false
         statusMessage = L10n.text("路線已清除。")
+    }
+
+    /// Clear editing/navigation presentation only; never stop or clear simulation.
+    private func resetDraftPresentation() {
+        navigationResolver.cancel()
+        quickRouteMode = .singlePoint
+        previewingRoute = nil
+        selectedCoordinate = nil
+        mapFocusTargetsRoute = false
+        pendingCoordinatePaste = []
+        showCoordinatePasteChoice = false
+        pendingRouteEditorID = nil
+        cancelSavedRouteDraftConflict()
+        draftSpeedBeforePlayback = nil
     }
 
     func recalculateNavigation() async {
@@ -527,6 +546,7 @@ final class RouteLocationModel: ObservableObject {
             )
             try await persistence.saveRoute(route)
             loadedRouteID = route.id
+            draftSpeedBeforePlayback = nil
             if !isAnyRouteActive && !isSavingDraftForPlayback { routeName = finalName }
             await reloadRoutes()
             statusMessage = L10n.text("路線已儲存，可離線播放。")
@@ -669,6 +689,15 @@ final class RouteLocationModel: ObservableObject {
         return true
     }
 
+    @discardableResult
+    func requestOpenRouteEditor(_ route: SavedRoute) -> Bool {
+        guard requestEditRoute(route) else { return false }
+        pendingRouteEditorID = route.id
+        return true
+    }
+
+    func consumeRouteEditorRequest() { pendingRouteEditorID = nil }
+
     var activeSimulatedCoordinate: RouteCoordinate? {
         switch simulationMode {
         case .singlePoint(let coordinate):
@@ -747,7 +776,7 @@ final class RouteLocationModel: ObservableObject {
             || saved.resolvedGeometry != geometry || saved.routeMode != routeMode
             || saved.navigationTransportMode != navigationTransport
             || saved.isClosedLoop != isClosedLoop || saved.playbackMode != playbackMode
-            || saved.preferredSpeedKmh != speedKmh || navigationGeometryNeedsRecalculation
+            || saved.preferredSpeedKmh != (draftSpeedBeforePlayback ?? speedKmh) || navigationGeometryNeedsRecalculation
     }
 
     func cancelSavedRouteDraftConflict() {

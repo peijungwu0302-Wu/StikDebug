@@ -33,6 +33,11 @@ extension View {
         }
     }
 
+    @ViewBuilder
+    func tutorialTarget(_ target: TutorialTarget, when enabled: Bool) -> some View {
+        if enabled { tutorialTarget(target) } else { self }
+    }
+
     func tutorialSurface() -> some View { modifier(TutorialSurface()) }
 }
 
@@ -42,8 +47,9 @@ private struct TutorialSurface: ViewModifier {
     func body(content: Content) -> some View {
         content.overlayPreferenceValue(TutorialTargetPreference.self) { anchors in
             GeometryReader { proxy in
-                if tutorial.isActive, !tutorial.isSuspended, !context.modalVisible, let step = tutorial.step {
-                    let rect = anchors[step.target].map { proxy[$0] }
+                if tutorial.isActive, !tutorial.isSuspended, !context.modalVisible,
+                   let target = tutorial.currentTarget(librarySection: context.librarySection) {
+                    let rect = anchors[target].map { proxy[$0] }
                     TutorialCoach(tutorial: tutorial, rect: rect, availableSize: proxy.size)
                 }
             }

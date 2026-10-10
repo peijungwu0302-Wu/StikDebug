@@ -3,6 +3,7 @@ import SwiftUI
 struct MyPlacesView: View {
     @EnvironmentObject private var model: RouteLocationModel
     @EnvironmentObject private var tutorialUI: TutorialUIContext
+    @EnvironmentObject private var tutorial: GuidedTutorialCoordinator
     @Binding var selectedTab: RouteLocationTab
     @State private var editingFavorite: FavoriteLocation?
     @State private var showAdd = false
@@ -48,6 +49,7 @@ struct MyPlacesView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .tutorialTarget(.favoriteLibrary, when: favorite.id == tutorial.highlightedFavoriteID)
                     .swipeActions(edge: .trailing) {
                         Button(L10n.text("刪除"), role: .destructive) {
                             requestDelete(ids: [favorite.id])
@@ -91,7 +93,6 @@ struct MyPlacesView: View {
         }
         .listStyle(.plain)
         .searchable(text: $searchText, prompt: L10n.text("搜尋地點名稱或備註"))
-        .tutorialTarget(.favoriteLibrary)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 EditButton().disabled(model.librarySortOption != .manual || !searchText.isEmpty)

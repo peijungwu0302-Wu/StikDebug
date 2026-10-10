@@ -176,6 +176,8 @@ struct RouteFloatingCard: View {
         }
         .frame(maxWidth: .infinity, minHeight: 56, alignment: .topLeading)
 
+        RouteEndpointTimeZoneSummary(waypoints: model.waypoints, isClosedLoop: model.isClosedLoop)
+
         HStack {
             if isRunning {
                 Button(L10n.text("暫停移動")) { playback.pause() }
@@ -316,32 +318,83 @@ struct RouteFloatingCard: View {
     }
 }
 
+/// Identity is limited to route endpoints, never a playback-frame coordinate.
+struct RouteTimeZoneEndpoints: Hashable {
+    let start: RouteCoordinate
+    let end: RouteCoordinate
+    let returnsToStart: Bool
+
+    init?(waypoints: [RouteCoordinate], isClosedLoop: Bool) {
+        guard let first = waypoints.first, let last = waypoints.last else { return nil }
+        start = first
+        end = isClosedLoop ? first : last
+        returnsToStart = isClosedLoop
+    }
+}
+
+enum RouteTimeZonePresentation {
+    static func summary(start: PlaceInfo?, end: PlaceInfo?, at date: Date) -> String? {
+        guard let startID = start?.timeZoneIdentifier, let endID = end?.timeZoneIdentifier,
+              let startZone = TimeZone(identifier: startID),
+              let endZone = TimeZone(identifier: endID) else { return nil }
+        let first = "\(startID) · \(PlaceTimeFormatter.gmtOffsetText(for: startZone, at: date))"
+        if startID == endID { return first }
+        return L10n.format("%@ → %@", first, "\(endID) · \(PlaceTimeFormatter.gmtOffsetText(for: endZone, at: date))")
+    }
+}
+
 struct RouteEndpointTimeZoneSummary: View {
-    let route: SavedRoute
+    let waypoints: [RouteCoordinate]
+    let isClosedLoop: Bool
     @State private var startInfo: PlaceInfo?
     @State private var endInfo: PlaceInfo?
+    @State private var expanded = false
+    @AppStorage("RouteLocation.timeZoneComparisonBaseline") private var baselineRawValue = TimeZoneComparisonBaseline.taiwan.rawValue
+
+    init(route: SavedRoute) {
+        waypoints = route.waypoints
+        isClosedLoop = route.isClosedLoop
+    }
+
+    init(waypoints: [RouteCoordinate], isClosedLoop: Bool) {
+        self.waypoints = waypoints
+        self.isClosedLoop = isClosedLoop
+    }
+
+    private var endpoints: RouteTimeZoneEndpoints? {
+        RouteTimeZoneEndpoints(waypoints: waypoints, isClosedLoop: isClosedLoop)
+    }
 
     var body: some View {
-        Group {
-            if let summary {
-                Text(summary)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            DisclosureGroup(isExpanded: $expanded) {
+                VStack(alignment: .leading, spacing: 6) {
+                    endpointDetails(startInfo, title: L10n.text("起點"), date: context.date)
+                    if endpoints?.returnsToStart == true {
+                        Text(L10n.text("封閉路線返回起點，終點時區與起點相同。"))
+                    } else if endpoints?.start != endpoints?.end {
+                        endpointDetails(endInfo, title: L10n.text("終點"), date: context.date)
+                    }
+                }
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } label: {
+                Text(RouteTimeZonePresentation.summary(start: startInfo, end: endInfo, at: context.date) ?? L10n.text("路線時區"))
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
             }
         }
-        .task(id: route.waypoints) {
+        .task(id: endpoints) {
             startInfo = nil
             endInfo = nil
-            guard let first = route.waypoints.first, let last = route.waypoints.last else { return }
-            if first == last {
-                let info = await PlaceInfoResolver.shared.resolve(first, scope: .general)
+            guard let endpoints else { return }
+            if endpoints.start == endpoints.end {
+                let info = await PlaceInfoResolver.shared.resolve(endpoints.start, scope: .general)
                 guard !Task.isCancelled else { return }
                 startInfo = info
                 endInfo = info
             } else {
-                async let start = PlaceInfoResolver.shared.resolve(first, scope: .general)
-                async let end = PlaceInfoResolver.shared.resolve(last, scope: .general)
+                async let start = PlaceInfoResolver.shared.resolve(endpoints.start, scope: .general)
+                async let end = PlaceInfoResolver.shared.resolve(endpoints.end, scope: .general)
                 let values = await (start, end)
                 guard !Task.isCancelled else { return }
                 startInfo = values.0
@@ -350,15 +403,25 @@ struct RouteEndpointTimeZoneSummary: View {
         }
     }
 
-    private var summary: String? {
-        guard let startInfo, let endInfo,
-              let startID = startInfo.timeZoneIdentifier,
-              let endID = endInfo.timeZoneIdentifier,
-              let startZone = TimeZone(identifier: startID),
-              let endZone = TimeZone(identifier: endID) else { return nil }
-        let start = "\(startInfo.locality ?? startInfo.displayName ?? startID) · \(PlaceTimeFormatter.gmtOffsetText(for: startZone))"
-        let end = "\(endInfo.locality ?? endInfo.displayName ?? endID) · \(PlaceTimeFormatter.gmtOffsetText(for: endZone))"
-        return startID == endID ? end : L10n.format("%@ → %@", start, end)
+    @ViewBuilder
+    private func endpointDetails(_ info: PlaceInfo?, title: String, date: Date) -> some View {
+        if let info, let identifier = info.timeZoneIdentifier, let zone = TimeZone(identifier: identifier) {
+            Text(title).fontWeight(.semibold)
+            Text([info.country, info.administrativeArea, info.locality, info.subLocality].compactMap { $0 }.joined(separator: " · "))
+            Text("\(identifier) · \(PlaceTimeFormatter.gmtOffsetText(for: zone, at: date))")
+            Text(localTime(date, zone: zone))
+            Text(PlaceTimeFormatter.offsetText(for: zone, at: date, baseline: TimeZoneComparisonBaseline(rawValue: baselineRawValue) ?? .taiwan))
+        } else {
+            Text(L10n.format("%@：時區資訊暫時無法取得，不影響定位模擬。", title))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func localTime(_ date: Date, zone: TimeZone) -> String {
+        let formatter = DateFormatter()
+        formatter.timeZone = zone
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 }
 

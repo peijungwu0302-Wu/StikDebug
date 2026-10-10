@@ -4,8 +4,88 @@ import Testing
 @testable import RouteLocation
 
 struct V1_2_24WorkflowTests {
+    // v1.2.25 targeted regression coverage.
     private let a = RouteCoordinate(latitude: 25.033964, longitude: 121.564468)
     private let b = RouteCoordinate(latitude: 25.04, longitude: 121.57)
+
+    @MainActor @Test func clearingPastedDraftReturnsToSelectionAndClearsPendingPaste() {
+        for classic in [false, true] {
+            let model = RouteLocationModel()
+            model.requestCoordinatePreview([a, b])
+            model.previewRoute(SavedRoute(name: "Preview", waypoints: [a, b], resolvedGeometry: RouteGeometry(coordinates: [a, b]), routeMode: .straight, isClosedLoop: false, preferredSpeedKmh: 18, playbackMode: .once))
+            model.requestCoordinatePreview([b, a])
+            #expect(model.showCoordinatePasteChoice)
+            if classic { model.clearCurrentRoute() } else { model.clearCurrentDraft() }
+            #expect(model.quickRouteMode == .singlePoint)
+            #expect(model.previewingRoute == nil)
+            #expect(!model.mapFocusTargetsRoute)
+            #expect(!model.showCoordinatePasteChoice)
+            #expect(model.waypoints.isEmpty)
+            model.resolveCoordinatePaste(.append)
+            #expect(model.waypoints.isEmpty)
+            #expect(MapTapRoutePolicy.action(mode: model.quickRouteMode, routeIsActive: false) == .selectPlace)
+            model.requestCoordinatePreview([b])
+            #expect(model.selectedCoordinate == b)
+        }
+    }
+
+    @MainActor @Test func operationModeAndClassicClearPreserveSinglePointSimulation() {
+        let model = RouteLocationModel()
+        model.requestCoordinatePreview([a, b, a])
+        model.testSetSimulationModeForTesting(.singlePoint(a))
+        let connection = model.connectionMonitor
+        model.quickRouteMode = .singlePoint
+        model.quickRouteMode = .route
+        #expect(model.waypoints == [a, b, a])
+        #expect(model.activeSimulatedCoordinate == a)
+        #expect(model.connectionMonitor === connection)
+        model.clearCurrentRoute()
+        #expect(model.activeSimulatedCoordinate == a)
+    }
+
+    @MainActor @Test func pasteDraftDecisionsPreserveReplaceAndAppendWithoutSimulation() {
+        for decision in MultiCoordinatePasteDecision.allCases {
+            let model = RouteLocationModel()
+            model.requestCoordinatePreview([a, b])
+            model.requestCoordinatePreview([b, a])
+            model.resolveCoordinatePaste(decision)
+            let expected = decision == .append ? [a, b, b, a] : decision == .replace ? [b, a] : [a, b]
+            #expect(model.waypoints == expected)
+            #expect(model.simulationMode == .idle)
+            #expect(!model.showCoordinatePasteChoice)
+        }
+    }
+
+    @MainActor @Test func previewEditorRequestSurvivesUntilColdLibraryConsumesIt() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = RouteLocationModel(persistence: RoutePersistenceStore(rootURL: root))
+        let route = try #require(await model.importSavedRoute([a, b], named: "Edit me"))
+        model.previewRoute(route)
+        #expect(model.requestOpenRouteEditor(route))
+        #expect(model.pendingRouteEditorID == route.id)
+        #expect(model.waypoints == [a, b])
+        #expect(model.previewingRoute == nil)
+        model.consumeRouteEditorRequest()
+        #expect(model.pendingRouteEditorID == nil)
+    }
+
+    @Test func routeTimeZoneEndpointsReturnToStartForClosedRoute() {
+        #expect(RouteTimeZoneEndpoints(waypoints: [a, b], isClosedLoop: true)?.end == a)
+        #expect(RouteTimeZoneEndpoints(waypoints: [a, b], isClosedLoop: false)?.end == b)
+        #expect(RouteTimeZoneEndpoints(waypoints: [], isClosedLoop: true) == nil)
+    }
+
+    @Test func routeTimeZoneSummaryHandlesSameCrossAndUnavailableZones() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        func info(_ zone: String) -> PlaceInfo {
+            PlaceInfo(coordinate: a, displayName: nil, country: nil, countryCode: nil, administrativeArea: nil, locality: nil, subLocality: nil, timeZoneIdentifier: zone, resolvedAt: date)
+        }
+        #expect(RouteTimeZonePresentation.summary(start: info("Asia/Taipei"), end: info("Asia/Taipei"), at: date) == "Asia/Taipei · GMT+8")
+        #expect(RouteTimeZonePresentation.summary(start: info("Asia/Taipei"), end: info("Asia/Tokyo"), at: date) == "Asia/Taipei · GMT+8 → Asia/Tokyo · GMT+9")
+        #expect(RouteTimeZonePresentation.summary(start: nil, end: info("Asia/Tokyo"), at: date) == nil)
+        #expect(RouteTimeZonePresentation.summary(start: info("invalid"), end: info("Asia/Tokyo"), at: date) == nil)
+    }
 
     @Test func pastePreservesEveryStringAndCoordinate() throws {
         #expect(try CoordinatePastePayload.parse(["25.033964,121.564468", "25.04,121.57"]) == [a, b])

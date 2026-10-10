@@ -124,8 +124,24 @@ final class GuidedTutorialCoordinator: ObservableObject {
     private var createdRouteID: UUID?
 
     var isActive: Bool { flow != nil }
+    var highlightedFavoriteID: UUID? { createdFavoriteID }
+    var highlightedRouteID: UUID? { createdRouteID }
     var steps: [TutorialStep] { flow.map(Self.steps(for:)) ?? [] }
     var step: TutorialStep? { steps.indices.contains(stepIndex) ? steps[stepIndex] : nil }
+
+    /// First expose the section picker, then the actual persisted item once
+    /// its section is visible. Progress still depends on production state.
+    func currentTarget(librarySection: String) -> TutorialTarget? {
+        guard let step else { return nil }
+        switch step.id {
+        case .reopenRoute:
+            return librarySection == "routes" ? .openSavedRoute : .routeLibrary
+        case .reopenFavorite:
+            return librarySection == "places" ? .favoriteLibrary : .routeLibrary
+        default:
+            return step.target
+        }
+    }
 
     static func steps(for flow: TutorialFlow) -> [TutorialStep] {
         func s(_ id: TutorialStepID, _ target: TutorialTarget) -> TutorialStep {

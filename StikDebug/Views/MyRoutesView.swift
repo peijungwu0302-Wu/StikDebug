@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MyRoutesView: View {
     @EnvironmentObject private var model: RouteLocationModel
+    @EnvironmentObject private var tutorial: GuidedTutorialCoordinator
     @Binding var selectedTab: RouteLocationTab
     @Binding var openEditorOnAppear: Bool
     @State private var renamingRoute: SavedRoute?
@@ -53,7 +54,6 @@ struct MyRoutesView: View {
         }
         .listStyle(.plain)
         .searchable(text: $searchText, prompt: L10n.text("搜尋路線名稱"))
-        .tutorialTarget(.openSavedRoute)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -67,12 +67,14 @@ struct MyRoutesView: View {
                 }
                 .accessibilityLabel(L10n.text("編輯路線詳細資訊"))
                 .disabled(model.isAnyRouteActive)
+                .accessibilityHint(model.isAnyRouteActive ? L10n.text("路線播放中，請先停止路線再編輯。") : "")
 
                 Button { showImporter = true } label: {
                     Image(systemName: "square.and.arrow.down")
                 }
                 .accessibilityLabel(L10n.text("匯入路線"))
                 .disabled(model.isAnyRouteActive)
+                .accessibilityHint(model.isAnyRouteActive ? L10n.text("路線播放中，請先停止路線再編輯。") : "")
             }
         }
         .sheet(item: $renamingRoute) { route in
@@ -115,6 +117,7 @@ struct MyRoutesView: View {
             guard requested else { return }
             guard !model.isAnyRouteActive else { openEditorOnAppear = false; return }
             showAdvancedEditor = true
+            model.consumeRouteEditorRequest()
             openEditorOnAppear = false
         }
     }
@@ -141,6 +144,7 @@ struct MyRoutesView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .tutorialTarget(.openSavedRoute, when: route.id == tutorial.highlightedRouteID)
 
             Button {
                 model.requestStartRoute(route)
@@ -152,7 +156,6 @@ struct MyRoutesView: View {
             }
             .buttonStyle(.bordered)
             .accessibilityLabel(L10n.format("開始路線：%@", route.name))
-            .disabled(model.isAnyRouteActive && !model.isActiveRoute(route))
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {

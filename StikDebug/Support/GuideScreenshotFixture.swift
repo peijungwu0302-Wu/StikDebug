@@ -21,8 +21,8 @@ enum GuideScreenshotFixture {
     static func prepare(_ model: RouteLocationModel) async {
         guard let scenario else { return }
         let taipei101 = RouteCoordinate(latitude: 25.033964, longitude: 121.564468)
-        model.mapInteractionStyle = .quickRoute
-        if ["editor", "player", "library"].contains(scenario) {
+        model.mapInteractionStyle = scenario == "classicPreview" ? .classic : .quickRoute
+        if ["editor", "player", "library", "preview", "classicPreview"].contains(scenario) {
             model.quickRouteMode = .route
             model.routeName = "Taipei 101 Demo"
             model.addWaypoint(taipei101)
@@ -31,6 +31,10 @@ enum GuideScreenshotFixture {
             if scenario == "library" {
                 _ = await model.saveCurrentRoute()
                 await model.addFavorite(name: "Taipei 101", coordinate: taipei101)
+            }
+            if ["preview", "classicPreview"].contains(scenario) {
+                _ = await model.saveCurrentRoute()
+                if let route = model.currentSavedRoute { model.previewRoute(route) }
             }
             if scenario == "player" {
                 model.playback.testSetScreenshotMetadataForTesting(name: model.routeName, speed: 18.6)

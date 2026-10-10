@@ -1080,3 +1080,14 @@
 "建立路線預覽" = "Preview Route";
 "播放：%@" = "Play: %@";
 "儲存草稿中，請稍候再編輯。" = "Saving your draft. Please wait before editing.";
+"選點" = "Select";
+"加航點" = "Add Points";
+"選擇位置" = "Select Location";
+"新增航點" = "Add Waypoints";
+"草稿 %d 點" = "Draft · %d pts";
+"返回路線編輯；航點會保留。" = "Return to route editing. Your waypoints are kept.";
+"路線時區" = "Route Time Zones";
+"起點" = "Start";
+"終點" = "End";
+"封閉路線返回起點，終點時區與起點相同。" = "This closed route returns to its start, in the same time zone.";
+"%@：時區資訊暫時無法取得，不影響定位模擬。" = "%@: Time zone information is temporarily unavailable. Location simulation is unaffected.";

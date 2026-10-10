@@ -720,6 +720,51 @@ struct SimulationStateMachineTests {
     init() {
         TestBootstrapEnvironment.reset()
     }
+
+    @Test func liveSpeedChangesDoNotCreateUnsavedDraftButPlanningSpeedDoes() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = RouteLocationModel(persistence: RoutePersistenceStore(rootURL: directory), simulationService: sink)
+        let route = try #require(await model.importSavedRoute([RouteCoordinate(latitude: 25, longitude: 121), RouteCoordinate(latitude: 25.1, longitude: 121.1)], named: "Saved"))
+        model.loadRoute(route)
+        await model.startPlayback()
+        #expect(model.playback.state == .running)
+        model.setPlaybackSpeed(42.5)
+        model.playback.pause()
+        model.setPlaybackSpeed(18)
+        #expect(!model.hasUnsavedRouteDraft)
+        let progress = model.playback.traveledDistance
+        model.quickRouteMode = .route
+        model.quickRouteMode = .singlePoint
+        #expect(model.playback.state == .paused)
+        #expect(model.playback.traveledDistance == progress)
+        model.stopRoutePlayback(clearMarker: false)
+        #expect(!model.hasUnsavedRouteDraft)
+        #expect(await model.saveCurrentRoute())
+        #expect(!model.hasUnsavedRouteDraft)
+        #expect(model.currentSavedRoute?.preferredSpeedKmh == 18)
+        model.speedKmh = route.preferredSpeedKmh + 1
+        #expect(model.hasUnsavedRouteDraft)
+        #expect(await sink.clearCallCount() == 0)
+    }
+
+    @Test func routeListSwitchUsesExistingConfirmationWhilePaused() async throws {
+        let sink = FakeLocationSink()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = RouteLocationModel(persistence: RoutePersistenceStore(rootURL: directory), simulationService: sink)
+        let first = SavedRoute.testRoute(name: "First", waypoints: [RouteCoordinate(latitude: 25, longitude: 121), RouteCoordinate(latitude: 25.1, longitude: 121.1)])
+        let second = SavedRoute.testRoute(name: "Second", waypoints: [RouteCoordinate(latitude: 35, longitude: 139), RouteCoordinate(latitude: 35.1, longitude: 139.1)])
+        await model.startRoute(first)
+        model.playback.pause()
+        model.requestStartRoute(second)
+        #expect(model.showActiveRouteSwitchAlert)
+        #expect(model.pendingSwitchRoute?.id == second.id)
+        #expect(model.playback.state == .paused)
+        #expect(model.waypoints == first.waypoints)
+        model.stopRoutePlayback(clearMarker: false)
+    }
     @Test func savedRouteDirectStartFromSingleShowsRouteAndFocusesOnlyOnce() async throws {
         let sink = FakeLocationSink()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

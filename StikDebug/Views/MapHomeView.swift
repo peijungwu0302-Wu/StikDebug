@@ -127,13 +127,19 @@ struct MapHomeView: View {
                         .tutorialTarget(.routeMode)
                         .frame(width: 140)
                         .disabled(model.isAnyRouteActive)
+                        .accessibilityHint(model.isAnyRouteActive ? L10n.text("路線播放中，請先停止路線再編輯。") : "")
                         if !model.waypoints.isEmpty {
-                            Text(L10n.format("路線 %d", model.waypoints.count))
+                            Button { model.quickRouteMode = .route } label: {
+                                Text(L10n.format("草稿 %d 點", model.waypoints.count))
                                 .font(.caption2.bold())
                                 .monospacedDigit()
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 4)
                                 .background(.quaternary, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(model.isAnyRouteActive)
+                            .accessibilityHint(L10n.text("返回路線編輯；航點會保留。"))
                                 .accessibilityLabel(L10n.format("路線草稿，%d 個航點", model.waypoints.count))
                         }
                     }
@@ -337,10 +343,7 @@ struct MapHomeView: View {
                     mode: .preview(previewing),
                     onStartRoute: { model.requestStartRoute(previewing) },
                     onEdit: {
-                        if model.requestEditRoute(previewing) {
-                            NotificationCenter.default.post(name: .switchToRoutesTab, object: nil)
-                            NotificationCenter.default.post(name: .openRouteEditor, object: nil)
-                        }
+                        model.requestOpenRouteEditor(previewing)
                     },
                     onCancelPreview: { model.cancelRoutePreview() },
                     onEndRoute: {},
@@ -572,6 +575,7 @@ struct MapHomeView: View {
                             .accessibilityLabel(L10n.text("開始路線"))
                             .tutorialTarget(.startRoute)
                     }
+                    RouteEndpointTimeZoneSummary(waypoints: model.waypoints, isClosedLoop: model.isClosedLoop)
                 }
             }
 
@@ -820,7 +824,7 @@ struct QuickRouteModePicker: View {
     var body: some View {
         Picker(L10n.text("模式"), selection: $selection) {
             ForEach(QuickRouteInteractionMode.allCases) { mode in
-                Text(mode.title).tag(mode)
+                Text(mode.title).tag(mode).accessibilityLabel(mode.accessibilityTitle)
             }
         }
         .pickerStyle(.segmented)

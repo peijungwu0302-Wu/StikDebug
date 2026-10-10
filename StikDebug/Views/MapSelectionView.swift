@@ -122,19 +122,25 @@ struct RouteMapView: View {
                     HStack(spacing: 6) {
                         Picker(L10n.text("模式"), selection: $model.quickRouteMode) {
                             ForEach(QuickRouteInteractionMode.allCases) { mode in
-                                Text(mode.title).tag(mode)
+                                Text(mode.title).tag(mode).accessibilityLabel(mode.accessibilityTitle)
                             }
                         }
                         .pickerStyle(.segmented)
                         .frame(width: 150)
                         .disabled(model.isAnyRouteActive)
+                        .accessibilityHint(model.isAnyRouteActive ? L10n.text("路線播放中，請先停止路線再編輯。") : "")
                         if !model.waypoints.isEmpty {
-                            Text(L10n.format("路線 %d", model.waypoints.count))
+                            Button { model.quickRouteMode = .route } label: {
+                                Text(L10n.format("草稿 %d 點", model.waypoints.count))
                                 .font(.caption2.bold())
                                 .monospacedDigit()
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 4)
                                 .background(.quaternary, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(model.isAnyRouteActive)
+                            .accessibilityHint(L10n.text("返回路線編輯；航點會保留。"))
                                 .accessibilityLabel(L10n.format("路線草稿，%d 個航點", model.waypoints.count))
                         }
                     }
@@ -368,10 +374,7 @@ struct RouteMapView: View {
                         HStack {
                             Button(L10n.text("開始路線")) { model.requestStartRoute(previewing) }.buttonStyle(.borderedProminent)
                             Button(L10n.text("編輯")) {
-                                if model.requestEditRoute(previewing) {
-                                    NotificationCenter.default.post(name: .switchToRoutesTab, object: nil)
-                                    NotificationCenter.default.post(name: .openRouteEditor, object: nil)
-                                }
+                                model.requestOpenRouteEditor(previewing)
                             }.buttonStyle(.bordered)
                             Button(L10n.text("取消預覽"), role: .cancel) { model.cancelRoutePreview() }.buttonStyle(.bordered)
                         }
@@ -400,6 +403,7 @@ struct RouteMapView: View {
                             Text(L10n.format("第 %d 圈", playback.lapNumber)).fontWeight(.semibold)
                         }
                     }.font(.footnote)
+                    RouteEndpointTimeZoneSummary(waypoints: model.waypoints, isClosedLoop: model.isClosedLoop)
                     HStack {
                         Button(L10n.text("開始路線")) { Task { await model.startPlayback() } }.buttonStyle(.borderedProminent)
                         Button(L10n.text("停止")) { model.stopRoutePlayback(clearMarker: true) }.buttonStyle(.bordered).tint(.red)

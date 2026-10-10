@@ -28,6 +28,19 @@ final class RouteLocationGuideUITests: XCTestCase {
     }
 
     @MainActor
+    func testColdPreviewEditOpensProductionEditorInQuickAndClassic() throws {
+        for scenario in ["preview", "classicPreview"] {
+            let app = launch(language: "en", scenario: scenario)
+            XCTAssertTrue(app.staticTexts["guide.fixture.ready"].waitForExistence(timeout: 20))
+            let edit = app.buttons["Edit"].firstMatch
+            XCTAssertTrue(edit.waitForExistence(timeout: 10))
+            edit.tap()
+            XCTAssertTrue(app.textFields.matching(NSPredicate(format: "value == %@", "Taipei 101 Demo")).firstMatch.waitForExistence(timeout: 10))
+            app.terminate()
+        }
+    }
+
+    @MainActor
     private func launch(language: String, scenario: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [

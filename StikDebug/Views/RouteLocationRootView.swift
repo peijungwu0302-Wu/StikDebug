@@ -171,6 +171,9 @@ struct RouteLocationRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .switchToRoutesTab)) { _ in
             selectedTab = .my
         }
+        .onChange(of: model.pendingRouteEditorID, initial: true) { _, request in
+            if request != nil { selectedTab = .my }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .showPairingFilePicker)) { _ in
             selectedTab = .settings
             showPairingImporter = true

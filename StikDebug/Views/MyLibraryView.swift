@@ -31,7 +31,7 @@ struct MyLibraryView: View {
                 }
             }
             .navigationTitle(L10n.text("我的"))
-            .onChange(of: selectedSection) { _, section in tutorialUI.librarySection = section.rawValue }
+            .onChange(of: selectedSection, initial: true) { _, section in tutorialUI.librarySection = section.rawValue }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -64,7 +64,8 @@ struct MyLibraryView: View {
             .onReceive(NotificationCenter.default.publisher(for: .switchToRoutesTab)) { _ in
                 selectedSection = .routes
             }
-            .onReceive(NotificationCenter.default.publisher(for: .openRouteEditor)) { _ in
+            .onChange(of: model.pendingRouteEditorID, initial: true) { _, request in
+                guard request != nil else { return }
                 selectedSection = .routes
                 openRouteEditorRequested = true
             }

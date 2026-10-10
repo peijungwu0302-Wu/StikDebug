@@ -6,6 +6,24 @@ import Testing
 struct GuidedTutorialTests {
     private let demo = RouteCoordinate(latitude: 25.033964, longitude: 121.564468)
 
+    @Test func libraryTargetsFollowTheVisibleProductionSection() {
+        let tutorial = GuidedTutorialCoordinator()
+        for flow in [TutorialFlow.savedRoute, .favorite] {
+            let (initial, states) = scenario(flow)
+            tutorial.start(flow, snapshot: initial)
+            for state in states.dropLast(flow == .savedRoute ? 2 : 1) { tutorial.observe(state) }
+            #expect(tutorial.currentTarget(librarySection: "other") == .routeLibrary)
+            if flow == .savedRoute {
+                #expect(tutorial.currentTarget(librarySection: "routes") == .openSavedRoute)
+                #expect(tutorial.highlightedRouteID != nil)
+            } else {
+                #expect(tutorial.currentTarget(librarySection: "places") == .favoriteLibrary)
+                #expect(tutorial.highlightedFavoriteID != nil)
+            }
+            tutorial.skip()
+        }
+    }
+
     @Test func everyTutorialInstructionHasBothLocalizations() throws {
         var keys = TutorialFlow.allCases.map(\.titleKey)
         keys += TutorialFlow.allCases.flatMap { flow in

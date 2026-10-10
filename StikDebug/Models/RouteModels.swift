@@ -350,10 +350,11 @@ enum QuickRouteInteractionMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .singlePoint: return L10n.text("單點")
-        case .route: return L10n.text("路線")
+        case .singlePoint: return L10n.text("選點")
+        case .route: return L10n.text("加航點")
         }
     }
+    var accessibilityTitle: String { L10n.text(self == .singlePoint ? "選擇位置" : "新增航點") }
 }
 
 enum StepCalculationMode: String, Codable, CaseIterable, Identifiable {
