@@ -15,6 +15,24 @@
       "tintColor": "#007AFF",
       "versions": [
         {
+          "version": "1.2.24",
+          "date": "2026-10-10",
+          "size": 7118953,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.24/RouteLocation-v1.2.24-unsigned.ipa",
+          "localizedDescription": "RouteLocation v1.2.24 fixes saved-route map visibility, protects unsaved drafts before playback, and unifies single-point and multi-waypoint paste. Named frequent-route shortcuts make playback faster without starting simulation automatically on paste. / RouteLocation v1.2.24 修正已儲存路線的地圖顯示、保護播放前的未儲存草稿，並統一單點與多航點貼上。具名常用路線快捷播放讓操作更快，貼上本身不會自動啟動模擬。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        },
+        {
           "version": "1.2.23",
           "date": "2026-10-08",
           "size": 7105998,
