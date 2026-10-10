@@ -10,6 +10,8 @@ struct V1_2_24WorkflowTests {
     @Test func pastePreservesEveryStringAndCoordinate() throws {
         #expect(try CoordinatePastePayload.parse(["25.033964,121.564468", "25.04,121.57"]) == [a, b])
         #expect(CoordinateAlertInputValidation.coordinates(in: "25.033964,121.564468\n25.04,121.57") == [a, b])
+        #expect(CoordinateAlertInputValidation.coordinate(in: "25.033964,121.564468\n25.04,121.57") == nil)
+        #expect(try CoordinatePastePayload.parse(["", "25.033964,121.564468"]) == [a])
     }
 
     @Test func multipleJSONClipboardItemsPreserveAllWaypoints() throws {
