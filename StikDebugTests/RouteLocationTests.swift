@@ -1012,13 +1012,15 @@ struct SimulationStateMachineTests {
         let sink = FakeLocationSink()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = RoutePersistenceStore(rootURL: directory)
-        let model = RouteLocationModel(persistence: store, simulationService: sink)
-
         let route = SavedRoute.testRoute(
             name: "PauseStopRoute",
             waypoints: [RouteCoordinate(latitude: 25.0, longitude: 121.0), RouteCoordinate(latitude: 25.1, longitude: 121.1)],
             routeMode: .straight
         )
+        // This exercises restarting a saved route, not discarding an unsaved
+        // draft. Seed storage before the model's initial library load.
+        try await store.saveRoute(route)
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
 
         // Start Route -> Pause -> Stop
         await model.startRoute(route)
