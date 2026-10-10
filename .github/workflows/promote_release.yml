@@ -107,7 +107,7 @@ jobs:
           EXPECTED_BUILD=$(jq -r .build <<<"$PROJECT_SETTINGS")
           BUNDLE_ID=$(jq -r .bundle <<<"$PROJECT_SETTINGS")
           MIN_OS=$(jq -r .deployment <<<"$PROJECT_SETTINGS")
-          SOURCE_DESCRIPTION="RouteLocation v${VERSION} fixes saved-route map visibility, protects unsaved drafts before playback, and unifies single-point and multi-waypoint paste. Named frequent-route shortcuts make playback faster without starting simulation automatically on paste. / RouteLocation v${VERSION} 修正已儲存路線的地圖顯示、保護播放前的未儲存草稿，並統一單點與多航點貼上。具名常用路線快捷播放讓操作更快，貼上本身不會自動啟動模擬。"
+          SOURCE_DESCRIPTION="RouteLocation v${VERSION} clarifies map selection and waypoint operations, safely resets cleared drafts, adds expandable route endpoint time zones, and improves saved-route switching and first-use editing. Live speed changes no longer count as structural draft edits. / RouteLocation v${VERSION} 明確區分選點與加航點操作，清除草稿安全返回選點，加入可展開的路線起終點時區，並改善已儲存路線切換及首次編輯。播放中的速度調整不再誤判為草稿結構變更。"
           RELEASE_NOTES_FILE=".github/RELEASE_NOTES_v${VERSION}.md"
           if [[ "$EXPECTED_PROJECT_VERSION" != "$VERSION" || "$BUNDLE_ID" != "com.routelocation.app" || "$MIN_OS" != "17.4" ]]; then
             echo "Project metadata mismatch: $PROJECT_SETTINGS vs release $VERSION" >&2
