@@ -15,6 +15,24 @@
       "tintColor": "#007AFF",
       "versions": [
         {
+          "version": "1.2.26",
+          "date": "2026-10-11",
+          "size": 7156131,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.26/RouteLocation-v1.2.26-unsigned.ipa",
+          "localizedDescription": "RouteLocation v1.2.26 improves keyboard-safe coordinate entry, unifies route stop choices, adds pinned quick playback routes, and shows local time in compact recents with swipe-expandable route time zones. New S2 preferences default to Lv.17 without changing saved choices. / RouteLocation v1.2.26 改善座標輸入及鍵盤布局、整合路線停止選項、加入可固定的快捷播放路線，精簡最近位置顯示當地時間，路線時區支援拖拉展開。未設定的 S2 偏好預設 Lv.17，既有選擇保持不變。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        },
+        {
           "version": "1.2.25",
           "date": "2026-10-10",
           "size": 7136442,
