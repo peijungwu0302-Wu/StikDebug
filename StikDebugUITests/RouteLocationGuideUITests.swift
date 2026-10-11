@@ -49,9 +49,11 @@ final class RouteLocationGuideUITests: XCTestCase {
             if cancel.exists {
                 cancel.tap()
             } else {
-                // Native popover presentations cancel by tapping outside, not
-                // by exposing a cancel button. The demo banner is above the card.
-                ready.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                // Native popovers expose an outside-dismiss region rather than
+                // a cancel button. Tap above the centered popup, below status UI.
+                let dismissRegion = app.otherElements["PopoverDismissRegion"]
+                XCTAssertTrue(dismissRegion.exists)
+                dismissRegion.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap()
             }
             let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: keep)
             XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
