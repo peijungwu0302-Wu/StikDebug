@@ -19,6 +19,9 @@ enum AppBootstrapper {
     }
 
     private static func registerDefaultSettings() {
+        // Register UI preferences at app startup, never during view construction:
+        // defaults notifications must not invalidate the view being created.
+        S2GridPreferences.registerDefaults(in: .standard)
         UserDefaults.standard.register(defaults: [
             "keepAliveAudio": true,
             "keepAliveLocation": true

@@ -6,7 +6,6 @@ enum RouteLocationTab: Hashable {
 }
 
 struct RouteLocationRootView: View {
-    init() { S2GridPreferences.registerDefaults(in: .standard) }
     @EnvironmentObject private var model: RouteLocationModel
     @EnvironmentObject private var playback: RoutePlaybackEngine
     @State private var selectedTab: RouteLocationTab = .map
