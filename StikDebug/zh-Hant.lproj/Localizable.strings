@@ -304,9 +304,9 @@
 "tutorial.step.resumeRoute.title" = "繼續移動";
 "tutorial.step.resumeRoute.body" = "點「繼續」，路線會從暫停的進度接著播放。教學會等待實際恢復播放。";
 "tutorial.step.stopAndHold.title" = "停止並停留";
-"tutorial.step.stopAndHold.body" = "打開播放器的更多選單，選擇「停止並停留目前位置」。移動會停止，但模擬位置仍然保留；恢復真實位置是另一個操作。";
+"tutorial.step.stopAndHold.body" = "點播放器的「停止路線」，再選擇「停止並保留目前位置」。移動會停止，但模擬位置仍然保留；恢復真實位置是另一個操作。";
 "tutorial.step.restore.title" = "恢復真實位置";
-"tutorial.step.restore.body" = "模擬中請點「恢復真實位置」，或在播放器的更多選單選擇「停止路線並恢復真實位置」。暫停與停止並停留都不等於恢復 GPS；真正恢復成功後教學才會完成。";
+"tutorial.step.restore.body" = "模擬中請點「恢復真實位置」，或點播放器的「停止路線」並選擇「停止並恢復真實位置」。暫停與停止並保留都不等於恢復 GPS；真正恢復成功後教學才會完成。";
 "tutorial.step.saveFavorite.title" = "收藏地點";
 "tutorial.step.saveFavorite.body" = "在所選地點卡點收藏，輸入名稱後儲存。新的收藏成功寫入後，教學才會進入下一步。";
 "tutorial.step.openMy.title" = "開啟我的收藏";

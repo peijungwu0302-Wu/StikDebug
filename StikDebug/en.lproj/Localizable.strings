@@ -1020,9 +1020,9 @@
 "tutorial.step.resumeRoute.title" = "Resume Movement";
 "tutorial.step.resumeRoute.body" = "Tap Resume. The route continues from its paused progress. Guidance waits for playback to resume successfully.";
 "tutorial.step.stopAndHold.title" = "Stop and Stay Here";
-"tutorial.step.stopAndHold.body" = "In the player's More menu, choose Stop and Keep Current Position. Movement ends, but that simulated location remains active. Restore Real Location is a separate action.";
+"tutorial.step.stopAndHold.body" = "Tap Stop Route in the player, then choose Stop and Keep Current Position. Movement ends, but that simulated location remains active. Restore Real Location is a separate action.";
 "tutorial.step.restore.title" = "Restore Your Real Location";
-"tutorial.step.restore.body" = "While simulation is active, use Restore Real Location, or Stop Route and Restore Real Location in the player's More menu. Pause and Stop and Keep Current Position do not restore GPS. Completion requires a successful restore.";
+"tutorial.step.restore.body" = "While simulation is active, use Restore Real Location, or tap Stop Route in the player and choose Stop and Restore Real Location. Pause and Stop and Keep Current Position do not restore GPS. Completion requires a successful restore.";
 "tutorial.step.saveFavorite.title" = "Save a Favorite Place";
 "tutorial.step.saveFavorite.body" = "Tap Favorite on the selected place card, choose a name, and save. Guidance advances only after a new favorite is successfully stored.";
 "tutorial.step.openMy.title" = "Open My Library";
