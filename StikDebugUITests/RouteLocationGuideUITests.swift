@@ -29,18 +29,36 @@ final class RouteLocationGuideUITests: XCTestCase {
 
     @MainActor
     func testPlayerStopCancelHasNoPlaybackSideEffects() throws {
-        let app = launch(language: "en", scenario: "player")
-        XCTAssertTrue(app.staticTexts["guide.fixture.ready"].waitForExistence(timeout: 20))
-        let pause = app.buttons["Pause Movement"]
-        XCTAssertTrue(pause.waitForExistence(timeout: 5))
-        let stop = app.buttons["Stop Route"]
-        XCTAssertTrue(stop.isHittable)
-        stop.tap()
-        XCTAssertTrue(app.buttons["Stop and Keep Current Position"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Stop and Restore Real Location"].exists)
-        app.buttons["Cancel"].tap()
-        XCTAssertTrue(pause.isHittable)
-        XCTAssertTrue(stop.isHittable)
+        for (language, pauseTitle, stopTitle, keepTitle, restoreTitle, cancelTitle) in [
+            ("en", "Pause Movement", "Stop Route", "Stop and Keep Current Position", "Stop and Restore Real Location", "Cancel"),
+            ("zh-Hant", "暫停移動", "停止路線", "停止並保留目前位置", "停止並恢復真實位置", "取消")
+        ] {
+            let app = launch(language: language, scenario: "player")
+            let ready = app.staticTexts["guide.fixture.ready"]
+            XCTAssertTrue(ready.waitForExistence(timeout: 20))
+            let pause = app.buttons[pauseTitle]
+            XCTAssertTrue(pause.waitForExistence(timeout: 5))
+            let stop = app.buttons[stopTitle]
+            XCTAssertTrue(stop.isHittable)
+            stop.tap()
+            let keep = app.buttons[keepTitle]
+            XCTAssertTrue(keep.waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons[restoreTitle].exists)
+            capture(app, name: "readme-\(language)-player-stop-options-demo")
+            let cancel = app.buttons[cancelTitle]
+            if cancel.exists {
+                cancel.tap()
+            } else {
+                // Native popover presentations cancel by tapping outside, not
+                // by exposing a cancel button. The demo banner is above the card.
+                ready.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            }
+            let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: keep)
+            XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+            XCTAssertTrue(pause.isHittable, "Cancel must not pause or stop playback")
+            XCTAssertTrue(stop.isHittable)
+            app.terminate()
+        }
     }
 
     @MainActor
