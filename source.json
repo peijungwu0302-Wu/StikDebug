@@ -15,6 +15,24 @@
       "tintColor": "#007AFF",
       "versions": [
         {
+          "version": "1.2.27",
+          "date": "2026-10-25",
+          "size": 7263209,
+          "downloadURL": "https://github.com/peijungwu0302-Wu/StikDebug/releases/download/routelocation-v1.2.27/RouteLocation-v1.2.27-unsigned.ipa",
+          "localizedDescription": "RouteLocation v1.2.27 adds Full/Compact map layouts and a bounded Apple Maps road-constrained smart route generator. Preview actual distance and control points, save or favorite candidates, and explicitly apply them with draft protection. Map coverage varies; generation never starts simulation or falls back to unverified straight lines. / RouteLocation v1.2.27 新增完整／精簡地圖版面及有界的 Apple 地圖道路約束智慧路線。候選顯示實際距離與主要航點，可儲存、收藏，明確套用時保護現有草稿。資料涵蓋有限；生成不會自動模擬，失敗不會改成未驗證直線。",
+          "minOSVersion": "17.4",
+          "appPermissions": {
+            "entitlements": [
+              "com.apple.developer.networking.networkextension"
+            ],
+            "privacy": {
+              "NSLocationAlwaysAndWhenInUseUsageDescription": "用於路線播放時在背景持續傳送開發者位置模擬訊號。",
+              "NSHealthShareUsageDescription": "用於讀取 Apple 健康步數權限與狀態。",
+              "NSHealthUpdateUsageDescription": "用於在路線播放時將模擬運動步數寫入 Apple 健康。"
+            }
+          }
+        },
+        {
           "version": "1.2.26",
           "date": "2026-10-11",
           "size": 7156131,
