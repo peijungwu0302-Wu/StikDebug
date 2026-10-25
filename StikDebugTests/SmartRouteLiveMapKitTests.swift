@@ -15,11 +15,10 @@ struct SmartRouteLiveMapKitTests {
         #expect(abs(candidate.deviation) <= 0.20 + 1e-9)
         #expect(candidate.geometry.coordinates.first == candidate.geometry.coordinates.last)
         #expect(candidate.geometry.coordinates.count > candidate.waypoints.count)
-        #expect(provider.legs.count <= 12)
+        #expect(provider.navigationRequests <= 12)
         let retained = Set(candidate.geometry.coordinates)
         var matchingRoad: [RouteCoordinate]?
-        for start in stride(from: 0, to: provider.legs.count, by: 4) {
-            let legs = Array(provider.legs[start..<min(start + 4, provider.legs.count)])
+        for legs in provider.attempts {
             guard legs.count == 4 else { continue }
             let raw = legs.flatMap { $0.coordinates }
             if retained.isSubset(of: Set(raw)) { matchingRoad = raw; break }
@@ -31,7 +30,7 @@ struct SmartRouteLiveMapKitTests {
             "service": "Apple MapKit (live)", "targetMeters": 5_000,
             "actualMeters": candidate.geometry.totalDistance, "deviationPercent": candidate.deviation * 100,
             "controlPoints": candidate.waypoints.count, "roadVertices": candidate.geometry.coordinates.count,
-            "maximumRoadDeviationMeters": maximumDeviation, "navigationRequests": provider.legs.count,
+            "maximumRoadDeviationMeters": maximumDeviation, "navigationRequests": provider.navigationRequests,
             "closed": true
         ]
         print("SMART_ROUTE_LIVE_REPORT " + String(decoding: try JSONSerialization.data(withJSONObject: report, options: .sortedKeys), as: UTF8.self))
@@ -52,12 +51,19 @@ struct SmartRouteLiveMapKitTests {
 @MainActor private final class RecordingMapKitRoadProvider: SmartRoadProviding {
     private let live = MapKitSmartRoadProvider()
     var legs: [RouteGeometry] = []
+    var attempts: [[RouteGeometry]] = []
+    var navigationRequests = 0
+    private var initialSource: RouteCoordinate?
     func nearbyLocations(center: RouteCoordinate, radius: Double) async throws -> [RouteCoordinate] {
         try await live.nearbyLocations(center: center, radius: radius)
     }
     func route(from: RouteCoordinate, to: RouteCoordinate, transport: NavigationTransportMode) async throws -> RouteGeometry {
+        if initialSource == nil { initialSource = from }
+        if attempts.isEmpty || from == initialSource { attempts.append([]) }
+        navigationRequests += 1
         let value = try await live.route(from: from, to: to, transport: transport)
         legs.append(value)
+        attempts[attempts.count - 1].append(value)
         return value
     }
     func cancel() { live.cancel() }

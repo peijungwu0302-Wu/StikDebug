@@ -39,6 +39,13 @@ struct SmartRouteGeneratorTests {
         #expect(decoded.waypoints.count < decoded.resolvedGeometry.coordinates.count)
     }
 
+    @Test func preferredDistanceAlwaysRanksBeforeRelaxedQualityScore() {
+        #expect(SmartRouteQuality.isBetter(relaxed: false, score: 1.20, thanRelaxed: true, score: 0.90))
+        #expect(!SmartRouteQuality.isBetter(relaxed: true, score: 0.90, thanRelaxed: false, score: 1.20))
+        #expect(SmartRouteQuality.isBetter(relaxed: false, score: 0.50, thanRelaxed: false, score: 1.20))
+        #expect(!SmartRouteQuality.isBetter(relaxed: true, score: 1.20, thanRelaxed: true, score: 0.90))
+    }
+
     @Test func simplificationKeepsSharpRoadTurnsAndRejectsDisconnectedSeams() throws {
         let road = [a, b, c, d, a]
         #expect(SmartRouteQuality.simplify(road, tolerance: 2) == road)

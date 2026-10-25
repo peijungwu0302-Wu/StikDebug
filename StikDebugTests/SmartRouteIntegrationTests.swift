@@ -47,6 +47,24 @@ struct SmartRouteIntegrationTests {
         #expect(!model.showSavedRouteDraftConflict)
     }
 
+    @Test func changedTransportBlocksSavingAndStartingStaleRoadGeometry() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = RoutePersistenceStore(rootURL: root)
+        let sink = SmartRouteIntegrationSink()
+        let model = RouteLocationModel(persistence: store, simulationService: sink)
+        let value = try candidate()
+        model.requestApplySmartRoute(value.savedRoute(name: "Road", speedKmh: 18.6, playbackMode: .infiniteLoop))
+        model.navigationTransport = .automobile
+        #expect(model.navigationGeometryNeedsRecalculation)
+        #expect(!(await model.saveCurrentRoute(named: "Stale")))
+        #expect(try await store.loadRoutes().isEmpty)
+        await model.startPlayback()
+        #expect(model.simulationMode == .idle)
+        #expect(model.presentedError != nil)
+        #expect(await sink.writes == 0)
+    }
+
     @Test func savingCandidateFavoritePersistsWithoutOverwritingDraft() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -124,4 +142,10 @@ struct SmartRouteIntegrationTests {
         #expect(model.savedRoutes.isEmpty)
         #expect(model.simulationMode == .idle)
     }
+}
+
+private actor SmartRouteIntegrationSink: LocationSimulationSink {
+    var writes = 0
+    func setCoordinate(_ coordinate: RouteCoordinate) async throws { writes += 1 }
+    func clearSimulatedLocation() async throws { Issue.record("A stale route must not restore location") }
 }

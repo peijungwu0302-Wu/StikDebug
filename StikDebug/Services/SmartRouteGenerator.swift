@@ -176,6 +176,12 @@ struct SmartRouteCandidate: Identifiable {
 
 enum SmartRouteQuality {
     enum DistanceBand { case preferred, relaxed }
+    /// Relaxed distance is a fallback, never a quality-score competitor to
+    /// an already valid preferred-distance route.
+    static func isBetter(relaxed: Bool, score: Double, thanRelaxed otherRelaxed: Bool, score otherScore: Double) -> Bool {
+        if relaxed != otherRelaxed { return !relaxed }
+        return score < otherScore
+    }
     static func distanceBand(actual: Double, target: Double) -> DistanceBand? {
         guard actual.isFinite, target.isFinite, actual > 0, target > 0 else { return nil }
         let error = abs(actual / target - 1)
@@ -339,7 +345,11 @@ final class SmartRouteGenerator {
                 try Task.checkCancellation()
                 if options.kind == .loop, repeated > 0.6 { continue }
                 let score = abs(candidate.deviation) * 5 + (options.kind == .loop ? repeated : 0)
-                if score < bestScore { best = candidate; bestScore = score }
+                if best == nil || SmartRouteQuality.isBetter(relaxed: candidate.usesRelaxedDistance, score: score,
+                    thanRelaxed: best?.usesRelaxedDistance ?? true, score: bestScore) {
+                    best = candidate
+                    bestScore = score
+                }
                 if !candidate.usesRelaxedDistance && (options.kind == .outAndBack || repeated < 0.2) { return candidate }
             } catch is CancellationError { throw CancellationError() }
             catch let error as SmartRouteError {
