@@ -1110,3 +1110,14 @@
 "完整版（v1.2.26）" = "Full (v1.2.26)";
 "精簡版（v1.2.21 風格）" = "Compact (v1.2.21 style)";
 "智慧貼上" = "Smart Paste";
+"道路環狀路線" = "Road Loop";
+"已驗證折返路線" = "Verified Out-and-Back";
+"作為起點" = "Use as Start";
+"搜尋附近起點" = "Find a Nearby Start";
+"請選擇 0.5–50 公里及 3–24 個建議航點。" = "Choose 0.5–50 km and 3–24 preferred control points.";
+"目前無法取得 Apple 地圖導航資料，請稍後重試或手動建立路線。" = "Apple Maps directions are unavailable. Try later or build a route manually.";
+"附近可用地點不足；山區或步道資料可能不完整，請更換位置或手動建立路線。" = "Not enough nearby places. Mountain or trail data may be incomplete; choose another location or build manually.";
+"導航路段無法安全連接，未建立任何直線補接。" = "Navigation segments cannot be connected safely. No straight-line bridge was added.";
+"有限次嘗試未找到目標距離 ±20% 內的有效道路路線。可調整條件，或明確改試折返。" = "The bounded search found no valid road route within ±20% of the target. Adjust the settings or explicitly try an out-and-back route.";
+"導航服務逾時，請稍後重試。" = "Directions timed out. Please try again later.";
+"Apple 地圖暫時限制導航請求，請稍後重試。" = "Apple Maps is temporarily throttling directions. Please try again later.";
