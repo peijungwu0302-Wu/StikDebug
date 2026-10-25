@@ -1106,3 +1106,7 @@
 "昨天使用" = "Used yesterday";
 "%@使用" = "Used %@";
 "當地時間：%@" = "Local time: %@";
+"地圖版面" = "Map Layout";
+"完整版（v1.2.26）" = "Full (v1.2.26)";
+"精簡版（v1.2.21 風格）" = "Compact (v1.2.21 style)";
+"智慧貼上" = "Smart Paste";

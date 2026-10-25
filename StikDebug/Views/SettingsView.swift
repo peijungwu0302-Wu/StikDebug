@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject private var playback: RoutePlaybackEngine
     
     @AppStorage("RouteLocation.showMiniPlayer") private var showMiniPlayer = true
+    @AppStorage(QuickMapLayoutPreference.defaultsKey) private var quickMapLayout = QuickMapLayoutPreference.full.rawValue
     @AppStorage(AppLanguage.defaultsKey) private var appLanguage = AppLanguage.traditionalChinese.rawValue
     @AppStorage(AppearancePreference.defaultsKey) private var appearanceRawValue = AppearancePreference.system.rawValue
     @AppStorage(CoordinateTextSizePreference.defaultsKey) private var coordinateTextSizeRawValue = CoordinateTextSizePreference.standard.rawValue
@@ -140,6 +141,11 @@ struct SettingsView: View {
                 .listSectionSeparator(.hidden)
                 
                 Section(L10n.text("介面")) {
+                    Picker(L10n.text("地圖版面"), selection: $quickMapLayout) {
+                        ForEach(QuickMapLayoutPreference.allCases) { layout in
+                            Text(layout.title).tag(layout.rawValue)
+                        }
+                    }
                     Picker(L10n.text("介面語言"), selection: $appLanguage) {
                         ForEach(AppLanguage.allCases) { language in
                             Text(language.displayName).tag(language.rawValue)

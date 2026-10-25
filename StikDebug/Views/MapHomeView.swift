@@ -13,6 +13,11 @@ struct MapHomeView: View {
     @AppStorage("RouteLocation.s2GridEnabled") private var s2GridEnabled = true
     @AppStorage("RouteLocation.s2GridLevelMode") private var s2GridLevelRawValue = "17"
     @State private var showSearch = false
+    @AppStorage(QuickMapLayoutPreference.defaultsKey) private var layoutRawValue = QuickMapLayoutPreference.full.rawValue
+    @State private var showQuickRoutePicker = false
+    private var isCompact: Bool {
+        QuickMapLayoutPreference.effective(layoutRawValue, tutorialActive: tutorial.isActive) == .compact
+    }
     @State private var showCoordinateEntry = false
     @State private var showRouteInputChooser = false
     @State private var showRoutePaste = false
@@ -128,7 +133,7 @@ struct MapHomeView: View {
                         .frame(width: 140)
                         .disabled(model.isAnyRouteActive)
                         .accessibilityHint(model.isAnyRouteActive ? L10n.text("路線播放中，請先停止路線再編輯。") : "")
-                        if !model.waypoints.isEmpty {
+                        if !isCompact && !model.waypoints.isEmpty {
                             Button { model.quickRouteMode = .route } label: {
                                 Text(L10n.format("草稿 %d 點", model.waypoints.count))
                                 .font(.caption2.bold())
@@ -145,10 +150,12 @@ struct MapHomeView: View {
                     }
                 }
                 ToolbarItemGroup(placement: .topBarLeading) {
+                    if !isCompact || model.quickRouteMode == .route {
                     Button { showFavoriteRoutePicker = true } label: {
                         Label(L10n.text("我的路線"), systemImage: "list.bullet.rectangle")
                     }
                     .accessibilityLabel(L10n.text("我的路線"))
+                    }
                     if model.quickRouteMode == .singlePoint {
                         Button { showFavoritePlacePicker = true } label: {
                             Label(L10n.text("我的最愛"), systemImage: "star.fill")
@@ -164,11 +171,20 @@ struct MapHomeView: View {
                     } label: { Image(systemName: "location.viewfinder") }
                         .accessibilityLabel(L10n.text("輸入座標"))
                         .tutorialTarget(.coordinateEntry)
-                    CoordinatePasteToolbarButton(
+                    if !isCompact { CoordinatePasteToolbarButton(
                         isDisabled: model.isAnyRouteActive,
                         onPaste: handlePastedValues
-                    )
+                    ) }
                     Menu {
+                        if isCompact {
+                            Button(L10n.text("智慧貼上"), systemImage: "doc.on.clipboard") { showCoordinateEntry = true }
+                            Button(L10n.text("我的路線"), systemImage: "list.bullet.rectangle") { showFavoriteRoutePicker = true }
+                            if let route = model.quickPlaybackRoute {
+                                Button(L10n.format("播放 %@", route.name), systemImage: "play.fill") { model.requestStartRoute(route) }
+                            }
+                            Button(L10n.text("選擇快捷播放路線")) { showQuickRoutePicker = true }
+                            Divider()
+                        }
                         if !displayCoordinates.isEmpty {
                             Button(L10n.text("顯示完整路線")) { fitRoute() }
                         }
@@ -251,6 +267,9 @@ struct MapHomeView: View {
                 model.previewRoute(route)
                 fitRoute()
             }
+        }
+        .sheet(isPresented: $showQuickRoutePicker) {
+            MapFavoriteRoutePicker(pinSelection: true) { route in model.pinQuickPlaybackRoute(route) }
         }
         .sheet(isPresented: $showSaveSheet) {
             RouteSaveView(initialName: model.routeName, updatingExisting: model.hasLoadedRoute) { name, asCopy in
@@ -369,6 +388,13 @@ struct MapHomeView: View {
             } else {
                 routeDraftFloatingContent
             }
+            if isCompact, model.quickRouteMode == .singlePoint, !model.waypoints.isEmpty, !model.isAnyRouteActive {
+                Button { model.quickRouteMode = .route } label: {
+                    Text(L10n.format("草稿 %d 點", model.waypoints.count)).font(.caption)
+                }
+                .buttonStyle(.bordered).padding(.top, 4)
+                .accessibilityHint(L10n.text("返回路線編輯；航點會保留。"))
+            }
         }
         .padding(.horizontal)
         .padding(.bottom, 4)
@@ -441,7 +467,7 @@ struct MapHomeView: View {
                 }
                 Text(L10n.text("點選地圖、搜尋或選擇我的最愛"))
                     .font(.footnote).foregroundStyle(.secondary)
-                quickPlaybackShortcut
+                if !isCompact { quickPlaybackShortcut }
             }
             .padding(12)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
@@ -461,7 +487,7 @@ struct MapHomeView: View {
             }
 
             if model.waypoints.isEmpty {
-                quickPlaybackShortcut
+                if !isCompact { quickPlaybackShortcut }
                 HStack {
                     Text(L10n.text("點選地圖以新增航點"))
                         .font(.footnote).foregroundStyle(.secondary)
