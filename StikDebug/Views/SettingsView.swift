@@ -146,6 +146,8 @@ struct SettingsView: View {
                             Text(layout.title).tag(layout.rawValue)
                         }
                     }
+                    Text(L10n.text("版面選項適用快速地圖；經典模式保留原有操作。"))
+                        .font(.caption).foregroundStyle(.secondary)
                     Picker(L10n.text("介面語言"), selection: $appLanguage) {
                         ForEach(AppLanguage.allCases) { language in
                             Text(language.displayName).tag(language.rawValue)

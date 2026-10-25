@@ -49,6 +49,11 @@ struct SmartRouteGeneratorTests {
         #expect(joined == road)
     }
 
+    @Test func retracingIsNotMislabelledAsAnOrdinaryLoop() {
+        #expect(SmartRouteQuality.repeatedRoadFraction(RouteGeometry(coordinates: [a, b, a])) > 0.8)
+        #expect(SmartRouteQuality.repeatedRoadFraction(RouteGeometry(coordinates: [a, b, c, d, a])) < 0.1)
+    }
+
     @Test func explicitOutAndBackRequestsTheReturnDirection() async throws {
         let provider = FakeSmartRoadProvider(locations: [b], segments: [[a, b], [b, c, a]])
         let generator = SmartRouteGenerator(provider: provider)
@@ -80,6 +85,78 @@ struct SmartRouteGeneratorTests {
         do { _ = try await SmartRouteGenerator(provider: provider).generate(center: a, options: .init()); Issue.record("Expected unavailable roads") }
         catch { #expect(provider.requests.isEmpty) }
     }
+
+    @Test func pacingUsesMonotonicDeadlineWithoutSleepingInTests() {
+        let now = ContinuousClock.now
+        #expect(SmartRouteRequestPacing.next(after: nil, now: now) == now)
+        #expect(SmartRouteRequestPacing.next(after: now, now: now) == now.advanced(by: .milliseconds(350)))
+        let later = now.advanced(by: .seconds(2))
+        #expect(SmartRouteRequestPacing.next(after: now, now: later) == later)
+    }
+
+    @Test(arguments: [SmartRouteError.timedOut, .throttled])
+    func serviceLimitsAbortWithoutTryingMoreCandidates(_ failure: SmartRouteError) async {
+        let provider = FakeSmartRoadProvider(locations: [b, c, d], segments: [], failure: failure)
+        do { _ = try await SmartRouteGenerator(provider: provider).generate(center: a, options: .init()); Issue.record("Expected service limit") }
+        catch let error as SmartRouteError { #expect(String(describing: error) == String(describing: failure)) }
+        catch { Issue.record("Unexpected error \(error)") }
+        #expect(provider.requests.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func lateCancelledGenerationCannotReplaceNewPreview() async throws {
+        let old = SuspendedSmartRoadProvider()
+        defer { old.release() }
+        let fresh = FakeSmartRoadProvider(locations: [b], segments: [[a, b], [b, c, a]])
+        var count = 0
+        let session = SmartRouteGenerationSession {
+            count += 1
+            if count == 1 { return SmartRouteGenerator(provider: old) }
+            return SmartRouteGenerator(provider: fresh)
+        }
+        let target = RouteGeometry(coordinates: [a, b, c, a]).totalDistance
+        let options = SmartRouteOptions(targetDistance: target, kind: .outAndBack)
+        let first = session.generate(center: a, options: options)
+        #expect(await old.started.wait(timeout: .seconds(3)))
+        let second = session.generate(center: a, options: options)
+        await second.value
+        let id = try #require(session.candidate?.id)
+        old.release()
+        await first.value
+        #expect(session.candidate?.id == id)
+        #expect(session.error == nil)
+        #expect(!session.isGenerating)
+        session.invalidate()
+        #expect(session.candidate == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cancellingGenerationPublishesNoCandidate() async {
+        let provider = SuspendedSmartRoadProvider()
+        defer { provider.release() }
+        let session = SmartRouteGenerationSession { SmartRouteGenerator(provider: provider) }
+        let task = session.generate(center: a, options: .init())
+        #expect(await provider.started.wait(timeout: .seconds(3)))
+        session.cancel()
+        provider.release()
+        await task.value
+        #expect(session.candidate == nil)
+        #expect(session.error == nil)
+        #expect(!session.isGenerating)
+    }
+
+    @Test func unsuccessfulSearchStopsAtTwelveNavigationRequests() async {
+        let nodes = [b, c, d,
+                     RouteCoordinate(latitude: 24.99, longitude: 121),
+                     RouteCoordinate(latitude: 24.99, longitude: 121.01),
+                     RouteCoordinate(latitude: 25, longitude: 120.99),
+                     RouteCoordinate(latitude: 25.01, longitude: 120.99)]
+        let provider = FakeSmartRoadProvider(locations: nodes, segments: [])
+        provider.useDirectGeometry = true
+        do {
+            _ = try await SmartRouteGenerator(provider: provider).generate(center: a, options: .init(targetDistance: 50_000))
+            Issue.record("Short nearby roads cannot satisfy a 50 km target")
+        } catch SmartRouteError.noMatchingRoute {} catch { Issue.record("Unexpected error: \(error)") }
+        #expect(provider.requests.count == 12)
+    }
 }
 
 @MainActor
@@ -87,12 +164,53 @@ private final class FakeSmartRoadProvider: SmartRoadProviding {
     let locations: [RouteCoordinate]
     var segments: [[RouteCoordinate]]
     var requests: [SmartRoadRequest] = []
-    init(locations: [RouteCoordinate], segments: [[RouteCoordinate]]) { self.locations = locations; self.segments = segments }
+    var useDirectGeometry = false
+    let failure: SmartRouteError?
+    init(locations: [RouteCoordinate], segments: [[RouteCoordinate]], failure: SmartRouteError? = nil) {
+        self.locations = locations; self.segments = segments; self.failure = failure
+    }
     func nearbyLocations(center: RouteCoordinate, radius: Double) async throws -> [RouteCoordinate] { locations }
     func route(from: RouteCoordinate, to: RouteCoordinate, transport: NavigationTransportMode) async throws -> RouteGeometry {
         requests.append(.init(from: from, to: to))
+        if let failure { throw failure }
+        if useDirectGeometry { return RouteGeometry(coordinates: [from, to]) }
         guard !segments.isEmpty else { throw SmartRouteError.unavailable }
         return RouteGeometry(coordinates: segments.removeFirst())
     }
     func cancel() {}
+}
+
+@MainActor private final class SuspendedSmartRoadProvider: SmartRoadProviding {
+    let started = SmartRouteTestSignal()
+    private var continuation: CheckedContinuation<[RouteCoordinate], Error>?
+    func nearbyLocations(center: RouteCoordinate, radius: Double) async throws -> [RouteCoordinate] {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            Task { await started.signal() }
+        }
+    }
+    func route(from: RouteCoordinate, to: RouteCoordinate, transport: NavigationTransportMode) async throws -> RouteGeometry { throw SmartRouteError.unavailable }
+    func cancel() {} // Deliberately non-cooperative service, resumed by the test.
+    func release() { continuation?.resume(returning: []); continuation = nil }
+}
+
+private actor SmartRouteTestSignal {
+    private var signaled = false
+    private var waiters: [UUID: AsyncStream<Void>.Continuation] = [:]
+    func signal() { signaled = true; waiters.values.forEach { $0.yield(()) }; waiters.removeAll() }
+    func wait(timeout: Duration) async -> Bool {
+        if signaled { return true }
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        waiters[id] = continuation
+        let result = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { for await _ in stream { return true }; return false }
+            group.addTask { do { try await Task.sleep(for: timeout) } catch {}; return false }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+        continuation.finish(); waiters.removeValue(forKey: id)
+        return result
+    }
 }

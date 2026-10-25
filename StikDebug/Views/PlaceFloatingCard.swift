@@ -55,6 +55,7 @@ struct PlaceFloatingCard: View {
     let coordinate: RouteCoordinate
     let onSaveFavorite: () -> Void
     var onClearSelection: () -> Void = {}
+    var onSmartRoute: ((RouteCoordinate) -> Void)? = nil
     @State private var placeInfo: PlaceInfo?
     @State private var isResolving = false
     @State private var expansion: MapBottomCardExpansion = .collapsed
@@ -121,6 +122,11 @@ struct PlaceFloatingCard: View {
                     .buttonStyle(.bordered).frame(minWidth: 44, minHeight: 44)
                     .accessibilityLabel(L10n.text("收藏地點"))
                     .tutorialTarget(.favorite)
+            }
+            if let onSmartRoute {
+                Button(L10n.text("智慧路線"), systemImage: "point.topleft.down.to.point.bottomright.curvepath") { onSmartRoute(coordinate) }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .accessibilityIdentifier("map.smartRoute")
             }
         }
     }

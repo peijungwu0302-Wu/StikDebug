@@ -21,9 +21,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
+          DEVICE_ID=$(python3 tools/select_test_simulator.py)
           xcodebuild test -project StikDebug.xcodeproj -scheme StikDebug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:StikDebugTests/V1_2_27LayoutTests \
             -only-testing:StikDebugTests/SmartRouteGeneratorTests \
+            -only-testing:StikDebugTests/SmartRouteIntegrationTests \
             -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+          xcodebuild test -project StikDebug.xcodeproj -scheme StikDebug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -only-testing:StikDebugUITests/RouteLocationGuideUITests/testSmartRouteEntryCancelAcrossLayoutsAndClassic \
+            -resultBundlePath "$RUNNER_TEMP/TargetedUI.xcresult" \
+            -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+          xcodebuild test -project StikDebug.xcodeproj -scheme StikDebug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -only-testing:StikDebugTests/SmartRouteLiveMapKitTests \
+            -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "$RUNNER_TEMP/smart-route-live.log"
+          grep -q 'SMART_ROUTE_LIVE_REPORT {' "$RUNNER_TEMP/smart-route-live.log"
+      - name: Export targeted UI evidence
+        if: always()
+        shell: bash
+        run: |
+          if [[ -d "$RUNNER_TEMP/TargetedUI.xcresult" ]]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/TargetedUI.xcresult" --output-path "$RUNNER_TEMP/targeted-screenshots"
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: RouteLocation-targeted-ui-${{ github.sha }}
+          path: ${{ runner.temp }}/targeted-screenshots
+          if-no-files-found: warn

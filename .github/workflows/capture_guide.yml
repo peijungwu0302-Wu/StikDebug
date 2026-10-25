@@ -33,7 +33,7 @@ jobs:
       - name: Prepare clean iPhone simulator
         run: |
           set -euo pipefail
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone")))')
+          DEVICE_ID=$(python3 tools/select_test_simulator.py)
           xcrun simctl shutdown "$DEVICE_ID" 2>/dev/null || true
           xcrun simctl erase "$DEVICE_ID"
           xcrun simctl boot "$DEVICE_ID"

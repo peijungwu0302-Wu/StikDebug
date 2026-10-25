@@ -100,6 +100,7 @@ final class RouteLocationModel: ObservableObject {
     var testBeforeDraftSaveForPlayback: (@MainActor () async -> Void)?
     #endif
     @Published private(set) var pendingDraftPlaybackRoute: SavedRoute?
+    @Published private(set) var isApplyingSmartRouteDraft = false
     @Published var showCoordinatePasteChoice = false
     private var pendingCoordinatePaste: [RouteCoordinate] = []
     @Published var pendingSwitchRoute: SavedRoute?
@@ -472,9 +473,14 @@ final class RouteLocationModel: ObservableObject {
         guard !isResolvingNavigation else { return }
         isResolvingNavigation = true
         defer { isResolvingNavigation = false }
+        let requestedWaypoints = waypoints
+        let requestedClosedLoop = isClosedLoop
+        let requestedTransport = navigationTransport
         do {
             let resolved = try await navigationResolver.resolve(waypoints: waypoints, closedLoop: isClosedLoop, transport: navigationTransport)
             guard canMutateRouteDraft(notifyIfLocked: true) else { return }
+            guard routeMode == .navigation, waypoints == requestedWaypoints,
+                  isClosedLoop == requestedClosedLoop, navigationTransport == requestedTransport else { return }
             geometry = resolved
             navigationGeometryNeedsRecalculation = false
             statusMessage = L10n.text("導航路線已計算完成，可以儲存。")
@@ -766,6 +772,7 @@ final class RouteLocationModel: ObservableObject {
         await waitForInitialPersistenceLoad()
         guard canMutateRouteDraft(notifyIfLocked: true) else { return }
         if hasUnsavedRouteDraft {
+            isApplyingSmartRouteDraft = false
             pendingDraftPlaybackRoute = route
             showSavedRouteDraftConflict = true
             return
@@ -788,6 +795,7 @@ final class RouteLocationModel: ObservableObject {
     func cancelSavedRouteDraftConflict() {
         showSavedRouteDraftConflict = false
         pendingDraftPlaybackRoute = nil
+        isApplyingSmartRouteDraft = false
     }
 
     func resolveSavedRouteDraftConflict(saveDraft: Bool) async {
@@ -805,8 +813,55 @@ final class RouteLocationModel: ObservableObject {
         }
         guard canMutateRouteDraft(notifyIfLocked: true),
               pendingDraftPlaybackRoute?.id == route.id else { return }
+        let applyOnly = isApplyingSmartRouteDraft
         cancelSavedRouteDraftConflict()
-        await beginSavedRoute(route)
+        if applyOnly { applySmartRouteDraft(route) }
+        else { await beginSavedRoute(route) }
+    }
+
+    /// The generator is preview-only until this explicit user action. Reuse the
+    /// existing draft save/discard/cancel transaction without starting playback.
+    func requestApplySmartRoute(_ route: SavedRoute) {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
+        guard route.routeMode == .navigation, route.isClosedLoop,
+              !route.navigationGeometryNeedsRecalculation, route.totalDistance > 0,
+              route.resolvedGeometry.coordinates.first == route.resolvedGeometry.coordinates.last else { return }
+        if hasUnsavedRouteDraft {
+            isApplyingSmartRouteDraft = true
+            pendingDraftPlaybackRoute = route
+            showSavedRouteDraftConflict = true
+        } else { applySmartRouteDraft(route) }
+    }
+
+    private func applySmartRouteDraft(_ route: SavedRoute) {
+        guard canMutateRouteDraft(notifyIfLocked: true) else { return }
+        loadRoute(route)
+        loadedRouteID = savedRoutes.contains(where: { $0.id == route.id }) ? route.id : nil
+        previewingRoute = nil
+        selectedCoordinate = nil
+        quickRouteMode = .route
+        mapFocusTargetsRoute = true
+        mapFocusRevision = UUID()
+        statusMessage = L10n.text("智慧路線已套用為草稿，尚未開始模擬。")
+    }
+
+    /// Saving from the candidate preview does not load/overwrite the map draft.
+    /// This uses the same persistence transaction and persist-before-publish rule.
+    func saveSmartRouteCandidate(_ candidate: SmartRouteCandidate, named name: String, speedKmh: Double,
+                                 playbackMode: RoutePlaybackMode, favorite: Bool) async -> SavedRoute? {
+        await acquirePersistenceMutation()
+        defer { releasePersistenceMutation() }
+        await waitForInitialPersistenceLoad()
+        guard !Task.isCancelled else { return nil }
+        var route = candidate.savedRoute(name: name, speedKmh: speedKmh, playbackMode: playbackMode)
+        route.name = UniqueNameGenerator.makeUnique(base: name, existing: savedRoutes.map(\.name), fallback: L10n.text("智慧路線"))
+        route.isFavorite = favorite
+        do {
+            try await persistence.saveRoute(route)
+            savedRoutes.append(route)
+            statusMessage = L10n.text(favorite ? "已加入喜愛路線。" : "路線已儲存，可離線播放。")
+            return route
+        } catch { presentedError = error.localizedDescription; return nil }
     }
 
     private func beginSavedRoute(_ route: SavedRoute) async {

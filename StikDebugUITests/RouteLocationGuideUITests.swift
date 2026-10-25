@@ -77,15 +77,48 @@ final class RouteLocationGuideUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(language: String, scenario: String) -> XCUIApplication {
+    func testSmartRouteEntryCancelAcrossLayoutsAndClassic() throws {
+        for (language, layout, scenario) in [
+            ("en", "full", "smartRoute"), ("zh-Hant", "compact", "smartRoute"),
+            ("en", "compact", "smartRoute"), ("zh-Hant", "full", "smartRoute"),
+            ("en", "full", "classicSmartRoute"), ("zh-Hant", "compact", "classicSmartRoute"),
+            ("zh-Hant", "compact", "routeEmpty")
+        ] {
+            let app = launch(language: language, scenario: scenario, layout: layout, largeText: scenario == "routeEmpty")
+            XCTAssertTrue(app.staticTexts["guide.fixture.ready"].waitForExistence(timeout: 20))
+            let entry = app.buttons["map.smartRoute"]
+            XCTAssertTrue(entry.waitForExistence(timeout: 10))
+            XCTAssertTrue(entry.isHittable)
+            capture(app, name: "readme-\(language)-\(layout)-\(scenario)")
+            entry.tap()
+            let generate = app.buttons["smartRoute.generate"]
+            XCTAssertTrue(generate.waitForExistence(timeout: 10))
+            XCTAssertEqual(generate.isEnabled, scenario != "routeEmpty")
+            XCTAssertTrue(app.buttons["smartRoute.search"].isHittable)
+            XCTAssertTrue(app.buttons["smartRoute.pickMap"].isHittable)
+            let cancel = app.buttons["smartRoute.cancel"]
+            XCTAssertTrue(cancel.isHittable)
+            capture(app, name: "readme-\(language)-\(layout)-smart-generator-\(scenario)")
+            cancel.tap()
+            XCTAssertTrue(entry.waitForExistence(timeout: 10))
+            XCTAssertTrue(entry.isHittable)
+            XCTAssertFalse(app.buttons["smartRoute.apply"].exists)
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    private func launch(language: String, scenario: String, layout: String = "full", largeText: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "--guide-demo=\(scenario)",
             "-RouteLocation.appLanguage", language,
             "-RouteLocation.appearance", "light",
+            "-RouteLocation.quickMapLayout", layout,
             "-AppleLanguages", "(\(language))",
             "-AppleLocale", language == "en" ? "en_US" : "zh_TW"
         ]
+        if largeText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"] }
         app.launch()
         return app
     }

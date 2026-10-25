@@ -50,6 +50,13 @@ struct SmartRoadRequest: Equatable {
     let to: RouteCoordinate
 }
 
+enum SmartRouteRequestPacing {
+    static func next(after last: ContinuousClock.Instant?, now: ContinuousClock.Instant) -> ContinuousClock.Instant {
+        guard let last else { return now }
+        return max(now, last.advanced(by: .milliseconds(350)))
+    }
+}
+
 @MainActor
 protocol SmartRoadProviding: AnyObject {
     func nearbyLocations(center: RouteCoordinate, radius: Double) async throws -> [RouteCoordinate]
@@ -69,10 +76,8 @@ final class MapKitSmartRoadProvider: SmartRoadProviding {
     func cancel() { search?.cancel(); resolver.cancel() }
 
     private func pace() async throws {
-        if let lastRequest {
-            let next = lastRequest.advanced(by: .milliseconds(350))
-            if ContinuousClock.now < next { try await Task.sleep(until: next, clock: .continuous) }
-        }
+        let next = SmartRouteRequestPacing.next(after: lastRequest, now: .now)
+        if ContinuousClock.now < next { try await Task.sleep(until: next, clock: .continuous) }
         try Task.checkCancellation()
         lastRequest = .now
     }
@@ -150,6 +155,8 @@ struct SmartRouteCandidate: Identifiable {
         guard options.isValid,
               geometry.coordinates.count >= 3, geometry.coordinates.count <= 20_000,
               geometry.coordinates.allSatisfy(\.isValid),
+              geometry.coordinates.allSatisfy({ let point = MKMapPoint($0.clCoordinate); return point.x.isFinite && point.y.isFinite }),
+              zip(geometry.coordinates, geometry.coordinates.dropFirst()).allSatisfy({ abs($0.0.longitude - $0.1.longitude) <= 180 }),
               geometry.coordinates.first == geometry.coordinates.last,
               SmartRouteQuality.distanceBand(actual: geometry.totalDistance, target: options.targetDistance) != nil else {
             throw SmartRouteError.noMatchingRoute
@@ -206,6 +213,7 @@ enum SmartRouteQuality {
         var keep: Set<Int> = [0, values.count - 1]
         var work = [(0, values.count - 1)]
         while let (start, end) = work.popLast() {
+            if Task.isCancelled { return values }
             guard end > start + 1 else { continue }
             let a = points[start], b = points[end]
             let dx = b.x - a.x, dy = b.y - a.y, denominator = dx * dx + dy * dy
@@ -235,22 +243,39 @@ enum SmartRouteQuality {
     }
 
     static func repeatedRoadFraction(_ geometry: RouteGeometry) -> Double {
-        var edges = Set<String>()
-        var repeated = 0
-        var previous: String?
+        struct Cell: Hashable { let x: Int; let y: Int }
+        struct Sample { let point: MKMapPoint; let dx: Double; let dy: Double; let index: Int }
+        var buckets: [Cell: [Sample]] = [:]
+        var repeated = Set<Int>()
+        var previous: MKMapPoint?
         var count = 0
         let scale = MKMetersPerMapPointAtLatitude(geometry.coordinates.first?.latitude ?? 0)
+        guard scale.isFinite, scale > 0 else { return 1 }
         for distance in stride(from: 0.0, through: geometry.totalDistance, by: 25) {
             guard let coordinate = geometry.coordinate(atDistance: distance) else { continue }
             let point = MKMapPoint(coordinate)
-            let key = "\(Int((point.x * scale / 20).rounded())),\(Int((point.y * scale / 20).rounded()))"
-            defer { previous = key }
-            guard let previous, previous != key else { continue }
-            let edge = [previous, key].sorted().joined(separator: ":")
-            if !edges.insert(edge).inserted { repeated += 1 }
+            defer { previous = point }
+            guard let previous else { continue }
+            let dx = point.x - previous.x, dy = point.y - previous.y
+            let length = hypot(dx, dy)
+            guard length > 0 else { continue }
+            let midpoint = MKMapPoint(x: (point.x + previous.x) / 2, y: (point.y + previous.y) / 2)
+            let key = Cell(x: Int(floor(midpoint.x * scale / 20)), y: Int(floor(midpoint.y * scale / 20)))
+            let current = Sample(point: midpoint, dx: dx / length, dy: dy / length, index: count)
+            for x in -1...1 {
+                for y in -1...1 {
+                    for old in buckets[Cell(x: key.x + x, y: key.y + y)] ?? [] where count - old.index > 3 {
+                        if abs(current.dx * old.dx + current.dy * old.dy) > 0.85,
+                           midpoint.distance(to: old.point) < 15 {
+                            repeated.insert(old.index); repeated.insert(count)
+                        }
+                    }
+                }
+            }
+            buckets[key, default: []].append(current)
             count += 1
         }
-        return count == 0 ? 1 : Double(repeated) / Double(count)
+        return count == 0 ? 1 : Double(repeated.count) / Double(count)
     }
 }
 
@@ -355,7 +380,7 @@ final class SmartRouteGenerator {
         let shortlist = Array(values.prefix(9))
         guard !shortlist.isEmpty else { return [] }
         let offset = Int(options.variation.magnitude % UInt(shortlist.count))
-        return (0..<min(3, shortlist.count)).map { shortlist[($0 + offset) % shortlist.count].1 }
+        return (0..<min(3, shortlist.count)).map { shortlist[($0 * max(1, shortlist.count / 3) + offset) % shortlist.count].1 }
     }
 }
 
@@ -376,7 +401,9 @@ final class SmartRouteGenerationSession: ObservableObject {
         task?.cancel(); generator?.cancel()
         task = nil; generator = nil; isGenerating = false
     }
-    func generate(center: RouteCoordinate, options: SmartRouteOptions) {
+    func invalidate() { cancel(); candidate = nil; error = nil }
+    @discardableResult
+    func generate(center: RouteCoordinate, options: SmartRouteOptions) -> Task<Void, Never> {
         cancel()
         let token = generation
         let generator = makeGenerator()
@@ -392,5 +419,6 @@ final class SmartRouteGenerationSession: ObservableObject {
                 self.error = error.localizedDescription; isGenerating = false
             }
         }
+        return task!
     }
 }

@@ -15,6 +15,7 @@ struct MapHomeView: View {
     @State private var showSearch = false
     @AppStorage(QuickMapLayoutPreference.defaultsKey) private var layoutRawValue = QuickMapLayoutPreference.full.rawValue
     @State private var showQuickRoutePicker = false
+    @State private var smartRouteSeed: SmartRouteSeed?
     private var isCompact: Bool {
         QuickMapLayoutPreference.effective(layoutRawValue, tutorialActive: tutorial.isActive) == .compact
     }
@@ -128,7 +129,7 @@ struct MapHomeView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 6) {
-                        QuickRouteModePicker(selection: $model.quickRouteMode)
+                        QuickRouteModePicker(selection: $model.quickRouteMode, compactTitles: isCompact)
                         .tutorialTarget(.routeMode)
                         .frame(width: 140)
                         .disabled(model.isAnyRouteActive)
@@ -204,6 +205,7 @@ struct MapHomeView: View {
                 }
             }
         }
+        .smartRouteGenerator(seed: $smartRouteSeed)
         .sheet(isPresented: $showSearch) {
             LocationSearchPicker { coordinate in
                 if model.quickRouteMode == .route {
@@ -428,7 +430,8 @@ struct MapHomeView: View {
                     favoriteName = model.suggestedFavoriteName()
                     showFavoriteName = true
                 },
-                onClearSelection: { model.clearSelectedPlace() }
+                onClearSelection: { model.clearSelectedPlace() },
+                onSmartRoute: { smartRouteSeed = SmartRouteSeed(coordinate: $0) }
             )
         } else if let active = model.activeSimulatedCoordinate, !model.simulationMode.isRouteSimulation {
             ActiveSimulationFloatingCard(
@@ -476,6 +479,14 @@ struct MapHomeView: View {
 
     // MARK: - Route Draft Content
 
+    private var smartRouteLaunchButton: some View {
+        Button(L10n.text(isCompact ? "智慧路線" : "智慧產生路線"), systemImage: "sparkles") {
+            smartRouteSeed = SmartRouteSeed(coordinate: model.selectedCoordinate)
+        }
+        .buttonStyle(.bordered).controlSize(.small)
+        .accessibilityIdentifier("map.smartRoute")
+    }
+
     @ViewBuilder
     private var routeDraftFloatingContent: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -487,15 +498,19 @@ struct MapHomeView: View {
             }
 
             if model.waypoints.isEmpty {
-                if !isCompact { quickPlaybackShortcut }
+                if !isCompact {
+                    quickPlaybackShortcut
+                    smartRouteLaunchButton
+                }
                 HStack {
                     Text(L10n.text("點選地圖以新增航點"))
                         .font(.footnote).foregroundStyle(.secondary)
                     Spacer()
-                    Button { showFavoriteRoutePicker = true } label: {
+                    if isCompact { smartRouteLaunchButton }
+                    else { Button { showFavoriteRoutePicker = true } label: {
                         Label(L10n.text("我的路線"), systemImage: "list.bullet.rectangle")
                     }
-                    .buttonStyle(.bordered).controlSize(.small)
+                    .buttonStyle(.bordered).controlSize(.small) }
                 }
             } else if model.waypoints.count == 1 {
                 HStack {
@@ -838,11 +853,13 @@ struct RouteMapOverlayContent: MapContent {
 
 struct QuickRouteModePicker: View {
     @Binding var selection: QuickRouteInteractionMode
+    var compactTitles = false
 
     var body: some View {
         Picker(L10n.text("模式"), selection: $selection) {
             ForEach(QuickRouteInteractionMode.allCases) { mode in
-                Text(mode.title).tag(mode).accessibilityLabel(mode.accessibilityTitle)
+                Text(compactTitles ? L10n.text(mode == .singlePoint ? "單點" : "路線") : mode.title)
+                    .tag(mode).accessibilityLabel(mode.accessibilityTitle)
             }
         }
         .pickerStyle(.segmented)

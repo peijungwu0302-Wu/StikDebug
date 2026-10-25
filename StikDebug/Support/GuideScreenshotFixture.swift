@@ -21,7 +21,12 @@ enum GuideScreenshotFixture {
     static func prepare(_ model: RouteLocationModel) async {
         guard let scenario else { return }
         let taipei101 = RouteCoordinate(latitude: 25.033964, longitude: 121.564468)
-        model.mapInteractionStyle = scenario == "classicPreview" ? .classic : .quickRoute
+        model.mapInteractionStyle = ["classicPreview", "classicSmartRoute"].contains(scenario) ? .classic : .quickRoute
+        if ["smartRoute", "classicSmartRoute"].contains(scenario) {
+            model.selectedCoordinate = taipei101
+        } else if scenario == "routeEmpty" {
+            model.quickRouteMode = .route
+        }
         if ["editor", "player", "library", "preview", "classicPreview"].contains(scenario) {
             model.quickRouteMode = .route
             model.routeName = "Taipei 101 Demo"

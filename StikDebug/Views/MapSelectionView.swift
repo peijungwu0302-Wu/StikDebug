@@ -25,6 +25,7 @@ struct RouteMapView: View {
     @AppStorage("RouteLocation.s2GridEnabled") private var s2GridEnabled = true
     @AppStorage("RouteLocation.s2GridLevelMode") private var s2GridLevelRawValue = "17"
     @State private var showSearch = false
+    @State private var smartRouteSeed: SmartRouteSeed?
     @State private var showFavoriteName = false
     @State private var showFavoriteRouteName = false
     @State private var showCoordinateEntry = false
@@ -175,6 +176,7 @@ struct RouteMapView: View {
                 }
             }
         }
+        .smartRouteGenerator(seed: $smartRouteSeed)
         .sheet(isPresented: $showMyRoutes) {
             MyRoutesSheet { route in
                 model.previewRoute(route)
@@ -324,6 +326,13 @@ struct RouteMapView: View {
                 }
             }
             if isCardExpanded {
+                if model.quickRouteMode == .route, model.waypoints.isEmpty, model.previewingRoute == nil {
+                    Button(L10n.text("智慧產生路線"), systemImage: "sparkles") {
+                        smartRouteSeed = SmartRouteSeed(coordinate: model.selectedCoordinate)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("map.smartRoute")
+                }
                 if model.waypoints.isEmpty, model.selectedCoordinate == nil,
                    model.previewingRoute == nil, !model.simulationMode.isSimulating {
                     QuickPlaybackRouteShortcut()
@@ -447,6 +456,11 @@ struct RouteMapView: View {
             } label: { Image(systemName: "star") }
             .buttonStyle(.bordered)
         }
+        Button(L10n.text("智慧路線"), systemImage: "point.topleft.down.to.point.bottomright.curvepath") {
+            smartRouteSeed = SmartRouteSeed(coordinate: selected)
+        }
+        .buttonStyle(.bordered).controlSize(.small)
+        .accessibilityIdentifier("map.smartRoute")
     }
 
     private func fitRoute() {
