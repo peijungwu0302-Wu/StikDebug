@@ -91,14 +91,22 @@ final class RouteLocationGuideUITests: XCTestCase {
             XCTAssertTrue(entry.isHittable)
             capture(app, name: "readme-\(language)-\(layout)-\(scenario)")
             entry.tap()
-            let generate = app.buttons["smartRoute.generate"]
-            XCTAssertTrue(generate.waitForExistence(timeout: 10))
-            XCTAssertEqual(generate.isEnabled, scenario != "routeEmpty")
+            let cancel = app.buttons["smartRoute.cancel"]
+            XCTAssertTrue(cancel.waitForExistence(timeout: 10))
             XCTAssertTrue(app.buttons["smartRoute.search"].isHittable)
             XCTAssertTrue(app.buttons["smartRoute.pickMap"].isHittable)
-            let cancel = app.buttons["smartRoute.cancel"]
             XCTAssertTrue(cancel.isHittable)
             capture(app, name: "readme-\(language)-\(layout)-smart-generator-\(scenario)")
+            let generate = app.buttons["smartRoute.generate"]
+            // Form lazily exposes off-screen rows at accessibility sizes.
+            // Exercise normal scrolling instead of assuming a one-screen form.
+            for _ in 0..<5 {
+                if generate.exists { break }
+                app.swipeUp()
+            }
+            XCTAssertTrue(generate.waitForExistence(timeout: 10))
+            XCTAssertEqual(generate.isEnabled, scenario != "routeEmpty")
+            XCTAssertTrue(cancel.isHittable)
             cancel.tap()
             XCTAssertTrue(entry.waitForExistence(timeout: 10))
             XCTAssertTrue(entry.isHittable)
